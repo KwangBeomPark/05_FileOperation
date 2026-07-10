@@ -77,6 +77,7 @@ src/ui/task_worker.py(QThread 어댑터) -> src/ui/task_tab.py 진행 UI/메일/
 - `tools/test_tab_contracts.py`: 탭 `build_run_config()` 변환과 검증 실패.
 - `tools/test_config_security.py`: `github_token`, `sender_password` 보안 키와 v1 마이그레이션.
 - `tools/test_preflight.py`: OCR, Playwright/Office, SMTP preflight.
+- `tools/test_ocr_processor.py`: Tesseract 실패 시 Windows OCR fallback 검증.
 - `tools/test_task_runner.py`: 순수 실행 엔진 성공/부분 실패 report.
 - `tools/test_updater.py`: 업데이트 버전 비교, 릴리스 asset 선택, HTTPS/domain 다운로드 방어, 불완전 다운로드 삭제.
 - `tools/build_all.py`: compile, pip check, PyInstaller, Inno Setup 빌드.
