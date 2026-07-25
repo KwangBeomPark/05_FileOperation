@@ -37,11 +37,12 @@ python src/main.py
 
 ## 기본 사용 순서
 
-1. `Settings`에서 Tesseract, SMTP, 수신자 목록을 설정합니다.
-2. `Folder Sync`와 `EML Image`에 반복 사용할 폴더 작업을 등록합니다.
-3. 필요한 PDF/OCR 파일과 포맷 변환 원본 폴더를 선택합니다.
-4. `Task Runner`에서 이메일 자동 발송과 매일 실행 시각을 지정합니다.
-5. 첫 실행은 수동으로 수행해 결과 보고서와 대상 폴더를 확인한 뒤 예약 실행을 사용합니다.
+1. 첫 실행 시 `Settings`의 **Language**에서 `Automatic (Windows language)`, English, 한국어, Polski 중 표시 언어를 선택합니다. `Automatic`은 Windows 표시 언어를 감지하며, 지원하지 않는 언어에서는 English를 사용합니다.
+2. `Settings`에서 Tesseract, SMTP, 수신자 목록을 설정합니다.
+3. `Sync Folders`와 `Convert EML`에 반복 사용할 폴더 작업을 등록합니다.
+4. 필요한 PDF/OCR 파일과 파일 변환 원본 폴더를 선택합니다.
+5. `Run Tasks`에서 이메일 자동 발송과 매일 실행 시각을 지정합니다.
+6. 첫 실행은 수동으로 수행해 결과 보고서와 대상 폴더를 확인한 뒤 예약 실행을 사용합니다.
 
 ## 검증과 빌드
 
@@ -56,6 +57,7 @@ python tools/build_all.py
 앱 버전은 `src/version.py`만 수정합니다. `tools/build_all.py`는 테스트를 포함해 실행하고 같은 버전의 설치 파일 덮어쓰기를 기본 차단합니다. 설치 파일은 Git 소스 zip/clone에 포함되지 않습니다. 배포 대상 PC는 GitHub Releases의 `IntegratedDataTool_Setup_vX.Y.Z.exe`를 받아야 합니다. 설치 장애 대응 절차는 `INSTALL_DEFENSE_PLAN.md`와 `docs/RELEASE.md`를 확인합니다.
 
 `App05_FileOps_vX.Y.Z.exe`는 별도 Python 설치 없이 실행되는 버전형 런처입니다. 설치된 FileOps Hub를 열고, 없으면 GitHub Release의 정식 설치 파일과 SHA-256 digest를 검증한 뒤 설치를 시작합니다. 이 런처도 Release 자산으로 함께 배포합니다.
+런처와 앱은 Windows 표시 언어를 자동 감지하며 English, 한국어, Polski를 지원합니다. 지원하지 않는 Windows 언어의 기본 표시는 English입니다.
 
 설치/런타임 사전 점검:
 

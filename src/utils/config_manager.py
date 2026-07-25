@@ -72,6 +72,7 @@ class ConfigManager:
         "mail_body_header": "",
         
         # UI 설정
+        "ui_language": "auto",       # auto / en / ko / pl
         "last_ocr_image_directory": "",
         "window_size": [1400, 900]
     }

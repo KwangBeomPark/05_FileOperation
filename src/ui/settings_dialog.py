@@ -4,15 +4,17 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, 
     QFileDialog, QMessageBox, QGroupBox, QFormLayout, QComboBox, QScrollArea, QWidget
 )
+from src.ui.i18n import get_app_language, tr
 
 class SettingsDialog(QDialog):
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
+        self.language = get_app_language(config_manager)
         self.init_ui()
         
     def init_ui(self):
-        self.setWindowTitle("Settings")
+        self.setWindowTitle(tr("settings_title", self.language))
         self.setMinimumWidth(550)
         self.setMinimumHeight(600)
         
@@ -28,25 +30,36 @@ class SettingsDialog(QDialog):
         container_layout = QVBoxLayout()
         container.setLayout(container_layout)
         
+        language_group = QGroupBox(tr("language_group", self.language))
+        language_form = QFormLayout()
+        language_group.setLayout(language_form)
+        self.language_combo = QComboBox()
+        self.language_combo.addItem(tr("language_auto", self.language), "auto")
+        self.language_combo.addItem(tr("language_en", self.language), "en")
+        self.language_combo.addItem(tr("language_ko", self.language), "ko")
+        self.language_combo.addItem(tr("language_pl", self.language), "pl")
+        language_form.addRow(tr("display_language", self.language), self.language_combo)
+        container_layout.addWidget(language_group)
+
         # 1. OCR 설정 그룹
-        ocr_group = QGroupBox("OCR Settings")
+        ocr_group = QGroupBox(tr("ocr_settings", self.language))
         ocr_form = QFormLayout()
         ocr_group.setLayout(ocr_form)
         
         self.tesseract_path_input = QLineEdit()
-        self.tesseract_path_input.setPlaceholderText("선택 사항: C:\\Program Files\\Tesseract-OCR\\tesseract.exe")
+        self.tesseract_path_input.setPlaceholderText(tr("optional_tesseract_path", self.language))
         
         btn_layout = QHBoxLayout()
         btn_layout.addWidget(self.tesseract_path_input)
-        browse_btn = QPushButton("찾기")
+        browse_btn = QPushButton(tr("browse", self.language))
         browse_btn.clicked.connect(self.browse_tesseract)
         btn_layout.addWidget(browse_btn)
         
-        ocr_form.addRow("Tesseract 실행 경로:", btn_layout)
+        ocr_form.addRow(tr("tesseract_path", self.language), btn_layout)
         container_layout.addWidget(ocr_group)
         
         # 2. GitHub 설정 그룹 (보안 키 적용)
-        github_group = QGroupBox("GitHub Auto-Update Settings")
+        github_group = QGroupBox(tr("github_settings", self.language))
         github_form = QFormLayout()
         github_group.setLayout(github_form)
         
@@ -56,16 +69,16 @@ class SettingsDialog(QDialog):
         self.repo_input = QLineEdit()
         self.repo_input.setPlaceholderText("owner/repository")
         self.auto_check_combo = QComboBox()
-        self.auto_check_combo.addItem("시작 시 확인", "on_start")
-        self.auto_check_combo.addItem("수동 확인", "manual")
+        self.auto_check_combo.addItem(tr("on_start", self.language), "on_start")
+        self.auto_check_combo.addItem(tr("manual", self.language), "manual")
         
-        github_form.addRow("GitHub 저장소:", self.repo_input)
-        github_form.addRow("GitHub Access Token:", self.token_input)
-        github_form.addRow("업데이트 확인:", self.auto_check_combo)
+        github_form.addRow(tr("github_repository", self.language), self.repo_input)
+        github_form.addRow(tr("github_token", self.language), self.token_input)
+        github_form.addRow(tr("update_check", self.language), self.auto_check_combo)
         container_layout.addWidget(github_group)
         
         # 3. SMTP 이메일 설정 그룹 (신규 추가)
-        email_group = QGroupBox("SMTP Email / Notification Settings")
+        email_group = QGroupBox(tr("email_settings", self.language))
         email_form = QFormLayout()
         email_group.setLayout(email_form)
         
@@ -96,14 +109,14 @@ class SettingsDialog(QDialog):
         container_layout.addWidget(email_group)
         
         # 4. 기타 변환 설정
-        misc_group = QGroupBox("General Conversion Settings")
+        misc_group = QGroupBox(tr("conversion_settings", self.language))
         misc_form = QFormLayout()
         misc_group.setLayout(misc_form)
         
         self.eml_width_input = QLineEdit()
         self.eml_width_input.setPlaceholderText("예: 1024")
         
-        misc_form.addRow("EML 변환 폭 (Width px):", self.eml_width_input)
+        misc_form.addRow(tr("eml_width", self.language), self.eml_width_input)
         container_layout.addWidget(misc_group)
         
         scroll_area.setWidget(container)
@@ -111,11 +124,11 @@ class SettingsDialog(QDialog):
         
         # 5. 하단 버튼 영역 (저장 / 취소)
         button_layout = QHBoxLayout()
-        save_btn = QPushButton("저장")
+        save_btn = QPushButton(tr("save", self.language))
         save_btn.clicked.connect(self.save_settings)
         save_btn.setDefault(True)
         
-        cancel_btn = QPushButton("취소")
+        cancel_btn = QPushButton(tr("cancel", self.language))
         cancel_btn.clicked.connect(self.reject)
         
         button_layout.addStretch()
@@ -131,6 +144,7 @@ class SettingsDialog(QDialog):
         github_token = self.config_manager.get("github_token", "")
         github_repo = self.config_manager.get("github_repo", "")
         auto_check = self.config_manager.get("auto_check_update", "on_start")
+        ui_language = self.config_manager.get("ui_language", "auto")
         eml_width = self.config_manager.get(
             "eml_output_width",
             self.config_manager.get("eml_width", "1024")
@@ -153,6 +167,9 @@ class SettingsDialog(QDialog):
         combo_index = self.auto_check_combo.findData(auto_check)
         if combo_index >= 0:
             self.auto_check_combo.setCurrentIndex(combo_index)
+        language_index = self.language_combo.findData(ui_language)
+        if language_index >= 0:
+            self.language_combo.setCurrentIndex(language_index)
             
         self.smtp_server_input.setText(smtp_server)
         self.smtp_port_input.setText(str(smtp_port))
@@ -191,11 +208,11 @@ class SettingsDialog(QDialog):
             if eml_width < 300 or eml_width > 4000:
                 raise ValueError()
         except ValueError:
-            QMessageBox.warning(self, "입력 오류", "EML 변환 폭은 300 ~ 4000 사이의 숫자여야 합니다.")
+            QMessageBox.warning(self, tr("input_error", self.language), tr("eml_width_error", self.language))
             return
             
         if github_repo and "/" not in github_repo:
-            QMessageBox.warning(self, "입력 오류", "GitHub 저장소는 owner/repository 형식으로 입력해 주세요.")
+            QMessageBox.warning(self, tr("input_error", self.language), tr("github_repo_error", self.language))
             return
             
         # 이메일 / SMTP 입력 데이터 유효성 검사
@@ -205,7 +222,7 @@ class SettingsDialog(QDialog):
                 if smtp_port < 1 or smtp_port > 65535:
                     raise ValueError()
             except ValueError:
-                QMessageBox.warning(self, "입력 오류", "SMTP 포트는 1 ~ 65535 사이의 숫자여야 합니다.")
+                QMessageBox.warning(self, tr("input_error", self.language), tr("smtp_port_error", self.language))
                 return
         else:
             smtp_port = ""
@@ -213,18 +230,23 @@ class SettingsDialog(QDialog):
         email_regex = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
         
         if sender_email and not re.match(email_regex, sender_email):
-            QMessageBox.warning(self, "입력 오류", "발신자 이메일 주소 형식이 올바르지 않습니다.")
+            QMessageBox.warning(self, tr("input_error", self.language), tr("sender_email_error", self.language))
             return
             
         if receiver_email:
             receivers = [r.strip() for r in receiver_email.replace(';', ',').split(',') if r.strip()]
             for r in receivers:
                 if not re.match(email_regex, r):
-                    QMessageBox.warning(self, "입력 오류", f"수신자 이메일({r})의 주소 형식이 올바르지 않습니다.")
+                    QMessageBox.warning(
+                        self,
+                        tr("input_error", self.language),
+                        tr("receiver_email_error", self.language, email=r),
+                    )
                     return
                     
         # 설정 저장
         self.config_manager.set("tesseract_path", tesseract_path)
+        self.config_manager.set("ui_language", self.language_combo.currentData())
         self.config_manager.set("github_repo", github_repo)
         self.config_manager.set("github_token", github_token)
         self.config_manager.set("auto_check_update", auto_check)

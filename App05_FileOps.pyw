@@ -79,41 +79,23 @@ TRANSLATIONS = {
         "download_failed": "The installer could not be downloaded automatically.\n\nDetails: {detail}\n\nOpen the GitHub Releases page?",
         "not_installed": "FileOps Hub is not installed.\n\nDownload and install the latest version from GitHub?",
     },
-    "ja": {
-        "invalid_release_tag": "最新リリース タグの形式が正しくありません: {tag_name}",
-        "installer_missing": "GitHub の最新リリースに正式なインストーラーがありません: {expected_name}",
-        "installer_name_invalid": "インストーラー ファイル名の検証に失敗しました。",
-        "untrusted_redirect": "信頼できないダウンロード リダイレクトをブロックしました。\n{url}",
-        "untrusted_url": "信頼できないダウンロード URL をブロックしました。\n{url}",
-        "missing_digest": "GitHub リリースに SHA-256 digest がないため、自動インストールを中止しました。",
-        "download_title": "{app_title} インストーラーのダウンロード",
-        "download_initial": "最新のインストーラーをダウンロードしています。",
-        "download_progress": "最新のインストーラーをダウンロードしています。 {percent}%",
-        "invalid_digest": "インストーラーの SHA-256 digest 形式が正しくありません。",
-        "untrusted_final_url": "信頼できない最終ダウンロード URL をブロックしました。\n{url}",
-        "installer_too_large": "インストーラーが許可サイズを超えています: {size} bytes",
-        "download_incomplete": "ダウンロードが不完全です。 {downloaded}/{total_size} bytes",
-        "digest_failed": "ダウンロードしたインストーラーの SHA-256 検証に失敗しました。",
-        "download_failed": "インストーラーを自動ダウンロードできませんでした。\n\n詳細: {detail}\n\nGitHub Releases ページを開きますか?",
-        "not_installed": "FileOps Hub はインストールされていません。\n\nGitHub から最新バージョンをダウンロードしてインストールしますか?",
-    },
-    "zh": {
-        "invalid_release_tag": "最新发行标签格式无效: {tag_name}",
-        "installer_missing": "在最新 GitHub 发行版中找不到正式安装文件: {expected_name}",
-        "installer_name_invalid": "安装文件名验证失败。",
-        "untrusted_redirect": "已阻止不受信任的下载重定向。\n{url}",
-        "untrusted_url": "已阻止不受信任的下载地址。\n{url}",
-        "missing_digest": "GitHub 发行版未提供 SHA-256 摘要，已停止自动安装。",
-        "download_title": "下载 {app_title} 安装文件",
-        "download_initial": "正在下载最新安装文件。",
-        "download_progress": "正在下载最新安装文件。 {percent}%",
-        "invalid_digest": "安装文件 SHA-256 摘要格式无效。",
-        "untrusted_final_url": "已阻止不受信任的最终下载地址。\n{url}",
-        "installer_too_large": "安装文件超过允许大小: {size} bytes",
-        "download_incomplete": "下载不完整。 {downloaded}/{total_size} bytes",
-        "digest_failed": "下载文件的 SHA-256 验证失败。",
-        "download_failed": "无法自动下载安装文件。\n\n详细信息: {detail}\n\n要打开 GitHub Releases 页面吗?",
-        "not_installed": "FileOps Hub 尚未安装。\n\n要从 GitHub 下载并安装最新版本吗?",
+    "pl": {
+        "invalid_release_tag": "Format najnowszego tagu wydania jest nieprawidłowy: {tag_name}",
+        "installer_missing": "Nie znaleziono oficjalnego instalatora w najnowszym wydaniu GitHub: {expected_name}",
+        "installer_name_invalid": "Weryfikacja nazwy pliku instalatora nie powiodła się.",
+        "untrusted_redirect": "Zablokowano niezaufane przekierowanie pobierania.\n{url}",
+        "untrusted_url": "Zablokowano niezaufany adres pobierania.\n{url}",
+        "missing_digest": "Wydanie GitHub nie zawiera sumy SHA-256. Automatyczna instalacja została zatrzymana.",
+        "download_title": "Pobieranie instalatora {app_title}",
+        "download_initial": "Pobieranie najnowszego instalatora.",
+        "download_progress": "Pobieranie najnowszego instalatora. {percent}%",
+        "invalid_digest": "Format sumy SHA-256 instalatora jest nieprawidłowy.",
+        "untrusted_final_url": "Zablokowano niezaufany końcowy adres pobierania.\n{url}",
+        "installer_too_large": "Instalator przekracza dozwolony rozmiar: {size} bytes",
+        "download_incomplete": "Pobieranie jest niekompletne. {downloaded}/{total_size} bytes",
+        "digest_failed": "Weryfikacja SHA-256 pobranego instalatora nie powiodła się.",
+        "download_failed": "Nie można było automatycznie pobrać instalatora.\n\nSzczegóły: {detail}\n\nOtworzyć stronę wydań GitHub?",
+        "not_installed": "FileOps Hub nie jest zainstalowany.\n\nPobrać i zainstalować najnowszą wersję z GitHub?",
     },
 }
 
@@ -134,7 +116,7 @@ def detect_language(
     ui_language_id: int | None = None,
     locale_name: str | None = None,
 ) -> str:
-    """Prefer an explicit test override, then the Windows UI language, then Korean."""
+    """Prefer an explicit override, then Windows UI language, then English."""
     selected = normalize_language(override or os.environ.get("APP05_LANGUAGE"))
     if selected:
         return selected
@@ -146,7 +128,7 @@ def detect_language(
             ui_language_id = None
 
     primary_language = (ui_language_id or 0) & 0x03FF
-    windows_languages = {0x12: "ko", 0x09: "en", 0x11: "ja", 0x04: "zh"}
+    windows_languages = {0x12: "ko", 0x09: "en", 0x15: "pl"}
     if primary_language in windows_languages:
         return windows_languages[primary_language]
 
@@ -155,15 +137,15 @@ def detect_language(
             locale_name = locale.getlocale()[0]
         except Exception:
             locale_name = None
-    return normalize_language(locale_name) or "ko"
+    return normalize_language(locale_name) or "en"
 
 
 LAUNCHER_LANGUAGE = detect_language()
 
 
 def translate(key: str, **values: object) -> str:
-    """Return a localized message, using Korean as the complete fallback catalog."""
-    template = TRANSLATIONS.get(LAUNCHER_LANGUAGE, TRANSLATIONS["ko"]).get(key, TRANSLATIONS["ko"][key])
+    """Return a localized message, using English as the complete fallback catalog."""
+    template = TRANSLATIONS.get(LAUNCHER_LANGUAGE, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"][key])
     return template.format(**values)
 
 

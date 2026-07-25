@@ -24,6 +24,7 @@ from src.ui.sync_tab import SyncTab
 from src.ui.bypass_tab import BypassTab
 from src.ui.task_tab import TaskTab
 from src.ui.settings_dialog import SettingsDialog
+from src.ui.i18n import get_app_language, localize_widget_tree, tr
 from src.core.updater import AutoUpdater
 from src.version import APP_VERSION_TAG
 from src.utils.config_manager import ConfigManager
@@ -359,6 +360,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config_manager = ConfigManager()
+        self.language = get_app_language(self.config_manager)
         self.current_version = APP_VERSION_TAG
         self.update_worker = None
         self.update_download_url = ""
@@ -370,7 +372,7 @@ class MainWindow(QMainWindow):
             self.trigger_update_check(silent=True)
         
     def init_ui(self):
-        self.setWindowTitle(f"Integrated Data & File Utility ({self.current_version})")
+        self.setWindowTitle(tr("app_title", self.language, version=self.current_version))
         self.setStyleSheet(APP_STYLESHEET)
         self.setMinimumSize(1000, 700)
         saved_size = self.config_manager.get("window_size", [1200, 800])
@@ -404,12 +406,12 @@ class MainWindow(QMainWindow):
         self.sync_tab = SyncTab(self.config_manager)
         self.bypass_tab = BypassTab(self.config_manager)
         
-        self.tab_widget.addTab(self.task_tab, "Task Runner")
-        self.tab_widget.addTab(self.sync_tab, "Folder Sync")
-        self.tab_widget.addTab(self.eml_tab, "EML Image")
-        self.tab_widget.addTab(self.pdf_tab, "PDF Image")
-        self.tab_widget.addTab(self.ocr_tab, "Image OCR")
-        self.tab_widget.addTab(self.bypass_tab, "Bypass Convert")
+        self.tab_widget.addTab(self.task_tab, tr("tab_tasks", self.language))
+        self.tab_widget.addTab(self.sync_tab, tr("tab_sync", self.language))
+        self.tab_widget.addTab(self.eml_tab, tr("tab_eml", self.language))
+        self.tab_widget.addTab(self.pdf_tab, tr("tab_pdf", self.language))
+        self.tab_widget.addTab(self.ocr_tab, tr("tab_ocr", self.language))
+        self.tab_widget.addTab(self.bypass_tab, tr("tab_bypass", self.language))
         
         # 메뉴바 생성
         self.create_menu_bar()
@@ -417,7 +419,14 @@ class MainWindow(QMainWindow):
         # 상태 표시줄
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready")
+        localize_widget_tree(self.centralWidget(), self.language)
+        self._set_tab_labels()
+        self.status_bar.showMessage(tr("ready", self.language))
+
+    def _set_tab_labels(self):
+        tab_labels = ("tab_tasks", "tab_sync", "tab_eml", "tab_pdf", "tab_ocr", "tab_bypass")
+        for index, key in enumerate(tab_labels):
+            self.tab_widget.setTabText(index, tr(key, self.language))
 
     def create_update_banner(self):
         banner = QFrame()
@@ -434,7 +443,7 @@ class MainWindow(QMainWindow):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(2)
 
-        self.update_banner_title = QLabel("새 버전 사용 가능")
+        self.update_banner_title = QLabel(tr("update_available", self.language))
         self.update_banner_title.setObjectName("UpdateBannerTitle")
         self.update_banner_body = QLabel("")
         self.update_banner_body.setObjectName("UpdateBannerBody")
@@ -444,54 +453,53 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(text_layout, 1)
 
-        self.update_download_btn = QPushButton("다운로드")
+        self.update_download_btn = QPushButton(tr("download", self.language))
         self.update_download_btn.setObjectName("UpdateBannerPrimary")
         self.update_download_btn.clicked.connect(self.download_update_from_banner)
         layout.addWidget(self.update_download_btn)
 
-        self.update_release_btn = QPushButton("릴리스 보기")
+        self.update_release_btn = QPushButton(tr("view_release", self.language))
         self.update_release_btn.setObjectName("UpdateBannerSecondary")
         self.update_release_btn.clicked.connect(self.open_update_release_page)
         layout.addWidget(self.update_release_btn)
 
-        close_btn = QPushButton("×")
-        close_btn.setObjectName("UpdateBannerClose")
-        close_btn.setToolTip("이번 알림 닫기")
-        close_btn.clicked.connect(banner.hide)
-        layout.addWidget(close_btn)
+        self.update_close_btn = QPushButton("×")
+        self.update_close_btn.setObjectName("UpdateBannerClose")
+        self.update_close_btn.setToolTip(tr("close_update_notice", self.language))
+        self.update_close_btn.clicked.connect(banner.hide)
+        layout.addWidget(self.update_close_btn)
         return banner
         
     def create_menu_bar(self):
         menu_bar = self.menuBar()
         
-        # File 메뉴
-        file_menu = menu_bar.addMenu("File")
+        menu_bar.clear()
+        self.file_menu = menu_bar.addMenu(tr("file_menu", self.language))
         
-        settings_action = QAction("Settings", self)
+        settings_action = QAction(tr("settings", self.language), self)
         settings_action.setShortcut("Ctrl+,")
         settings_action.triggered.connect(self.open_settings)
-        file_menu.addAction(settings_action)
+        self.file_menu.addAction(settings_action)
         
-        file_menu.addSeparator()
+        self.file_menu.addSeparator()
         
-        exit_action = QAction("Exit", self)
+        exit_action = QAction(tr("exit", self.language), self)
         exit_action.setShortcut("Alt+F4")
         exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
+        self.file_menu.addAction(exit_action)
         
-        # Help 메뉴
-        help_menu = menu_bar.addMenu("Help")
+        self.help_menu = menu_bar.addMenu(tr("help_menu", self.language))
         
-        check_update_action = QAction("Check for Updates...", self)
+        check_update_action = QAction(tr("check_updates", self.language), self)
         check_update_action.triggered.connect(lambda: self.trigger_update_check(silent=False))
-        help_menu.addAction(check_update_action)
+        self.help_menu.addAction(check_update_action)
         
     def trigger_update_check(self, silent=True):
         if self.update_worker and self.update_worker.isRunning():
             return
 
         if not silent:
-            self.status_bar.showMessage("Checking for updates...")
+            self.status_bar.showMessage(tr("checking_updates", self.language))
             
         self.update_worker = UpdateWorker(current_version=self.current_version)
         self.update_worker.finished.connect(
@@ -501,29 +509,27 @@ class MainWindow(QMainWindow):
         
     def on_update_checked(self, has_update, latest_version, download_url, release_notes, error_message, silent):
         if not silent:
-            self.status_bar.showMessage("Update check finished.", 3000)
+            self.status_bar.showMessage(tr("update_check_finished", self.language), 3000)
 
         if error_message:
             if not silent:
                 QMessageBox.warning(
                     self,
-                    "업데이트 확인 실패",
-                    "GitHub 릴리스 정보를 확인하지 못했습니다.\n"
-                    "private 저장소라면 Settings의 GitHub 저장소와 Access Token을 확인해 주세요.\n\n"
-                    f"상세: {error_message}",
+                    tr("update_check_failed", self.language),
+                    tr("update_check_failed_body", self.language, detail=error_message),
                 )
             return
             
         if has_update:
             self.show_update_banner(latest_version, download_url, release_notes)
             if not silent:
-                self.status_bar.showMessage(f"새 버전 {latest_version} 사용 가능", 5000)
+                self.status_bar.showMessage(tr("update_available_status", self.language, version=latest_version), 5000)
         else:
             if not silent:
                 QMessageBox.information(
                     self,
-                    "업데이트 정보",
-                    f"현재 최신 버전 ({self.current_version})을 사용하고 있습니다."
+                    tr("update_information", self.language),
+                    tr("up_to_date", self.language, version=self.current_version),
                 )
 
     def show_update_banner(self, latest_version, download_url, release_notes=""):
@@ -532,8 +538,8 @@ class MainWindow(QMainWindow):
         repo_name = self.update_worker.updater.repo_name if self.update_worker else "FileOps-Hub"
         self.update_release_url = f"https://github.com/{repo_owner}/{repo_name}/releases/tag/{latest_version}"
 
-        self.update_banner_title.setText(f"새 버전 {latest_version} 사용 가능")
-        body = f"현재 {self.current_version} 사용 중입니다. 최신 설치 파일을 받아 업데이트할 수 있습니다."
+        self.update_banner_title.setText(f"{tr('update_available', self.language)}: {latest_version}")
+        body = tr("update_banner_body", self.language, current_version=self.current_version)
         if release_notes:
             one_line_notes = " ".join(release_notes.split())
             if one_line_notes:
@@ -544,9 +550,9 @@ class MainWindow(QMainWindow):
         self.update_banner_body.setToolTip(release_notes or body)
         self.update_download_btn.setEnabled(bool(self.update_download_url))
         self.update_download_btn.setToolTip(
-            "최신 설치 파일을 다운로드합니다."
+            tr("download_installer", self.language)
             if self.update_download_url
-            else "릴리스 페이지에서 설치 파일을 확인해 주세요."
+            else tr("view_installer", self.language)
         )
         self.update_banner.setVisible(True)
 
@@ -573,16 +579,16 @@ class MainWindow(QMainWindow):
         if not updater or not updater.latest_asset or download_url != updater.latest_asset.url:
             QMessageBox.critical(
                 self,
-                "업데이트 검증 실패",
-                "검증된 설치 파일 정보를 찾을 수 없습니다. 릴리스 페이지에서 설치 파일을 확인해 주세요.",
+                tr("update_verification_failed", self.language),
+                tr("update_verification_failed_body", self.language),
             )
             return
         filename = updater.latest_asset.name
         dest_path = os.path.join(temp_dir, filename)
         
         # 진행 상태 다이얼로그 생성
-        progress_dialog = QProgressDialog("업데이트 다운로드 중...", "취소", 0, 100, self)
-        progress_dialog.setWindowTitle("업데이트 다운로드")
+        progress_dialog = QProgressDialog(tr("downloading_update", self.language), tr("cancel", self.language), 0, 100, self)
+        progress_dialog.setWindowTitle(tr("update_download", self.language))
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         progress_dialog.setAutoClose(True)
         progress_dialog.setAutoReset(True)
@@ -598,15 +604,15 @@ class MainWindow(QMainWindow):
                 progress_dialog.setValue(val)
                 downloaded_mb = downloaded / (1024 * 1024)
                 total_mb = total / (1024 * 1024)
-                progress_dialog.setLabelText(f"다운로드 중... ({downloaded_mb:.1f} MB / {total_mb:.1f} MB)")
+                progress_dialog.setLabelText(tr("downloading_progress", self.language, downloaded=downloaded_mb, total=total_mb))
             else:
-                progress_dialog.setLabelText("다운로드 중...")
+                progress_dialog.setLabelText(tr("downloading_update", self.language))
                 
         download_worker.progress.connect(update_progress)
         
         def cancel_download():
             download_worker.cancel()
-            self.status_bar.showMessage("Download cancelled by user.", 3000)
+            self.status_bar.showMessage(tr("download_cancelled", self.language), 3000)
             
         progress_dialog.canceled.connect(cancel_download)
         
@@ -616,9 +622,8 @@ class MainWindow(QMainWindow):
                 # 다운로드 성공 -> 설치 실행 의사 확인
                 reply = QMessageBox.question(
                     self,
-                    "다운로드 완료",
-                    "업데이트 설치 파일 다운로드가 완료되었습니다. 즉시 설치를 진행하시겠습니까?\n"
-                    "(설치 시작 시 프로그램이 자동으로 종료됩니다.)",
+                    tr("download_complete", self.language),
+                    tr("download_complete_body", self.language),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.Yes
                 )
@@ -642,10 +647,10 @@ class MainWindow(QMainWindow):
                         self.bypass_tab.stop_all()
                         os._exit(0)
                     except Exception as err:
-                        QMessageBox.critical(self, "실행 오류", f"설치 파일 실행 중 오류가 발생했습니다:\n{err}")
+                        QMessageBox.critical(self, tr("run_error", self.language), str(err))
             else:
                 if result != "Cancelled":
-                    QMessageBox.critical(self, "다운로드 실패", f"업데이트 다운로드 중 오류가 발생했습니다:\n{result}")
+                    QMessageBox.critical(self, tr("download_failed", self.language), str(result))
                     
         download_worker.finished.connect(on_download_finished)
         download_worker.start()
@@ -655,7 +660,20 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.ocr_tab.ocr_processor.setup_tesseract()
             logger.info("Settings updated and saved.")
-            self.status_bar.showMessage("Settings saved successfully.", 3000)
+            self.refresh_language()
+            self.status_bar.showMessage(tr("settings_saved", self.language), 3000)
+
+    def refresh_language(self):
+        """Apply a saved display-language choice without disturbing task configuration."""
+        self.language = get_app_language(self.config_manager)
+        self.setWindowTitle(tr("app_title", self.language, version=self.current_version))
+        self.create_menu_bar()
+        localize_widget_tree(self.centralWidget(), self.language)
+        self._set_tab_labels()
+        self.update_banner_title.setText(tr("update_available", self.language))
+        self.update_download_btn.setText(tr("download", self.language))
+        self.update_release_btn.setText(tr("view_release", self.language))
+        self.update_close_btn.setToolTip(tr("close_update_notice", self.language))
 
     def set_all_tabs_locked(self, locked):
         """통합 태스크 실행 중 모든 탭 바 및 개별 탭 UI를 비활성화"""

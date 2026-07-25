@@ -58,15 +58,17 @@ class FakeProgress:
 
 
 class App05LauncherTests(unittest.TestCase):
-    def test_language_detection_supports_windows_ui_languages_and_korean_fallback(self):
+    def test_language_detection_supports_windows_ui_languages_and_english_fallback(self):
         self.assertEqual(launcher.detect_language(ui_language_id=0x0412), "ko")
         self.assertEqual(launcher.detect_language(ui_language_id=0x0409), "en")
-        self.assertEqual(launcher.detect_language(ui_language_id=0x0411), "ja")
-        self.assertEqual(launcher.detect_language(ui_language_id=0x0804), "zh")
-        self.assertEqual(launcher.detect_language(ui_language_id=0, locale_name="fr-FR"), "ko")
+        self.assertEqual(launcher.detect_language(ui_language_id=0x0415), "pl")
+        self.assertEqual(launcher.detect_language(ui_language_id=0x0411), "en")
+        self.assertEqual(launcher.detect_language(ui_language_id=0, locale_name="fr-FR"), "en")
 
     def test_language_override_and_translation_catalog(self):
         self.assertEqual(launcher.detect_language(override="en-US"), "en")
+        self.assertEqual(launcher.detect_language(override="pl-PL"), "pl")
+        self.assertEqual(set(launcher.TRANSLATIONS), {"en", "ko", "pl"})
         original_language = launcher.LAUNCHER_LANGUAGE
         try:
             launcher.LAUNCHER_LANGUAGE = "en"
