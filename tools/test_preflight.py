@@ -50,6 +50,22 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(len(report.warnings), 1)
         self.assertIn("Excel.Application", report.warnings[0].detail)
 
+    def test_bypass_office_tasks_block_when_required_app_cannot_launch(self):
+        config = BypassRunConfig(
+            [BypassFileConfig("source.xlsx", "target.xlsb", ".xlsb", True, True)],
+            delete_original=True,
+        )
+        plan = RunPlan({TaskStep.BYPASS: config})
+        with (
+            patch("src.core.preflight.check_office_imports", return_value=(True, "ok")),
+            patch("src.core.preflight.check_office_apps", return_value=(False, ["Excel.Application: unavailable"])),
+        ):
+            report = check_run_plan(plan, FakeConfig())
+
+        self.assertTrue(report.has_blockers)
+        self.assertEqual(report.blockers[0].step, TaskStep.BYPASS)
+        self.assertIn("Excel.Application", report.blockers[0].detail)
+
     def test_smtp_missing_fields_are_warnings(self):
         plan = RunPlan({})
         report = check_run_plan(plan, FakeConfig(), auto_email=True)

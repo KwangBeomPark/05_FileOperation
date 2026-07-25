@@ -2,9 +2,11 @@ import os
 import tempfile
 import unittest
 
-from src.core.task_contracts import BypassRunConfig, PdfRunConfig, TaskValidationError
+from src.core.task_contracts import BypassRunConfig, EmlRunConfig, PdfRunConfig, SyncRunConfig, TaskValidationError
 from src.ui.bypass_tab import BypassTab
+from src.ui.eml_tab import EMLTab
 from src.ui.pdf_tab import PDFTab
+from src.ui.sync_tab import SyncTab
 
 
 class TextValue:
@@ -40,6 +42,14 @@ class FakeTable:
 
     def item(self, row, column):
         return TableItem(self.rows[row][column])
+
+
+class FakeConfig:
+    def __init__(self, values=None):
+        self.values = values or {}
+
+    def get(self, key, default=None):
+        return self.values.get(key, default)
 
 
 class TabContractTests(unittest.TestCase):
@@ -82,6 +92,39 @@ class TabContractTests(unittest.TestCase):
             self.assertIsInstance(run_config, BypassRunConfig)
             self.assertEqual(run_config.tasks[0].src, source_path)
             self.assertTrue(run_config.tasks[0].tgt.endswith(".xlsb"))
+
+    def test_sync_tab_rejects_missing_or_duplicate_folders(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fake_tab = type("FakeSyncTab", (), {})()
+            fake_tab.config_manager = FakeConfig()
+            fake_tab.sync_groups = [{"name": "daily", "folders": [temp_dir, temp_dir]}]
+
+            with self.assertRaises(TaskValidationError):
+                SyncTab.build_run_config(fake_tab)
+
+            fake_tab.sync_groups = [{"name": "daily", "folders": [temp_dir, os.path.join(temp_dir, "missing")]}]
+            with self.assertRaises(TaskValidationError):
+                SyncTab.build_run_config(fake_tab)
+
+    def test_sync_and_eml_tabs_build_typed_configs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = os.path.join(temp_dir, "output")
+            os.makedirs(output_dir)
+            sync_tab = type("FakeSyncTab", (), {})()
+            sync_tab.config_manager = FakeConfig({"sync_move_to_deleted": True})
+            sync_tab.sync_groups = [{"name": "daily", "folders": [temp_dir, output_dir]}]
+
+            sync_config = SyncTab.build_run_config(sync_tab)
+            self.assertIsInstance(sync_config, SyncRunConfig)
+            self.assertEqual(sync_config.sync_groups[0].name, "daily")
+
+            eml_tab = type("FakeEMLTab", (), {})()
+            eml_tab.config_manager = FakeConfig({"eml_output_width": 1200})
+            eml_tab.tasks = [{"name": "mail", "source_folder": temp_dir, "target_folder": output_dir}]
+
+            eml_config = EMLTab.build_run_config(eml_tab)
+            self.assertIsInstance(eml_config, EmlRunConfig)
+            self.assertEqual(eml_config.width, 1200)
 
     def make_bypass_fake(self, source_dir, scanned_files, table_rows):
         fake_tab = type("FakeBypassTab", (), {})()

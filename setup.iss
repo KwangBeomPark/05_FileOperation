@@ -1,11 +1,17 @@
 [Setup]
+#ifndef AppVersion
+  #error "AppVersion must be supplied by tools/build_all.py."
+#endif
+AppId={{2A0D58B7-8D1D-44B1-9C3A-2B33F4F3DF11}
 AppName=IntegratedDataTool
-AppVersion=1.1.2
+AppVersion={#AppVersion}
+VersionInfoVersion={#AppVersion}
+VersionInfoProductVersion={#AppVersion}
 DefaultDirName={localappdata}\IntegratedDataTool
 DefaultGroupName=IntegratedDataTool
 UninstallDisplayIcon={app}\IntegratedDataTool.exe
 OutputDir=dist
-OutputBaseFilename=IntegratedDataTool_Setup_v1.1.2
+OutputBaseFilename=IntegratedDataTool_Setup_v{#AppVersion}
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=lowest

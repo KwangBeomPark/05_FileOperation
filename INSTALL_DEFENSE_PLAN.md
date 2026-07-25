@@ -27,12 +27,13 @@ python -m pip install -r requirements.txt
 python tools/build_all.py
 ```
 
-`iscc`가 PATH 또는 Inno Setup 기본 설치 경로에 있으면 `dist/IntegratedDataTool_Setup_vX.Y.Z.exe`까지 생성된다. 없으면 PyInstaller exe까지만 생성되므로 Inno Setup을 설치하거나 `iscc setup.iss`를 따로 실행한다.
+`tools/build_all.py`는 `src/version.py` 버전을 Inno Setup과 EXE 메타데이터에 함께 적용하고, 같은 버전 설치 파일의 덮어쓰기를 차단한다. 정식 외부 배포는 코드 서명 인증서를 설정한 뒤 `--require-signature`로 수행한다.
 
 배포할 때:
 
 - 사용자는 GitHub 소스 zip이 아니라 GitHub Releases의 `IntegratedDataTool_Setup_vX.Y.Z.exe`를 받는다.
-- Release 본문에 exe SHA-256 값을 적어 다운로드 무결성을 확인할 수 있게 한다.
+- Release에 setup EXE와 생성된 `.sha256` manifest를 함께 올린다. 앱과 `App05_FileOps.exe`는 GitHub API digest를 검증한 뒤에만 설치 파일을 실행한다.
+- `App05_FileOps.exe`도 Release 자산으로 함께 배포한다. 이 파일은 설치된 앱을 열거나, 없으면 정식 Setup EXE를 내려받아 실행한다.
 - 설치 전 기존 앱을 종료한다.
 
 새 PC에서 장애가 나면:
@@ -41,7 +42,7 @@ python tools/build_all.py
 python tools/diagnose_install.py --check-browser
 ```
 
-Office 변환까지 확인해야 하면:
+Office 변환까지 확인해야 하면 다음 명령이 성공해야 한다. 실패한 PC에서는 Office 파일을 포함한 Bypass 작업을 실행하지 않는다.
 
 ```powershell
 python tools/diagnose_install.py --check-browser --check-office

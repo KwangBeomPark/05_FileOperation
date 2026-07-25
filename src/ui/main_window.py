@@ -25,6 +25,7 @@ from src.ui.bypass_tab import BypassTab
 from src.ui.task_tab import TaskTab
 from src.ui.settings_dialog import SettingsDialog
 from src.core.updater import AutoUpdater
+from src.version import APP_VERSION_TAG
 from src.utils.config_manager import ConfigManager
 from src.utils.logger import get_logger
 
@@ -308,7 +309,7 @@ def create_dark_palette():
 class UpdateWorker(QThread):
     finished = pyqtSignal(bool, str, str, str, str) # has_update, latest_version, download_url, release_notes, error
     
-    def __init__(self, current_version="v1.1.2"):
+    def __init__(self, current_version=APP_VERSION_TAG):
         super().__init__()
         self.updater = AutoUpdater(current_version=current_version)
         
@@ -335,7 +336,14 @@ class DownloadWorker(QThread):
             self.progress.emit(downloaded, total)
             
         try:
-            self.updater.download_file(self.download_url, self.dest_path, progress_cb)
+            if not self.updater.latest_asset:
+                raise RuntimeError("검증된 업데이트 설치 파일 정보가 없습니다.")
+            self.updater.download_file(
+                self.download_url,
+                self.dest_path,
+                self.updater.latest_asset.sha256,
+                progress_cb,
+            )
             if self._is_cancelled:
                 self.finished.emit(False, "Cancelled")
             else:
@@ -351,7 +359,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config_manager = ConfigManager()
-        self.current_version = "v1.1.2" # 현재 애플리케이션 버전
+        self.current_version = APP_VERSION_TAG
         self.update_worker = None
         self.update_download_url = ""
         self.update_release_url = ""
@@ -561,10 +569,15 @@ class MainWindow(QMainWindow):
     def start_update_download(self, download_url):
         # 다운로드 경로 설정 (시스템 임시 폴더)
         temp_dir = tempfile.gettempdir()
-        default_filename = f"IntegratedDataTool_Setup_{self.current_version}.exe"
-        filename = download_url.split('/')[-1] if download_url else default_filename
-        if not filename.endswith('.exe') and not filename.endswith('.zip'):
-            filename = default_filename
+        updater = self.update_worker.updater if self.update_worker else None
+        if not updater or not updater.latest_asset or download_url != updater.latest_asset.url:
+            QMessageBox.critical(
+                self,
+                "업데이트 검증 실패",
+                "검증된 설치 파일 정보를 찾을 수 없습니다. 릴리스 페이지에서 설치 파일을 확인해 주세요.",
+            )
+            return
+        filename = updater.latest_asset.name
         dest_path = os.path.join(temp_dir, filename)
         
         # 진행 상태 다이얼로그 생성

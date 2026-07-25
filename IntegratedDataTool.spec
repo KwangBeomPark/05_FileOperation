@@ -6,6 +6,9 @@ from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 PROJECT_ROOT = os.path.abspath(".")
+VERSION_FILE = os.environ.get("FILEOPS_VERSION_FILE")
+if not VERSION_FILE or not os.path.exists(VERSION_FILE):
+    raise RuntimeError("FILEOPS_VERSION_FILE must point to the generated PyInstaller version resource.")
 playwright_datas, playwright_binaries, playwright_hiddenimports = collect_all("playwright")
 
 a = Analysis(
@@ -52,6 +55,7 @@ exe = EXE(
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
+    version=VERSION_FILE,
     codesign_identity=None,
     entitlements_file=None,
 )

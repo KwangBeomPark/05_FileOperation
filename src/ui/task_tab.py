@@ -332,6 +332,7 @@ class TaskTab(QWidget):
             run_plan,
             self.config_manager,
             auto_email=self.check_auto_email.isChecked(),
+            check_office=True,
         )
         if preflight.has_blockers:
             if scheduled:

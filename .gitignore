@@ -16,6 +16,7 @@ htmlcov/
 # PyInstaller Build output
 build/
 dist/
+App05_FileOps*.exe
 *.spec
 !IntegratedDataTool.spec
 

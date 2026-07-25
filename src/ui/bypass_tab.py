@@ -9,7 +9,8 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from src.ui.workflow_widget import WorkflowWidget
 from src.ui.toast_notification import show_toast
 from src.core.bypass_converter import BypassConverter
-from src.core.task_contracts import BypassFileConfig, BypassRunConfig, TaskValidationError
+from src.core.preflight import check_run_plan
+from src.core.task_contracts import BypassFileConfig, BypassRunConfig, RunPlan, TaskStep, TaskValidationError
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -396,44 +397,26 @@ class BypassTab(QWidget):
         self.config_manager.set("bypass_delete_original", self.check_delete_orig.isChecked())
         self.config_manager.set("bypass_preserve_meta", self.check_preserve_meta.isChecked())
         
-        # 대상 폴더 결정
-        src_dir = self.src_entry.text()
-        inplace_mode = self.radio_inplace.isChecked()
-        tgt_dir = src_dir if inplace_mode else self.tgt_entry.text()
-        
-        if not inplace_mode and (not os.path.exists(tgt_dir) or tgt_dir.startswith("저장할 우회")):
-            QMessageBox.warning(self, "경고", "지정할 대상 보관 폴더를 선택해 주세요.")
+        try:
+            run_config = self.build_run_config()
+        except TaskValidationError as exc:
+            QMessageBox.warning(self, "설정 오류", exc.user_message)
             return
-            
-        # 작업 리스트 작성
-        tasks = []
-        for idx in range(self.file_table.rowCount()):
-            filename = self.file_table.item(idx, 0).text()
-            src_file = os.path.join(src_dir, filename)
-            
-            # 우회 파일명 결정 (In-place 일 때 확장자만 다르게 하거나 충돌 방지)
-            tgt_ext = self.file_table.item(idx, 2).text()
-            name_no_ext, _ = os.path.splitext(filename)
-            tgt_filename = f"{name_no_ext}{tgt_ext}"
-            tgt_file = os.path.join(tgt_dir, tgt_filename)
-            
-            # 중복 파일 충돌 처리 (동일 경로 내 변환 시 중복 접미사)
-            if os.path.exists(tgt_file) and tgt_file != src_file:
-                counter = 1
-                while True:
-                    tgt_filename = f"{name_no_ext}_{counter}{tgt_ext}"
-                    tgt_file = os.path.join(tgt_dir, tgt_filename)
-                    if not os.path.exists(tgt_file):
-                        break
-                    counter += 1
-                    
-            tasks.append({
-                "src": src_file,
-                "tgt": tgt_file,
-                "ext": tgt_ext,
-                "preserve_meta": self.check_preserve_meta.isChecked(),
-                "delete_original": self.check_delete_orig.isChecked()
-            })
+
+        if run_config is None:
+            QMessageBox.warning(self, "경고", "변환할 대상 파일을 먼저 스캔해 주세요.")
+            return
+
+        preflight = check_run_plan(
+            RunPlan({TaskStep.BYPASS: run_config}),
+            self.config_manager,
+            check_office=True,
+        )
+        if preflight.has_blockers:
+            QMessageBox.critical(self, "사전 점검 실패", preflight.format(include_warnings=False))
+            return
+
+        tasks = [task.to_legacy_dict() for task in run_config.tasks]
             
         self.is_running = True
         self.scan_btn.setEnabled(False)

@@ -1,16 +1,18 @@
 import os
+import hashlib
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.core.updater import AutoUpdater
+from src.core.updater import AutoUpdater, MAX_INSTALLER_BYTES, is_trusted_download_url
 
 
 class FakeResponse:
-    def __init__(self, payload=b"", total_size=None, chunks=None):
+    def __init__(self, payload=b"", total_size=None, chunks=None, final_url="https://github.com/example/setup.exe"):
         self.payload = payload
         self.total_size = total_size
         self.chunks = list(chunks or [])
+        self.final_url = final_url
 
     def __enter__(self):
         return self
@@ -25,8 +27,11 @@ class FakeResponse:
         return payload
 
     def info(self):
-        size = self.total_size if self.total_size is not None else len(self.payload)
+        size = self.total_size if self.total_size is not None else sum(len(chunk) for chunk in self.chunks) or len(self.payload)
         return {"Content-Length": str(size)}
+
+    def geturl(self):
+        return self.final_url
 
 
 class FakeOpener:
@@ -49,20 +54,25 @@ class UpdaterTests(unittest.TestCase):
         updater = AutoUpdater()
         with tempfile.NamedTemporaryFile() as file:
             with self.assertRaises(ValueError):
-                updater.download_file("http://github.com/example/setup.exe", file.name)
+                updater.download_file("http://github.com/example/setup.exe", file.name, "a" * 64)
 
     def test_download_rejects_untrusted_domain(self):
         updater = AutoUpdater()
         with tempfile.NamedTemporaryFile() as file:
             with self.assertRaises(ValueError):
-                updater.download_file("https://example.com/setup.exe", file.name)
+                updater.download_file("https://example.com/setup.exe", file.name, "a" * 64)
 
-    def test_release_asset_prefers_setup_exe(self):
+    def test_trusted_url_requires_an_exact_known_host_without_a_port(self):
+        self.assertTrue(is_trusted_download_url("https://release-assets.githubusercontent.com/file"))
+        self.assertFalse(is_trusted_download_url("https://mirror.release-assets.githubusercontent.com/file"))
+        self.assertFalse(is_trusted_download_url("https://github.com:bad-port/file"))
+
+    def test_release_asset_requires_the_expected_setup_exe_with_digest(self):
         payload = (
             b'{"tag_name":"v1.0.1","body":"notes","assets":['
             b'{"name":"source.zip","browser_download_url":"https://github.com/a/source.zip"},'
             b'{"name":"IntegratedDataTool.exe","browser_download_url":"https://github.com/a/app.exe"},'
-            b'{"name":"IntegratedDataTool_Setup_v9.9.9.exe","browser_download_url":"https://github.com/a/setup.exe"}'
+            b'{"name":"IntegratedDataTool_Setup_v1.0.1.exe","browser_download_url":"https://github.com/a/setup.exe","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
             b"]}"
         )
         updater = AutoUpdater(current_version="v1.0.0")
@@ -74,6 +84,38 @@ class UpdaterTests(unittest.TestCase):
         self.assertEqual(latest, "v1.0.1")
         self.assertEqual(download_url, "https://github.com/a/setup.exe")
         self.assertEqual(notes, "notes")
+        self.assertEqual(updater.latest_asset.sha256, "a" * 64)
+
+    def test_release_without_expected_installer_only_offers_release_page(self):
+        payload = (
+            b'{"tag_name":"v1.0.1","assets":['
+            b'{"name":"App05_FileOps_v1.0.1.exe","browser_download_url":"https://github.com/a/launcher.exe"}'
+            b"]}"
+        )
+        updater = AutoUpdater(current_version="v1.0.0")
+
+        with patch("urllib.request.urlopen", return_value=FakeResponse(payload=payload)):
+            has_update, latest, download_url, _notes = updater.check_for_updates()
+
+        self.assertTrue(has_update)
+        self.assertEqual(latest, "v1.0.1")
+        self.assertIsNone(download_url)
+        self.assertIsNone(updater.latest_asset)
+
+    def test_release_with_duplicate_expected_installers_is_rejected(self):
+        asset = (
+            b'{"name":"IntegratedDataTool_Setup_v1.0.1.exe","browser_download_url":"https://github.com/a/setup.exe",'
+            b'"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
+        )
+        payload = b'{"tag_name":"v1.0.1","assets":[' + asset + b"," + asset + b"]}"
+        updater = AutoUpdater(current_version="v1.0.0")
+
+        with patch("urllib.request.urlopen", return_value=FakeResponse(payload=payload)):
+            has_update, _latest, download_url, _notes = updater.check_for_updates()
+
+        self.assertTrue(has_update)
+        self.assertIsNone(download_url)
+        self.assertIsNone(updater.latest_asset)
 
     def test_update_check_records_error(self):
         updater = AutoUpdater(current_version="v1.1.2")
@@ -95,8 +137,45 @@ class UpdaterTests(unittest.TestCase):
             dest_path = f"{tmpdir}\\download.exe"
             with patch("urllib.request.build_opener", return_value=FakeOpener(response)):
                 with self.assertRaises(OSError):
-                    updater.download_file("https://github.com/example/setup.exe", dest_path)
+                    updater.download_file("https://github.com/example/setup.exe", dest_path, "a" * 64)
 
+            self.assertFalse(os.path.exists(dest_path))
+
+    def test_digest_mismatch_keeps_existing_complete_download(self):
+        response = FakeResponse(chunks=[b"new", b""])
+        updater = AutoUpdater()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest_path = f"{tmpdir}\\download.exe"
+            with open(dest_path, "wb") as file:
+                file.write(b"existing")
+            with patch("urllib.request.build_opener", return_value=FakeOpener(response)):
+                with self.assertRaises(OSError):
+                    updater.download_file("https://github.com/example/setup.exe", dest_path, hashlib.sha256(b"other").hexdigest())
+
+            with open(dest_path, "rb") as file:
+                self.assertEqual(file.read(), b"existing")
+
+    def test_download_rejects_untrusted_final_redirect(self):
+        response = FakeResponse(chunks=[b"data", b""], final_url="https://example.com/setup.exe")
+        updater = AutoUpdater()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest_path = f"{tmpdir}\\download.exe"
+            with patch("urllib.request.build_opener", return_value=FakeOpener(response)):
+                with self.assertRaises(ValueError):
+                    updater.download_file("https://github.com/example/setup.exe", dest_path, hashlib.sha256(b"data").hexdigest())
+            self.assertFalse(os.path.exists(dest_path))
+
+    def test_download_rejects_oversized_content_length(self):
+        response = FakeResponse(total_size=MAX_INSTALLER_BYTES + 1)
+        updater = AutoUpdater()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest_path = f"{tmpdir}\\download.exe"
+            with patch("urllib.request.build_opener", return_value=FakeOpener(response)):
+                with self.assertRaises(OSError):
+                    updater.download_file("https://github.com/example/setup.exe", dest_path, "a" * 64)
             self.assertFalse(os.path.exists(dest_path))
 
 

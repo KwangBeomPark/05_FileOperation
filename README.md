@@ -1,4 +1,4 @@
-# Integrated Data & File Utility
+# FileOps Hub
 
 회사 내 여러 팀이 따로 관리하는 최신 매뉴얼과 업무 자료를 공용 배포 폴더로 모으고, 정산·분석에 필요한 문서 변환 작업을 자동화하는 Windows 데스크톱 도구입니다.
 
@@ -25,7 +25,7 @@
 ## 실행 환경
 
 - Windows 10/11, Python 3.13 이상 권장
-- Office 변환: 해당 PC에 Microsoft Excel/Word/PowerPoint 설치 필요
+- Office 변환: 해당 PC에 Microsoft Excel/Word/PowerPoint 설치 및 COM 실행 권한 필요. Office 파일이 포함된 작업은 사전 점검에서 실행 가능 여부를 확인하고, 실패하면 시작하지 않습니다.
 - OCR: Tesseract가 있으면 우선 사용하고, 없으면 Windows 내장 OCR로 자동 fallback합니다. Tesseract를 쓰려면 `Settings`에서 `tesseract.exe`를 지정할 수 있습니다.
 - EML 이미지: 소스 실행 시 `python -m playwright install chromium`으로 Chromium 준비. 패키징된 EXE는 Playwright driver를 포함하며, Chromium이 없으면 최초 변환 시 설치를 시도합니다.
 
@@ -48,16 +48,25 @@ python src/main.py
 ```powershell
 python -m compileall -q src tools
 python -m unittest discover -s tools -p "test_*.py" -v
-python -m ruff check src tools --select E9,F,B
 python tools/build_all.py
 ```
 
-설치 파일은 Git 소스 zip/clone에 포함되지 않습니다. 배포 대상 PC는 GitHub Releases의 `IntegratedDataTool_Setup_vX.Y.Z.exe`를 받거나, 위 명령으로 먼저 `dist/` 산출물을 빌드해야 합니다. 설치 장애 대응 절차는 `INSTALL_DEFENSE_PLAN.md`를 확인합니다.
+`ruff`는 선택 검증입니다. 설치된 경우 `python -m ruff check src tools --select E9,F,B`를 추가로 실행합니다.
+
+앱 버전은 `src/version.py`만 수정합니다. `tools/build_all.py`는 테스트를 포함해 실행하고 같은 버전의 설치 파일 덮어쓰기를 기본 차단합니다. 설치 파일은 Git 소스 zip/clone에 포함되지 않습니다. 배포 대상 PC는 GitHub Releases의 `IntegratedDataTool_Setup_vX.Y.Z.exe`를 받아야 합니다. 설치 장애 대응 절차는 `INSTALL_DEFENSE_PLAN.md`와 `docs/RELEASE.md`를 확인합니다.
+
+`App05_FileOps_vX.Y.Z.exe`는 별도 Python 설치 없이 실행되는 버전형 런처입니다. 설치된 FileOps Hub를 열고, 없으면 GitHub Release의 정식 설치 파일과 SHA-256 digest를 검증한 뒤 설치를 시작합니다. 이 런처도 Release 자산으로 함께 배포합니다.
 
 설치/런타임 사전 점검:
 
 ```powershell
 python tools/diagnose_install.py --check-browser
+```
+
+Office 변환까지 사용할 PC에서는 다음 명령이 성공해야 합니다.
+
+```powershell
+python tools/diagnose_install.py --check-browser --check-office
 ```
 
 설정과 로그는 `%LOCALAPPDATA%\IntegratedDataTool`에 저장됩니다. GitHub 토큰과 SMTP 비밀번호는 Windows DPAPI로 암호화합니다.

@@ -564,6 +564,16 @@ class SyncTab(QWidget):
             folders = group.get("folders", [])
             if 0 < len(folders) < 2:
                 raise TaskValidationError(f"동기화 그룹 '{group['name']}'에 등록된 폴더가 2개 미만입니다. 최소 2개의 폴더를 등록해야 합니다.")
+
+        for group in valid_groups:
+            name = group.get("name", "이름 없는 그룹")
+            folders = [str(folder).strip() for folder in group.get("folders", [])]
+            normalized_folders = [os.path.normcase(os.path.abspath(folder)) for folder in folders]
+            if len(set(normalized_folders)) != len(normalized_folders):
+                raise TaskValidationError(f"동기화 그룹 '{name}'에 동일한 폴더가 중복 등록되어 있습니다.")
+            for folder in folders:
+                if not os.path.isdir(folder):
+                    raise TaskValidationError(f"동기화 그룹 '{name}'의 폴더가 존재하지 않거나 폴더가 아닙니다: {folder}")
                 
         move_to_deleted = bool(self.config_manager.get("sync_move_to_deleted", True))
         return SyncRunConfig(

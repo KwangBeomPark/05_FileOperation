@@ -25,6 +25,7 @@ from src.core.preflight import (
     check_tesseract as preflight_check_tesseract,
 )
 from src.utils.config_manager import ConfigManager
+from src.version import APP_VERSION
 
 SETUP_SCRIPT = ROOT / "setup.iss"
 
@@ -91,13 +92,7 @@ def check_build_artifacts() -> bool:
 
 
 def setup_exe_path() -> Path:
-    if SETUP_SCRIPT.exists():
-        prefix = "OutputBaseFilename="
-        for line in SETUP_SCRIPT.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if stripped.lower().startswith(prefix.lower()):
-                return ROOT / "dist" / f"{stripped.split('=', 1)[1].strip()}.exe"
-    return ROOT / "dist" / "IntegratedDataTool_Setup.exe"
+    return ROOT / "dist" / f"IntegratedDataTool_Setup_v{APP_VERSION}.exe"
 
 
 def find_iscc() -> str | None:
@@ -135,8 +130,8 @@ def check_office() -> bool:
     if ok:
         return status(True, "Office COM apps")
     for error in errors:
-        warn("Office COM app", error)
-    return True
+        status(False, "Office COM app", error)
+    return False
 
 
 def check_github_updater() -> bool:

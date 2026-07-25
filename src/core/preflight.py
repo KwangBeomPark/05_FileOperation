@@ -185,7 +185,7 @@ def check_run_plan(
     *,
     auto_email: bool = False,
     check_browser: bool = False,
-    check_office: bool = False,
+    check_office: bool = True,
 ) -> PreflightReport:
     report = PreflightReport()
 
