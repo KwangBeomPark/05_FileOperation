@@ -58,6 +58,25 @@ class FakeProgress:
 
 
 class App05LauncherTests(unittest.TestCase):
+    def test_language_detection_supports_windows_ui_languages_and_korean_fallback(self):
+        self.assertEqual(launcher.detect_language(ui_language_id=0x0412), "ko")
+        self.assertEqual(launcher.detect_language(ui_language_id=0x0409), "en")
+        self.assertEqual(launcher.detect_language(ui_language_id=0x0411), "ja")
+        self.assertEqual(launcher.detect_language(ui_language_id=0x0804), "zh")
+        self.assertEqual(launcher.detect_language(ui_language_id=0, locale_name="fr-FR"), "ko")
+
+    def test_language_override_and_translation_catalog(self):
+        self.assertEqual(launcher.detect_language(override="en-US"), "en")
+        original_language = launcher.LAUNCHER_LANGUAGE
+        try:
+            launcher.LAUNCHER_LANGUAGE = "en"
+            self.assertEqual(
+                launcher.translate("download_progress", percent=25),
+                "Downloading the latest installer. 25%",
+            )
+        finally:
+            launcher.LAUNCHER_LANGUAGE = original_language
+
     def test_github_release_asset_uses_exact_setup_name_and_digest(self):
         payload = b'''{
             "tag_name": "v1.2.3",

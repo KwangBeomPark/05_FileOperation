@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import hashlib
+import ctypes
+import locale
 import os
 import re
 import ssl
@@ -40,6 +42,130 @@ INSTALLER_NAME_PATTERN = re.compile(r"^IntegratedDataTool_Setup_v(\d+(?:\.\d+)*)
 SHA256_PATTERN = re.compile(r"^sha256:([0-9a-f]{64})$", re.IGNORECASE)
 MAX_INSTALLER_BYTES = 1024 * 1024 * 1024
 
+TRANSLATIONS = {
+    "ko": {
+        "invalid_release_tag": "최신 릴리스 태그 형식이 올바르지 않습니다: {tag_name}",
+        "installer_missing": "GitHub 최신 릴리스에서 정식 설치 파일을 찾지 못했습니다: {expected_name}",
+        "installer_name_invalid": "설치 파일 이름 검증에 실패했습니다.",
+        "untrusted_redirect": "신뢰할 수 없는 다운로드 리다이렉트입니다.\n{url}",
+        "untrusted_url": "신뢰할 수 없는 다운로드 주소입니다.\n{url}",
+        "missing_digest": "GitHub 릴리스에 SHA-256 digest가 없습니다. 자동 설치를 중단합니다.",
+        "download_title": "{app_title} 설치 파일 다운로드",
+        "download_initial": "최신 설치 파일을 다운로드하는 중입니다.",
+        "download_progress": "최신 설치 파일을 다운로드하는 중입니다. {percent}%",
+        "invalid_digest": "설치 파일 SHA-256 digest 형식이 올바르지 않습니다.",
+        "untrusted_final_url": "신뢰할 수 없는 최종 다운로드 주소입니다.\n{url}",
+        "installer_too_large": "설치 파일이 허용 크기를 초과했습니다: {size} bytes",
+        "download_incomplete": "다운로드가 완전하지 않습니다. {downloaded}/{total_size} bytes",
+        "digest_failed": "다운로드 파일의 SHA-256 검증에 실패했습니다.",
+        "download_failed": "설치 파일을 자동으로 다운로드하지 못했습니다.\n\n상세: {detail}\n\nGitHub 릴리스 페이지를 열까요?",
+        "not_installed": "FileOps 프로그램이 설치되어 있지 않습니다.\n\nGitHub에서 최신 설치 파일을 다운로드하고 설치할까요?",
+    },
+    "en": {
+        "invalid_release_tag": "The latest release tag is invalid: {tag_name}",
+        "installer_missing": "The official installer was not found in the latest GitHub release: {expected_name}",
+        "installer_name_invalid": "Installer filename validation failed.",
+        "untrusted_redirect": "An untrusted download redirect was blocked.\n{url}",
+        "untrusted_url": "An untrusted download URL was blocked.\n{url}",
+        "missing_digest": "The GitHub release does not include a SHA-256 digest. Automatic installation was stopped.",
+        "download_title": "Download {app_title} installer",
+        "download_initial": "Downloading the latest installer.",
+        "download_progress": "Downloading the latest installer. {percent}%",
+        "invalid_digest": "The installer SHA-256 digest format is invalid.",
+        "untrusted_final_url": "An untrusted final download URL was blocked.\n{url}",
+        "installer_too_large": "The installer exceeds the allowed size: {size} bytes",
+        "download_incomplete": "The download is incomplete. {downloaded}/{total_size} bytes",
+        "digest_failed": "SHA-256 verification of the downloaded installer failed.",
+        "download_failed": "The installer could not be downloaded automatically.\n\nDetails: {detail}\n\nOpen the GitHub Releases page?",
+        "not_installed": "FileOps Hub is not installed.\n\nDownload and install the latest version from GitHub?",
+    },
+    "ja": {
+        "invalid_release_tag": "最新リリース タグの形式が正しくありません: {tag_name}",
+        "installer_missing": "GitHub の最新リリースに正式なインストーラーがありません: {expected_name}",
+        "installer_name_invalid": "インストーラー ファイル名の検証に失敗しました。",
+        "untrusted_redirect": "信頼できないダウンロード リダイレクトをブロックしました。\n{url}",
+        "untrusted_url": "信頼できないダウンロード URL をブロックしました。\n{url}",
+        "missing_digest": "GitHub リリースに SHA-256 digest がないため、自動インストールを中止しました。",
+        "download_title": "{app_title} インストーラーのダウンロード",
+        "download_initial": "最新のインストーラーをダウンロードしています。",
+        "download_progress": "最新のインストーラーをダウンロードしています。 {percent}%",
+        "invalid_digest": "インストーラーの SHA-256 digest 形式が正しくありません。",
+        "untrusted_final_url": "信頼できない最終ダウンロード URL をブロックしました。\n{url}",
+        "installer_too_large": "インストーラーが許可サイズを超えています: {size} bytes",
+        "download_incomplete": "ダウンロードが不完全です。 {downloaded}/{total_size} bytes",
+        "digest_failed": "ダウンロードしたインストーラーの SHA-256 検証に失敗しました。",
+        "download_failed": "インストーラーを自動ダウンロードできませんでした。\n\n詳細: {detail}\n\nGitHub Releases ページを開きますか?",
+        "not_installed": "FileOps Hub はインストールされていません。\n\nGitHub から最新バージョンをダウンロードしてインストールしますか?",
+    },
+    "zh": {
+        "invalid_release_tag": "最新发行标签格式无效: {tag_name}",
+        "installer_missing": "在最新 GitHub 发行版中找不到正式安装文件: {expected_name}",
+        "installer_name_invalid": "安装文件名验证失败。",
+        "untrusted_redirect": "已阻止不受信任的下载重定向。\n{url}",
+        "untrusted_url": "已阻止不受信任的下载地址。\n{url}",
+        "missing_digest": "GitHub 发行版未提供 SHA-256 摘要，已停止自动安装。",
+        "download_title": "下载 {app_title} 安装文件",
+        "download_initial": "正在下载最新安装文件。",
+        "download_progress": "正在下载最新安装文件。 {percent}%",
+        "invalid_digest": "安装文件 SHA-256 摘要格式无效。",
+        "untrusted_final_url": "已阻止不受信任的最终下载地址。\n{url}",
+        "installer_too_large": "安装文件超过允许大小: {size} bytes",
+        "download_incomplete": "下载不完整。 {downloaded}/{total_size} bytes",
+        "digest_failed": "下载文件的 SHA-256 验证失败。",
+        "download_failed": "无法自动下载安装文件。\n\n详细信息: {detail}\n\n要打开 GitHub Releases 页面吗?",
+        "not_installed": "FileOps Hub 尚未安装。\n\n要从 GitHub 下载并安装最新版本吗?",
+    },
+}
+
+
+def normalize_language(value: str | None) -> str | None:
+    """Map Windows and locale language tags to the launcher translation keys."""
+    if not value:
+        return None
+    normalized = value.replace("_", "-").lower()
+    for language in TRANSLATIONS:
+        if normalized == language or normalized.startswith(f"{language}-"):
+            return language
+    return None
+
+
+def detect_language(
+    override: str | None = None,
+    ui_language_id: int | None = None,
+    locale_name: str | None = None,
+) -> str:
+    """Prefer an explicit test override, then the Windows UI language, then Korean."""
+    selected = normalize_language(override or os.environ.get("APP05_LANGUAGE"))
+    if selected:
+        return selected
+
+    if ui_language_id is None and os.name == "nt":
+        try:
+            ui_language_id = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+        except Exception:
+            ui_language_id = None
+
+    primary_language = (ui_language_id or 0) & 0x03FF
+    windows_languages = {0x12: "ko", 0x09: "en", 0x11: "ja", 0x04: "zh"}
+    if primary_language in windows_languages:
+        return windows_languages[primary_language]
+
+    if locale_name is None:
+        try:
+            locale_name = locale.getlocale()[0]
+        except Exception:
+            locale_name = None
+    return normalize_language(locale_name) or "ko"
+
+
+LAUNCHER_LANGUAGE = detect_language()
+
+
+def translate(key: str, **values: object) -> str:
+    """Return a localized message, using Korean as the complete fallback catalog."""
+    template = TRANSLATIONS.get(LAUNCHER_LANGUAGE, TRANSLATIONS["ko"]).get(key, TRANSLATIONS["ko"][key])
+    return template.format(**values)
+
 
 class LauncherError(Exception):
     pass
@@ -56,7 +182,7 @@ class ReleaseAsset:
 class RedirectWithoutAuth(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not trusted_url(newurl):
-            raise LauncherError(f"신뢰할 수 없는 다운로드 리다이렉트입니다.\n{newurl}")
+            raise LauncherError(translate("untrusted_redirect", url=newurl))
         new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new_req and req.host != new_req.host and "Authorization" in new_req.headers:
             new_req.remove_header("Authorization")
@@ -173,7 +299,7 @@ def expected_installer_name(tag_name: str) -> str:
     raw_tag = tag_name.strip()
     version = raw_tag[1:] if raw_tag[:1].lower() == "v" else raw_tag
     if not re.fullmatch(r"\d+(?:\.\d+)*", version):
-        raise LauncherError(f"최신 릴리스 태그 형식이 올바르지 않습니다: {tag_name}")
+        raise LauncherError(translate("invalid_release_tag", tag_name=tag_name))
     return f"IntegratedDataTool_Setup_v{version}.exe"
 
 
@@ -187,29 +313,29 @@ def latest_setup_asset() -> ReleaseAsset:
     assets = release.get("assets") or []
     matches = [asset for asset in assets if asset.get("name") == expected_name]
     if len(matches) != 1:
-        raise LauncherError(f"GitHub 최신 릴리스에서 정식 설치 파일을 찾지 못했습니다: {expected_name}")
+        raise LauncherError(translate("installer_missing", expected_name=expected_name))
     selected = matches[0]
 
     name = str(selected.get("name") or "")
     url = str(selected.get("browser_download_url") or "")
     digest_match = SHA256_PATTERN.fullmatch(str(selected.get("digest") or ""))
     if not INSTALLER_NAME_PATTERN.fullmatch(name) or Path(name).name != name:
-        raise LauncherError("설치 파일 이름 검증에 실패했습니다.")
+        raise LauncherError(translate("installer_name_invalid"))
     if not trusted_url(url):
-        raise LauncherError(f"신뢰할 수 없는 다운로드 주소입니다.\n{url}")
+        raise LauncherError(translate("untrusted_url", url=url))
     if not digest_match:
-        raise LauncherError("GitHub 릴리스에 SHA-256 digest가 없습니다. 자동 설치를 중단합니다.")
+        raise LauncherError(translate("missing_digest"))
     return ReleaseAsset(tag_name, name, url, digest_match.group(1).lower())
 
 
 class ProgressWindow:
     def __init__(self, root: tk.Tk):
         self.window = tk.Toplevel(root)
-        self.window.title(f"{APP_TITLE} 설치 파일 다운로드")
+        self.window.title(translate("download_title", app_title=APP_TITLE))
         self.window.resizable(False, False)
         self.window.protocol("WM_DELETE_WINDOW", lambda: None)
 
-        self.label = ttk.Label(self.window, text="최신 설치 파일을 다운로드하는 중입니다.")
+        self.label = ttk.Label(self.window, text=translate("download_initial"))
         self.label.grid(row=0, column=0, padx=18, pady=(16, 8), sticky="w")
         self.progress = ttk.Progressbar(self.window, length=360, mode="indeterminate")
         self.progress.grid(row=1, column=0, padx=18, pady=(0, 16), sticky="ew")
@@ -231,7 +357,7 @@ class ProgressWindow:
         if total_size > 0:
             self.progress["value"] = downloaded
             percent = min(100, int(downloaded * 100 / total_size))
-            self.label.configure(text=f"최신 설치 파일을 다운로드하는 중입니다. {percent}%")
+            self.label.configure(text=translate("download_progress", percent=percent))
         self.window.update_idletasks()
 
     def close(self) -> None:
@@ -241,9 +367,9 @@ class ProgressWindow:
 
 def download_file(url: str, destination: Path, progress: ProgressWindow, expected_sha256: str) -> None:
     if not trusted_url(url):
-        raise LauncherError(f"신뢰할 수 없는 다운로드 주소입니다.\n{url}")
+        raise LauncherError(translate("untrusted_url", url=url))
     if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256, re.IGNORECASE):
-        raise LauncherError("설치 파일 SHA-256 digest 형식이 올바르지 않습니다.")
+        raise LauncherError(translate("invalid_digest"))
 
     partial = destination.with_suffix(destination.suffix + ".download")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -256,11 +382,11 @@ def download_file(url: str, destination: Path, progress: ProgressWindow, expecte
     try:
         with opener.open(req, timeout=30) as response:
             if not trusted_url(response.geturl()):
-                raise LauncherError(f"신뢰할 수 없는 최종 다운로드 주소입니다.\n{response.geturl()}")
+                raise LauncherError(translate("untrusted_final_url", url=response.geturl()))
 
             total_size = int(response.info().get("Content-Length", 0))
             if total_size > MAX_INSTALLER_BYTES:
-                raise LauncherError(f"설치 파일이 허용 크기를 초과했습니다: {total_size} bytes")
+                raise LauncherError(translate("installer_too_large", size=total_size))
             downloaded = 0
             digest = hashlib.sha256()
             with partial.open("wb") as file:
@@ -272,13 +398,13 @@ def download_file(url: str, destination: Path, progress: ProgressWindow, expecte
                     digest.update(chunk)
                     downloaded += len(chunk)
                     if downloaded > MAX_INSTALLER_BYTES:
-                        raise LauncherError(f"설치 파일이 허용 크기를 초과했습니다: {downloaded} bytes")
+                        raise LauncherError(translate("installer_too_large", size=downloaded))
                     progress.update(downloaded, total_size)
 
             if total_size > 0 and downloaded != total_size:
-                raise LauncherError(f"다운로드가 완전하지 않습니다. {downloaded}/{total_size} bytes")
+                raise LauncherError(translate("download_incomplete", downloaded=downloaded, total_size=total_size))
             if digest.hexdigest().lower() != expected_sha256.lower():
-                raise LauncherError("다운로드 파일의 SHA-256 검증에 실패했습니다.")
+                raise LauncherError(translate("digest_failed"))
             partial.replace(destination)
     except Exception:
         partial.unlink(missing_ok=True)
@@ -296,7 +422,7 @@ def download_and_run_installer(root: tk.Tk) -> None:
         if progress:
             progress.close()
         release_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-        if messagebox.askyesno(APP_TITLE, f"설치 파일을 자동으로 다운로드하지 못했습니다.\n\n상세: {exc}\n\nGitHub 릴리스 페이지를 열까요?"):
+        if messagebox.askyesno(APP_TITLE, translate("download_failed", detail=exc)):
             webbrowser.open(release_url)
         return
 
@@ -321,7 +447,7 @@ def main() -> int:
 
     should_install = messagebox.askyesno(
         APP_TITLE,
-        "FileOps 프로그램이 설치되어 있지 않습니다.\n\nGitHub에서 최신 설치 파일을 다운로드하고 설치할까요?",
+        translate("not_installed"),
     )
     if should_install:
         download_and_run_installer(root)
