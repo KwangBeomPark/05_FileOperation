@@ -10,8 +10,9 @@ VersionInfoProductVersion={#AppVersion}
 DefaultDirName={localappdata}\IntegratedDataTool
 DefaultGroupName=IntegratedDataTool
 UninstallDisplayIcon={app}\IntegratedDataTool.exe
-OutputDir=dist
+OutputDir=..\release
 OutputBaseFilename=IntegratedDataTool_Setup_v{#AppVersion}
+SetupIconFile=..\src\assets\icon.ico
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=lowest
@@ -19,7 +20,7 @@ CloseApplications=yes
 CloseApplicationsFilter=IntegratedDataTool.exe
 
 [Files]
-Source: "dist\IntegratedDataTool.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\IntegratedDataTool.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\IntegratedDataTool"; Filename: "{app}\IntegratedDataTool.exe"

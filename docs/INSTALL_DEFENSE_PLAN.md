@@ -2,8 +2,8 @@
 
 ## 현재 확인된 위험
 
-1. GitHub에서 소스만 clone/download 하면 `dist/` 산출물은 포함되지 않는다.
-   - `.gitignore`가 `dist/`를 제외하므로 `IntegratedDataTool_Setup_vX.Y.Z.exe`는 Git 소스에 없다.
+1. GitHub에서 소스만 clone/download 하면 생성 산출물은 포함되지 않는다.
+   - `.gitignore`가 `dist/`와 `release/`를 제외하므로 `IntegratedDataTool_Setup_vX.Y.Z.exe`는 Git 소스에 없다.
    - 설치 대상 PC에는 GitHub Releases의 설치 파일을 내려받거나, 해당 PC에서 빌드를 먼저 해야 한다.
 
 2. 문서에는 `python tools/build_all.py`가 있었지만 실제 Git 추적 파일에는 없었다.
@@ -54,7 +54,8 @@ python tools/diagnose_install.py --check-browser --check-office
 - `python -m pip check` 통과
 - `python tools/build_all.py` 통과
 - `dist/IntegratedDataTool.exe` 생성 확인
-- `dist/IntegratedDataTool_Setup_vX.Y.Z.exe` 생성 확인
+- `release/IntegratedDataTool_Setup_vX.Y.Z.exe` 생성 확인
+- `release/App05_FileOps_vX.Y.Z.exe`와 `.sha256` manifest 생성 확인
 - 설치 파일을 테스트 PC에 복사해 설치와 최초 실행 확인
 - EML 변환을 한 번 실행해 Playwright Chromium 설치/실행 확인
 - OCR PC에서는 Tesseract 경로가 Settings에 잡히는지 확인
@@ -62,7 +63,7 @@ python tools/diagnose_install.py --check-browser --check-office
 
 ## 장애별 1차 대응
 
-- `dist\IntegratedDataTool.exe`를 찾을 수 없음: 소스만 받은 상태다. `python tools/build_all.py`로 빌드하거나 Release 설치 파일을 받는다.
+- `release\IntegratedDataTool_Setup_vX.Y.Z.exe`를 찾을 수 없음: 소스만 받은 상태다. `python tools/build_all.py`로 빌드하거나 Release 설치 파일을 받는다.
 - `iscc`를 찾을 수 없음: Inno Setup이 설치되어 있지 않거나 기본 설치 경로/PATH에서 찾을 수 없다. Inno Setup 설치 후 새 터미널에서 다시 빌드한다.
 - 설치 후 EML 변환 실패: `tools/diagnose_install.py --check-browser`로 Playwright driver/Chromium 상태를 확인한다.
 - OCR 실패: Tesseract 설치 여부와 Settings의 `tesseract.exe` 경로를 확인한다.

@@ -13,12 +13,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-SPEC_FILE = ROOT / "IntegratedDataTool.spec"
-SETUP_SCRIPT = ROOT / "setup.iss"
+SPEC_FILE = ROOT / "tools" / "IntegratedDataTool.spec"
+SETUP_SCRIPT = ROOT / "tools" / "setup.iss"
 DIST_DIR = ROOT / "dist"
+RELEASE_DIR = ROOT / "release"
 LOCAL_BUILD_DIR = ROOT / "tools" / "_local"
 APP_EXE = DIST_DIR / "IntegratedDataTool.exe"
-LAUNCHER_SOURCE = ROOT / "App05_FileOps.pyw"
+LAUNCHER_SOURCE = ROOT / "tools" / "App05_FileOps.pyw"
 LAUNCHER_BASENAME = "App05_FileOps"
 VERSION_FILE = SRC / "version.py"
 VERSION_PATTERN = re.compile(r'^APP_VERSION\s*=\s*["\'](\d+(?:\.\d+)*)["\']\s*$', re.MULTILINE)
@@ -58,11 +59,11 @@ def read_app_version() -> str:
 
 
 def setup_exe_path(app_version: str) -> Path:
-    return DIST_DIR / f"IntegratedDataTool_Setup_v{app_version}.exe"
+    return RELEASE_DIR / f"IntegratedDataTool_Setup_v{app_version}.exe"
 
 
 def launcher_exe_path(app_version: str) -> Path:
-    return ROOT / f"{LAUNCHER_BASENAME}_v{app_version}.exe"
+    return RELEASE_DIR / f"{LAUNCHER_BASENAME}_v{app_version}.exe"
 
 
 def version_tuple(app_version: str) -> tuple[int, int, int, int]:
@@ -164,7 +165,7 @@ def verify_source_tree() -> None:
 
 
 def run_static_checks(skip_ruff: bool, skip_tests: bool) -> None:
-    run([sys.executable, "-m", "compileall", "-q", "src", "tools", "App05_FileOps.pyw"])
+    run([sys.executable, "-m", "compileall", "-q", "src", "tools", str(LAUNCHER_SOURCE)])
     run([sys.executable, "-m", "pip", "check"])
     if not skip_tests:
         run([sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_*.py", "-v"])
@@ -212,6 +213,7 @@ def build_launcher(skip_pyinstaller: bool, app_version: str) -> Path:
     if not module_available("PyInstaller"):
         raise SystemExit("PyInstaller is not installed. Run: python -m pip install -r requirements.txt")
 
+    RELEASE_DIR.mkdir(parents=True, exist_ok=True)
     version_resource = write_version_resource(
         app_version,
         resource_name="App05_FileOps.version",
@@ -231,7 +233,7 @@ def build_launcher(skip_pyinstaller: bool, app_version: str) -> Path:
             "--name",
             launcher_exe.stem,
             "--distpath",
-            str(ROOT),
+            str(RELEASE_DIR),
             "--workpath",
             str(LOCAL_BUILD_DIR / "app05_build"),
             "--specpath",
@@ -288,7 +290,7 @@ def sign_artifact(path: Path, required: bool) -> None:
 def write_checksum_manifest(app_version: str, setup_exe: Path | None, launcher_exe: Path) -> None:
     if not setup_exe:
         return
-    manifest = DIST_DIR / f"IntegratedDataTool_Setup_v{app_version}.sha256"
+    manifest = RELEASE_DIR / f"IntegratedDataTool_Setup_v{app_version}.sha256"
     manifest.write_text(
         f"{sha256(setup_exe)}  {setup_exe.name}\n{sha256(launcher_exe)}  {launcher_exe.name}\n",
         encoding="ascii",

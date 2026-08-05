@@ -14,10 +14,10 @@ if SRC_PATH not in sys.path:
     sys.path.insert(0, SRC_PATH)
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtGui import QIcon
 
 from src.ui.main_window import APP_STYLESHEET, MainWindow, create_dark_palette
 from src.utils.logger import setup_logger
-
 
 def show_fatal_error(summary: str, details: str) -> None:
     """Report startup failures even when the Qt window could not be constructed."""
@@ -28,7 +28,6 @@ def show_fatal_error(summary: str, details: str) -> None:
         if sys.platform == "win32":
             ctypes.windll.user32.MessageBoxW(None, message, "FileOps Hub 시작 오류", 0x10)
 
-
 def handle_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
@@ -37,12 +36,24 @@ def handle_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
     logging.getLogger(__name__).critical("Unhandled application exception:\n%s", details)
     show_fatal_error("예기치 않은 오류로 프로그램을 계속 실행할 수 없습니다.", str(exc_value))
 
-
 def main() -> int:
     setup_logger()
     sys.excepthook = handle_unhandled_exception
+
+    if sys.platform == "win32":
+        try:
+            myappid = "fileops.hub.desktop.v1"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception:
+            pass
+
     try:
         app = QApplication(sys.argv)
+
+        icon_path = os.path.join(SRC_PATH, "assets", "icon.ico")
+        if os.path.exists(icon_path):
+            app.setWindowIcon(QIcon(icon_path))
+
         app.setStyle("Fusion")
         app.setPalette(create_dark_palette())
         app.setStyleSheet(APP_STYLESHEET)

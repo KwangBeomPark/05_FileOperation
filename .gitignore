@@ -16,9 +16,10 @@ htmlcov/
 # PyInstaller Build output
 build/
 dist/
+release/
 App05_FileOps*.exe
 *.spec
-!IntegratedDataTool.spec
+!tools/IntegratedDataTool.spec
 
 # Local-only scratch files under tracked validation tools
 tools/_local/

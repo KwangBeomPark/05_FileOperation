@@ -410,7 +410,10 @@ def download_and_run_installer(root: tk.Tk) -> None:
 
     if progress:
         progress.close()
-    subprocess.Popen([str(destination)], close_fds=True)
+    if os.name == "nt":
+        os.startfile(str(destination))
+    else:
+        subprocess.Popen([str(destination)], close_fds=True)
 
 
 def main() -> int:
@@ -424,7 +427,11 @@ def main() -> int:
 
     installed_exe = find_installed_exe()
     if installed_exe:
-        subprocess.Popen([str(installed_exe)], cwd=str(installed_exe.parent), close_fds=True)
+        if os.name == "nt":
+            os.chdir(str(installed_exe.parent))
+            os.startfile(str(installed_exe))
+        else:
+            subprocess.Popen([str(installed_exe)], cwd=str(installed_exe.parent), close_fds=True)
         return 0
 
     should_install = messagebox.askyesno(

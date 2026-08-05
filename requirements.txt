@@ -5,3 +5,4 @@ Pillow==12.2.0
 playwright==1.60.0
 pywin32==312; sys_platform == "win32"
 PyInstaller==6.21.0
+qtawesome==1.4.2

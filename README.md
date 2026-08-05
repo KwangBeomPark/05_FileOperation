@@ -13,14 +13,16 @@
 
 ## 주요 기능
 
-- `Folder Sync`: 여러 폴더의 최상위 파일을 비교해 최신본을 배포하고 구버전·충돌본을 `to be deleted`에 보존
-- `EML Image`: 등록한 소스 폴더의 EML을 PNG로 일괄 변환하고 변경 없는 파일은 건너뜀
-- `PDF Image`: 선택한 PDF의 각 페이지를 JPG로 렌더링
-- `Image OCR`: 이미지 텍스트에서 프로모션 번호를 찾아 충돌 없는 이름으로 변경
-- `Bypass Convert`: Office COM을 사용한 Excel/PowerPoint/Word 변환과 PDF ZIP 패키징
-- `Task Runner`: 활성 작업 순차 실행, 매일 예약 실행, SMTP 결과 보고, 실패 시 로컬 보고서 저장
+이 앱은 실제 화면의 탭 구성 순서에 따라 다음과 같은 핵심 기능들을 제공합니다:
 
-통합 실행은 각 기능 탭의 `build_run_config()`가 만든 명시적 실행 계약을 `RunPlan`으로 묶고, 공통 preflight 후 PyQt 없는 core 실행 엔진에서 순차 처리합니다. UI 스레드는 진행 상태와 취소 신호만 연결합니다.
+1. **Tasks (통합 실행 및 예약)**: 활성화된 각 탭의 작업을 순차적으로 통합 실행하고, 매일 특정 시간에 작동하도록 예약할 수 있습니다. 작업 완료 후 담당자에게 SMTP 이메일로 결과를 보고하며, 메일 발송 실패 시 로컬 보고서를 남깁니다.
+2. **Sync (폴더 동기화)**: 여러 부서의 폴더 간 최상위 파일을 비교해 최신본을 배포합니다. 구버전이나 충돌본은 `to be deleted` 폴더에 안전하게 보존하여 유실을 방지합니다.
+3. **EML (메일 이미지화)**: 등록한 소스 폴더 내의 EML(이메일) 파일들을 PNG 이미지로 일괄 변환하며, 변경 사항이 없는 파일은 자동으로 건너뜁니다.
+4. **PDF (PDF 이미지 변환)**: 선택한 PDF 문서의 모든 페이지를 JPG 이미지로 렌더링하여 정산 및 검수에 활용할 수 있게 합니다.
+5. **OCR (텍스트 추출 및 리네임)**: 이미지화된 파일에서 OCR(광학 문자 인식)을 통해 프로모션 번호를 추출하고, 중복 충돌을 방지하며 파일명을 깔끔하게 정리합니다.
+6. **Bypass (우회 변환 패키징)**: Office COM을 활용하여 Excel/PowerPoint/Word 문서를 변환하고, PDF 파일을 ZIP으로 안전하게 패키징합니다.
+
+통합 실행 모드는 각 기능 탭의 `build_run_config()`가 생성한 명시적 실행 계약을 `RunPlan`으로 묶어냅니다. 이후 공통 의존성 검사(preflight)를 거쳐, UI 프레임워크(PyQt)에 종속되지 않는 독립적인 core 실행 엔진에서 안전하게 순차 처리합니다. UI 스레드는 진행 상태와 취소 신호 전달만 담당합니다.
 
 ## 실행 환경
 
@@ -54,7 +56,7 @@ python tools/build_all.py
 
 `ruff`는 선택 검증입니다. 설치된 경우 `python -m ruff check src tools --select E9,F,B`를 추가로 실행합니다.
 
-앱 버전은 `src/version.py`만 수정합니다. `tools/build_all.py`는 테스트를 포함해 실행하고 같은 버전의 설치 파일 덮어쓰기를 기본 차단합니다. 설치 파일은 Git 소스 zip/clone에 포함되지 않습니다. 배포 대상 PC는 GitHub Releases의 `IntegratedDataTool_Setup_vX.Y.Z.exe`를 받아야 합니다. 설치 장애 대응 절차는 `INSTALL_DEFENSE_PLAN.md`와 `docs/RELEASE.md`를 확인합니다.
+앱 버전은 `src/version.py`만 수정합니다. `tools/build_all.py`는 테스트를 포함해 실행하고 같은 버전의 설치 파일 덮어쓰기를 기본 차단합니다. 설치 파일은 Git 소스 zip/clone에 포함되지 않습니다. 배포 대상 PC는 GitHub Releases의 `IntegratedDataTool_Setup_vX.Y.Z.exe`를 받아야 합니다. 설치 장애 대응 절차는 `docs/INSTALL_DEFENSE_PLAN.md`와 `docs/RELEASE.md`를 확인합니다.
 
 `App05_FileOps_vX.Y.Z.exe`는 별도 Python 설치 없이 실행되는 버전형 런처입니다. 설치된 FileOps Hub를 열고, 없으면 GitHub Release의 정식 설치 파일과 SHA-256 digest를 검증한 뒤 설치를 시작합니다. 이 런처도 Release 자산으로 함께 배포합니다.
 런처와 앱은 Windows 표시 언어를 자동 감지하며 English, 한국어, Polski를 지원합니다. 지원하지 않는 Windows 언어의 기본 표시는 English입니다.

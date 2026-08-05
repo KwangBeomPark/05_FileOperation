@@ -27,7 +27,7 @@ from src.core.preflight import (
 from src.utils.config_manager import ConfigManager
 from src.version import APP_VERSION
 
-SETUP_SCRIPT = ROOT / "setup.iss"
+RELEASE_DIR = ROOT / "release"
 
 
 def status(ok: bool, label: str, detail: str = "") -> bool:
@@ -67,6 +67,7 @@ def check_python_packages() -> bool:
         ("pytesseract", "pytesseract"),
         ("PIL.Image", "Pillow"),
         ("playwright.sync_api", "playwright"),
+        ("qtawesome", "qtawesome"),
         ("win32com.client", "pywin32 win32com"),
         ("pythoncom", "pywin32 pythoncom"),
     ]
@@ -80,9 +81,11 @@ def check_build_artifacts() -> bool:
     dist = ROOT / "dist"
     app_exe = dist / "IntegratedDataTool.exe"
     setup_exe = setup_exe_path()
+    launcher_exe = launcher_exe_path()
     ok = True
     ok &= status(app_exe.exists(), "app exe", str(app_exe))
     ok &= status(setup_exe.exists(), "installer exe", str(setup_exe))
+    ok &= status(launcher_exe.exists(), "release launcher", str(launcher_exe))
     iscc = find_iscc()
     if iscc:
         ok &= status(True, "Inno Setup compiler", iscc)
@@ -92,7 +95,11 @@ def check_build_artifacts() -> bool:
 
 
 def setup_exe_path() -> Path:
-    return ROOT / "dist" / f"IntegratedDataTool_Setup_v{APP_VERSION}.exe"
+    return RELEASE_DIR / f"IntegratedDataTool_Setup_v{APP_VERSION}.exe"
+
+
+def launcher_exe_path() -> Path:
+    return RELEASE_DIR / f"App05_FileOps_v{APP_VERSION}.exe"
 
 
 def find_iscc() -> str | None:

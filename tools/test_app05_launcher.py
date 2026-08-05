@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LAUNCHER_PATH = ROOT / "App05_FileOps.pyw"
+LAUNCHER_PATH = ROOT / "tools" / "App05_FileOps.pyw"
 loader = SourceFileLoader("app05_launcher", str(LAUNCHER_PATH))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 launcher = importlib.util.module_from_spec(spec)

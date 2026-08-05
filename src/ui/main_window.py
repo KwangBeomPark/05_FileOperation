@@ -313,7 +313,7 @@ class UpdateWorker(QThread):
     def __init__(self, current_version=APP_VERSION_TAG):
         super().__init__()
         self.updater = AutoUpdater(current_version=current_version)
-        
+
     def run(self):
         has_update, latest, url, notes = self.updater.check_for_updates()
         self.finished.emit(has_update, latest, url or "", notes, self.updater.last_error)
@@ -406,12 +406,14 @@ class MainWindow(QMainWindow):
         self.sync_tab = SyncTab(self.config_manager)
         self.bypass_tab = BypassTab(self.config_manager)
         
-        self.tab_widget.addTab(self.task_tab, tr("tab_tasks", self.language))
-        self.tab_widget.addTab(self.sync_tab, tr("tab_sync", self.language))
-        self.tab_widget.addTab(self.eml_tab, tr("tab_eml", self.language))
-        self.tab_widget.addTab(self.pdf_tab, tr("tab_pdf", self.language))
-        self.tab_widget.addTab(self.ocr_tab, tr("tab_ocr", self.language))
-        self.tab_widget.addTab(self.bypass_tab, tr("tab_bypass", self.language))
+        import qtawesome as qta
+
+        self.tab_widget.addTab(self.task_tab, qta.icon('fa5s.rocket', color='white'), tr("tab_tasks", self.language))
+        self.tab_widget.addTab(self.sync_tab, qta.icon('fa5s.sync-alt', color='white'), tr("tab_sync", self.language))
+        self.tab_widget.addTab(self.eml_tab, qta.icon('fa5s.envelope', color='white'), tr("tab_eml", self.language))
+        self.tab_widget.addTab(self.pdf_tab, qta.icon('fa5s.file-pdf', color='white'), tr("tab_pdf", self.language))
+        self.tab_widget.addTab(self.ocr_tab, qta.icon('fa5s.search', color='white'), tr("tab_ocr", self.language))
+        self.tab_widget.addTab(self.bypass_tab, qta.icon('fa5s.tools', color='white'), tr("tab_bypass", self.language))
         
         # 메뉴바 생성
         self.create_menu_bar()
