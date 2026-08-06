@@ -24,6 +24,11 @@ class LocalizationTests(unittest.TestCase):
         self.assertEqual(localize_static_text("PDF Input Files", "pl"), "Pliki PDF")
         self.assertEqual(localize_static_text("중지", "en"), "Stop")
 
+    def test_tray_messages_are_localized(self):
+        self.assertEqual(tr("tray_open", "ko"), "FileOps Hub 열기")
+        self.assertEqual(tr("tray_exit", "pl"), "Zakończ FileOps Hub")
+        self.assertIn("background", tr("tray_tooltip", "en"))
+
     def test_qt_static_widget_retranslation_keeps_the_original_source_text(self):
         import os
 

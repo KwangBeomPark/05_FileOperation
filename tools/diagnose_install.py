@@ -22,7 +22,6 @@ from src.core.preflight import (
     check_github_updater_settings as preflight_check_github_updater_settings,
     check_office_apps as preflight_check_office_apps,
     check_playwright_driver as preflight_check_playwright_driver,
-    check_tesseract as preflight_check_tesseract,
 )
 from src.utils.config_manager import ConfigManager
 from src.version import APP_VERSION

@@ -1,13 +1,17 @@
 from PyQt6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressDialog,
     QPushButton,
     QSizePolicy,
     QStatusBar,
+    QStyle,
+    QSystemTrayIcon,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -365,7 +369,14 @@ class MainWindow(QMainWindow):
         self.update_worker = None
         self.update_download_url = ""
         self.update_release_url = ""
+        self._is_exiting = False
+        self._tray_notice_shown = False
+        self.tray_icon = None
+        self.tray_menu = None
+        self.tray_open_action = None
+        self.tray_exit_action = None
         self.init_ui()
+        self.setup_system_tray()
         
         # 시작 시 백그라운드 업데이트 확인. 저장소 설정이 비어 있으면 AutoUpdater 기본 저장소를 사용합니다.
         if self.config_manager.get("auto_check_update", "on_start") == "on_start":
@@ -430,6 +441,87 @@ class MainWindow(QMainWindow):
         for index, key in enumerate(tab_labels):
             self.tab_widget.setTabText(index, tr(key, self.language))
 
+    def setup_system_tray(self):
+        """Keep scheduled work alive after the main window is closed."""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            logger.warning("System tray is unavailable; closing the window will exit the application.")
+            return
+
+        app = QApplication.instance()
+        if app:
+            app.setQuitOnLastWindowClosed(False)
+
+        tray_icon = self.windowIcon()
+        if tray_icon.isNull() and app:
+            tray_icon = app.windowIcon()
+        if tray_icon.isNull():
+            tray_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+
+        self.tray_icon = QSystemTrayIcon(tray_icon, self)
+        self.tray_menu = QMenu(self)
+        self.tray_open_action = QAction(self)
+        self.tray_open_action.triggered.connect(self.show_from_tray)
+        self.tray_menu.addAction(self.tray_open_action)
+        self.tray_menu.addSeparator()
+        self.tray_exit_action = QAction(self)
+        self.tray_exit_action.triggered.connect(self.request_exit)
+        self.tray_menu.addAction(self.tray_exit_action)
+
+        self.tray_icon.setContextMenu(self.tray_menu)
+        self.tray_icon.activated.connect(self.on_tray_activated)
+        self.update_tray_translations()
+        self.tray_icon.show()
+        if app:
+            app.aboutToQuit.connect(self.tray_icon.hide)
+
+    def update_tray_translations(self):
+        if not self.tray_icon:
+            return
+        self.tray_icon.setToolTip(tr("tray_tooltip", self.language))
+        self.tray_open_action.setText(tr("tray_open", self.language))
+        self.tray_exit_action.setText(tr("tray_exit", self.language))
+
+    def on_tray_activated(self, reason):
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            self.show_from_tray()
+
+    def show_from_tray(self):
+        if self.isMinimized():
+            self.showNormal()
+        else:
+            self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def hide_to_tray(self):
+        self.save_window_state()
+        self.hide()
+        if self.tray_icon and not self._tray_notice_shown:
+            self.tray_icon.showMessage(
+                tr("tray_running_title", self.language),
+                tr("tray_running_message", self.language),
+                QSystemTrayIcon.MessageIcon.Information,
+                4000,
+            )
+            self._tray_notice_shown = True
+
+    def request_exit(self):
+        """Exit only from an explicit menu action; a normal window close hides to tray."""
+        if self._is_exiting:
+            return
+        self._is_exiting = True
+        if not self.close():
+            self._is_exiting = False
+            return
+        if self.tray_icon:
+            self.tray_icon.hide()
+        app = QApplication.instance()
+        if app:
+            app.quit()
+
     def create_update_banner(self):
         banner = QFrame()
         banner.setObjectName("UpdateBanner")
@@ -487,7 +579,7 @@ class MainWindow(QMainWindow):
         
         exit_action = QAction(tr("exit", self.language), self)
         exit_action.setShortcut("Alt+F4")
-        exit_action.triggered.connect(self.close)
+        exit_action.triggered.connect(self.request_exit)
         self.file_menu.addAction(exit_action)
         
         self.help_menu = menu_bar.addMenu(tr("help_menu", self.language))
@@ -676,6 +768,7 @@ class MainWindow(QMainWindow):
         self.update_download_btn.setText(tr("download", self.language))
         self.update_release_btn.setText(tr("view_release", self.language))
         self.update_close_btn.setToolTip(tr("close_update_notice", self.language))
+        self.update_tray_translations()
 
     def set_all_tabs_locked(self, locked):
         """통합 태스크 실행 중 모든 탭 바 및 개별 탭 UI를 비활성화"""
@@ -691,6 +784,11 @@ class MainWindow(QMainWindow):
         self.config_manager.set("window_size", [size.width(), size.height()])
             
     def closeEvent(self, event):
+        if self.tray_icon and self.tray_icon.isVisible() and not self._is_exiting:
+            event.ignore()
+            self.hide_to_tray()
+            return
+
         active_tasks = []
         if self.task_tab.is_running:
             active_tasks.append("통합 일괄 실행")
@@ -723,9 +821,14 @@ class MainWindow(QMainWindow):
                 self.sync_tab.stop_all()
                 self.bypass_tab.stop_all()
                 self.save_window_state()
+                if self.tray_icon:
+                    self.tray_icon.hide()
                 event.accept()
             else:
+                self._is_exiting = False
                 event.ignore()
         else:
             self.save_window_state()
+            if self.tray_icon:
+                self.tray_icon.hide()
             event.accept()

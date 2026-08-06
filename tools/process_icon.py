@@ -1,6 +1,6 @@
 import sys
 import os
-from PIL import Image, ImageChops
+from PIL import Image
 
 def remove_background_and_crop(input_path, output_png_paths, output_ico_paths):
     img = Image.open(input_path).convert("RGBA")
@@ -8,9 +8,6 @@ def remove_background_and_crop(input_path, output_png_paths, output_ico_paths):
     # 1. Convert near-white background pixels to transparent
     data = img.getdata()
     new_data = []
-    
-    # Check corner pixel color as background sample
-    bg_sample = data[0]
     
     for item in data:
         r, g, b, a = item
