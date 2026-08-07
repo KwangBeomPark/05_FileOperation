@@ -12,13 +12,22 @@ from PyQt6.QtGui import QFont, QColor
 # Core Modules
 from src.core.email_sender import send_email
 from src.core.preflight import check_run_plan
-from src.core.task_contracts import RunPlan, TaskStep, TaskValidationError
+from src.core.task_contracts import RunPlan, StepStatus, TaskStep, TaskValidationError
+from src.ui.i18n import get_app_language, tr
 from src.ui.task_worker import TaskWorker
 from src.utils.logger import get_logger
 
 logger = get_logger()
 
 class TaskTab(QWidget):
+    STEP_ORDER = (
+        TaskStep.SYNC,
+        TaskStep.EML,
+        TaskStep.PDF,
+        TaskStep.OCR,
+        TaskStep.BYPASS,
+    )
+
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
@@ -50,13 +59,13 @@ class TaskTab(QWidget):
         ctrl_layout = QHBoxLayout()
         ctrl_frame.setLayout(ctrl_layout)
         
-        title_label = QLabel("통합 태스크 실행 센터")
-        title_label.setFont(QFont("Malgun Gothic", 12, QFont.Weight.Bold))
-        title_label.setStyleSheet("color: #e2e8f0;")
-        ctrl_layout.addWidget(title_label)
+        self.title_label = QLabel()
+        self.title_label.setFont(QFont("Malgun Gothic", 12, QFont.Weight.Bold))
+        self.title_label.setStyleSheet("color: #e2e8f0;")
+        ctrl_layout.addWidget(self.title_label)
         ctrl_layout.addStretch()
 
-        self.check_schedule = QCheckBox("매일 자동 실행")
+        self.check_schedule = QCheckBox()
         self.check_schedule.setChecked(
             bool(self.config_manager.get("task_schedule_enabled", False))
         )
@@ -75,7 +84,7 @@ class TaskTab(QWidget):
         ctrl_layout.addWidget(self.schedule_time_edit)
         
         # 메일 자동 발송 체크박스
-        self.check_auto_email = QCheckBox("작업 완료 후 결과 이메일 자동 발송")
+        self.check_auto_email = QCheckBox()
         self.check_auto_email.setChecked(
             bool(self.config_manager.get("task_auto_email", True))
         )
@@ -88,7 +97,7 @@ class TaskTab(QWidget):
         self.check_auto_email.toggled.connect(self.save_automation_settings)
         
         # 시작 / 중지 버튼
-        self.start_btn = QPushButton("일괄 작업 시작")
+        self.start_btn = QPushButton()
         self.start_btn.setMinimumHeight(35)
         self.start_btn.setStyleSheet("""
             QPushButton {
@@ -110,7 +119,7 @@ class TaskTab(QWidget):
         self.start_btn.clicked.connect(self.start_all_tasks)
         ctrl_layout.addWidget(self.start_btn)
         
-        self.stop_btn = QPushButton("작업 중지")
+        self.stop_btn = QPushButton()
         self.stop_btn.setMinimumHeight(35)
         self.stop_btn.setEnabled(False)
         self.stop_btn.setStyleSheet("""
@@ -134,13 +143,19 @@ class TaskTab(QWidget):
         ctrl_layout.addWidget(self.stop_btn)
         
         layout.addWidget(ctrl_frame)
+
+        self.selection_hint = QLabel()
+        self.selection_hint.setWordWrap(True)
+        self.selection_hint.setStyleSheet("color: #94a3b8; padding: 2px 4px;")
+        layout.addWidget(self.selection_hint)
         
         # 2. 중간 상태 그리드 테이블 (Tab Summary Status)
         self.status_table = QTableWidget()
-        self.status_table.setColumnCount(2)
+        self.status_table.setColumnCount(3)
         self.status_table.setRowCount(5)
-        self.status_table.setHorizontalHeaderLabels(["작업 단계", "현재 진행 상태"])
+        self.status_table.setHorizontalHeaderLabels(["", "", ""])
         self.status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.status_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.status_table.verticalHeader().setVisible(False)
         self.status_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self.status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -162,28 +177,39 @@ class TaskTab(QWidget):
             }
         """)
         
-        steps = [
-            ("Folder Sync", "sync"),
-            ("EML Image", "eml"),
-            ("PDF Image", "pdf"),
-            ("Image OCR", "ocr"),
-            ("Bypass Convert", "bypass")
-        ]
+        enabled_values = self.config_manager.get("task_enabled_steps", [TaskStep.SYNC.value])
+        if not isinstance(enabled_values, list):
+            enabled_values = [TaskStep.SYNC.value]
+        enabled_steps = {str(value) for value in enabled_values}
         self.step_keys = {}
-        for row_idx, (name, key) in enumerate(steps):
+        self.step_checks = {}
+        for row_idx, step in enumerate(self.STEP_ORDER):
+            key = step.value
             self.step_keys[key] = row_idx
+
+            run_check = QCheckBox()
+            run_check.setChecked(key in enabled_steps)
+            run_check.setToolTip(key)
+            run_check.toggled.connect(self.save_enabled_steps)
+            check_holder = QWidget()
+            check_layout = QHBoxLayout(check_holder)
+            check_layout.setContentsMargins(0, 0, 0, 0)
+            check_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            check_layout.addWidget(run_check)
+            self.status_table.setCellWidget(row_idx, 0, check_holder)
+            self.step_checks[step] = run_check
             
             # 단계명
-            name_item = QTableWidgetItem(name)
+            name_item = QTableWidgetItem()
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             name_item.setFont(QFont("Malgun Gothic", 9, QFont.Weight.Bold))
-            self.status_table.setItem(row_idx, 0, name_item)
+            self.status_table.setItem(row_idx, 1, name_item)
             
             # 상태
-            status_item = QTableWidgetItem("대기 중")
+            status_item = QTableWidgetItem()
             status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             status_item.setForeground(QColor("#94a3b8"))
-            self.status_table.setItem(row_idx, 1, status_item)
+            self.status_table.setItem(row_idx, 2, status_item)
             
         layout.addWidget(self.status_table)
         
@@ -194,7 +220,7 @@ class TaskTab(QWidget):
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("통합 진행률: %p%")
+        self.progress_bar.setFormat("")
         self.progress_bar.setStyleSheet("""
             QProgressBar {
                 border: 1px solid #3e3e3e;
@@ -212,16 +238,16 @@ class TaskTab(QWidget):
         progress_layout.addWidget(self.progress_bar)
         
         # 미세 진행 레이블
-        self.detail_label = QLabel("대기 중...")
+        self.detail_label = QLabel()
         self.detail_label.setStyleSheet("font-size: 11px; color: #a0a0a0;")
         progress_layout.addWidget(self.detail_label)
         
         layout.addLayout(progress_layout)
         
         # 4. 하단 상세 로그창
-        log_label = QLabel("실시간 작업 로그")
-        log_label.setFont(QFont("Malgun Gothic", 10, QFont.Weight.Bold))
-        layout.addWidget(log_label)
+        self.log_label = QLabel()
+        self.log_label.setFont(QFont("Malgun Gothic", 10, QFont.Weight.Bold))
+        layout.addWidget(self.log_label)
         
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
@@ -236,6 +262,57 @@ class TaskTab(QWidget):
             }
         """)
         layout.addWidget(self.log_area)
+        self.refresh_language()
+
+    @property
+    def language(self):
+        return get_app_language(self.config_manager)
+
+    def step_label(self, step):
+        return tr(f"task_step_{step.value}", self.language)
+
+    def _text(self, english, korean, polish):
+        return {"ko": korean, "pl": polish}.get(self.language, english)
+
+    def selected_steps(self):
+        return [step for step in self.STEP_ORDER if self.step_checks[step].isChecked()]
+
+    def save_enabled_steps(self, _checked=False):
+        self.config_manager.set("task_enabled_steps", [step.value for step in self.selected_steps()])
+        if not self.is_running:
+            for step in self.STEP_ORDER:
+                row = self.step_keys[step.value]
+                status_key = "pending" if self.step_checks[step].isChecked() else "skipped"
+                self._set_status_item(self.status_table.item(row, 2), status_key)
+
+    def refresh_language(self):
+        language = self.language
+        self.title_label.setText(tr("task_title", language))
+        self.check_schedule.setText(tr("task_schedule", language))
+        self.check_auto_email.setText(tr("task_auto_email", language))
+        self.start_btn.setText(tr("task_start", language))
+        self.stop_btn.setText(tr("task_stop", language))
+        self.selection_hint.setText(tr("task_selection_hint", language))
+        self.status_table.setHorizontalHeaderLabels([
+            tr("task_run_header", language),
+            tr("task_feature_header", language),
+            tr("task_status_header", language),
+        ])
+        for step in self.STEP_ORDER:
+            row = self.step_keys[step.value]
+            self.status_table.item(row, 1).setText(self.step_label(step))
+            status_item = self.status_table.item(row, 2)
+            status_key = status_item.data(Qt.ItemDataRole.UserRole)
+            if not status_key:
+                status_key = "pending" if self.step_checks[step].isChecked() else "skipped"
+            self._set_status_item(status_item, status_key)
+        self.progress_bar.setFormat(tr("task_progress_format", language))
+        self.detail_label.setText(tr("task_waiting", language))
+        self.log_label.setText(tr("task_log_title", language))
+
+    def _set_status_item(self, item, status_key):
+        item.setData(Qt.ItemDataRole.UserRole, status_key)
+        item.setText(tr(f"task_status_{status_key}", self.language))
         
     def log(self, message):
         self.log_area.append(message)
@@ -253,6 +330,7 @@ class TaskTab(QWidget):
         self.config_manager.set(
             "task_auto_email", self.check_auto_email.isChecked()
         )
+        self.save_enabled_steps()
 
     def check_scheduled_run(self, now=None):
         """앱이 실행 중일 때 지정 시각 이후 하루 한 번 일괄 작업을 시작합니다."""
@@ -272,12 +350,15 @@ class TaskTab(QWidget):
 
         # 잘못된 설정으로 30초마다 재시도하지 않도록 당일 실행 시도를 먼저 기록합니다.
         self.config_manager.set("task_schedule_last_run_date", today)
-        self.log(
-            f"[예약 실행] {now.strftime('%Y-%m-%d %H:%M:%S')} 일괄 작업을 시작합니다."
-        )
+        prefix = tr("task_scheduled_prefix", self.language)
+        self.log(f"[{prefix}] " + tr(
+            "task_scheduled_start",
+            self.language,
+            timestamp=now.strftime('%Y-%m-%d %H:%M:%S'),
+        ))
         started = self.start_all_tasks(scheduled=True)
         if not started:
-            self.log("[예약 실행] 실행 가능한 작업 설정이 없어 오늘 작업을 건너뜁니다.")
+            self.log(f"[{prefix}] {tr('task_scheduled_skipped', self.language)}")
         return started
 
     def start_all_tasks(self, checked=False, scheduled=False):
@@ -287,6 +368,21 @@ class TaskTab(QWidget):
             
         main_win = self.window()
         if not main_win:
+            return False
+
+        selected_steps = self.selected_steps()
+        if not selected_steps:
+            if scheduled:
+                self.log(
+                    f"[{tr('task_scheduled_prefix', self.language)}] "
+                    + tr("task_no_selection_body", self.language)
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    tr("task_no_selection_title", self.language),
+                    tr("task_no_selection_body", self.language),
+                )
             return False
             
         # 1. 5개 탭의 명시적 실행 계약 수집
@@ -299,32 +395,59 @@ class TaskTab(QWidget):
             TaskStep.BYPASS: getattr(main_win, "bypass_tab", None),
         }
         
+        current_step = selected_steps[0]
         try:
-            for step, tab_obj in tabs.items():
+            for step in selected_steps:
+                current_step = step
+                tab_obj = tabs.get(step)
                 if tab_obj and hasattr(tab_obj, "build_run_config"):
                     config = tab_obj.build_run_config()
-                    if config is not None:
-                        configs[step] = config
+                    if config is None:
+                        raise TaskValidationError(
+                            tr("task_no_config", self.language),
+                            message_key="task_no_config",
+                        )
+                    configs[step] = config
         except TaskValidationError as val_err:
+            feature = self.step_label(current_step)
+            problem = (
+                tr(val_err.message_key, self.language, **val_err.values)
+                if val_err.message_key
+                else val_err.user_message
+            )
+            title = tr("task_validation_title", self.language, feature=feature)
+            body = tr(
+                "task_validation_body",
+                self.language,
+                feature=feature,
+                problem=problem,
+            )
             if scheduled:
-                self.log(f"[예약 실행] 설정 오류: {val_err.user_message}")
+                self.log(f"[{tr('task_scheduled_prefix', self.language)}] {title}\n{body}")
             else:
-                QMessageBox.warning(self, "설정 오류", f"작업 실행을 준비하는 과정에서 설정 누락 또는 오입력이 감지되었습니다:\n\n{val_err.user_message}")
+                QMessageBox.warning(self, title, body)
             return False
         except Exception as ex:
+            feature = self.step_label(current_step)
+            body = tr(
+                "task_validation_unexpected",
+                self.language,
+                feature=feature,
+                detail=str(ex),
+            )
             if scheduled:
-                self.log(f"[예약 실행] 설정 검증 오류: {ex}")
+                self.log(f"[{tr('task_scheduled_prefix', self.language)}] {body}")
             else:
-                QMessageBox.critical(self, "오류", f"설정을 검증하는 도중 오류가 발생했습니다: {ex}")
+                QMessageBox.critical(self, tr("run_error", self.language), body)
             return False
 
         run_plan = RunPlan(configs=configs)
             
         if run_plan.is_empty():
             if scheduled:
-                self.log("[예약 실행] 활성화된 태스크가 없습니다.")
+                self.log(self._text("[Scheduled run] No runnable task was found.", "[예약 실행] 실행 가능한 작업이 없습니다.", "[Harmonogram] Nie znaleziono zadania do uruchomienia."))
             else:
-                QMessageBox.warning(self, "실행 대상 없음", "활성화된 태스크가 하나도 없습니다.\n각 탭에서 변환 대상이나 그룹을 설정한 후 시작해 주세요.")
+                QMessageBox.warning(self, tr("task_no_selection_title", self.language), tr("task_no_selection_body", self.language))
             return False
 
         # 2. 활성 단계 기준 외부 의존성 사전 점검
@@ -336,20 +459,20 @@ class TaskTab(QWidget):
         )
         if preflight.has_blockers:
             if scheduled:
-                self.log("[예약 실행] 사전 점검 차단 이슈:\n" + preflight.format(include_warnings=False))
+                self.log(self._text("[Scheduled run] Preflight blocker:\n", "[예약 실행] 사전 점검 차단 항목:\n", "[Harmonogram] Problem kontroli wstępnej:\n") + preflight.format(include_warnings=False))
             else:
-                QMessageBox.critical(self, "사전 점검 실패", preflight.format(include_warnings=False))
+                QMessageBox.critical(self, self._text("Preflight check failed", "사전 점검 실패", "Kontrola wstępna nie powiodła się"), preflight.format(include_warnings=False))
             return False
 
         if preflight.warnings:
             warning_text = preflight.format(include_warnings=True)
             if scheduled:
-                self.log("[예약 실행] 사전 점검 경고:\n" + warning_text)
+                self.log(self._text("[Scheduled run] Preflight warning:\n", "[예약 실행] 사전 점검 경고:\n", "[Harmonogram] Ostrzeżenie kontroli wstępnej:\n") + warning_text)
             else:
                 reply = QMessageBox.question(
                     self,
-                    "사전 점검 경고",
-                    warning_text + "\n\n경고를 확인했습니다. 계속 진행할까요?",
+                    self._text("Preflight warning", "사전 점검 경고", "Ostrzeżenie kontroli wstępnej"),
+                    warning_text + "\n\n" + self._text("Continue anyway?", "계속 진행할까요?", "Czy mimo to kontynuować?"),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.Yes,
                 )
@@ -362,19 +485,23 @@ class TaskTab(QWidget):
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.check_auto_email.setEnabled(False)
+        self.check_schedule.setEnabled(False)
+        self.schedule_time_edit.setEnabled(False)
+        for check in self.step_checks.values():
+            check.setEnabled(False)
         
         # 탭 상태 초기화
         for key in self.step_keys.keys():
             row = self.step_keys[key]
             if TaskStep(key) not in run_plan.configs:
-                self.status_table.item(row, 1).setText("건너뜀")
-                self.status_table.item(row, 1).setForeground(QColor("#94a3b8"))
+                self._set_status_item(self.status_table.item(row, 2), "skipped")
+                self.status_table.item(row, 2).setForeground(QColor("#94a3b8"))
             else:
-                self.status_table.item(row, 1).setText("대기 중")
-                self.status_table.item(row, 1).setForeground(QColor("#38bdf8"))
+                self._set_status_item(self.status_table.item(row, 2), "pending")
+                self.status_table.item(row, 2).setForeground(QColor("#38bdf8"))
                 
         self.progress_bar.setValue(0)
-        self.detail_label.setText("통합 태스크 분석 중...")
+        self.detail_label.setText(tr("task_status_running", self.language))
         self.log_area.clear()
         
         # 다른 탭들 UI 잠금 걸기
@@ -395,8 +522,12 @@ class TaskTab(QWidget):
         """실행 중인 통합 태스크 강제 중지"""
         if self.worker and self.worker.isRunning():
             self.stop_btn.setEnabled(False)
-            self.detail_label.setText("작업 중지 요청 중...")
-            self.log("⚠ 작업 중지 요청을 전송하였습니다. 잠시만 기다려 주세요...")
+            self.detail_label.setText(self._text("Requesting stop...", "작업 중지 요청 중...", "Żądanie zatrzymania..."))
+            self.log(self._text(
+                "⚠ Stop requested. Please wait for the current file to finish...",
+                "⚠ 중지를 요청했습니다. 현재 파일 처리가 끝날 때까지 기다려 주세요...",
+                "⚠ Zażądano zatrzymania. Poczekaj na zakończenie bieżącego pliku...",
+            ))
             self.worker.stop()
             
     def stop_all(self):
@@ -411,17 +542,25 @@ class TaskTab(QWidget):
     def update_status_cell(self, key, status):
         if key in self.step_keys:
             row = self.step_keys[key]
-            cell = self.status_table.item(row, 1)
-            cell.setText(status)
-            if status == "진행 중":
+            cell = self.status_table.item(row, 2)
+            status_keys = {
+                StepStatus.PENDING.value: "pending",
+                StepStatus.RUNNING.value: "running",
+                StepStatus.COMPLETED.value: "completed",
+                StepStatus.PARTIAL.value: "partial",
+                StepStatus.FAILED.value: "failed",
+                StepStatus.CANCELLED.value: "cancelled",
+                StepStatus.SKIPPED.value: "skipped",
+            }
+            status_key = status_keys.get(status, "failed")
+            self._set_status_item(cell, status_key)
+            if status_key == "running":
                 cell.setForeground(QColor("#38bdf8"))
-            elif status == "완료":
+            elif status_key == "completed":
                 cell.setForeground(QColor("#4ade80"))
-            elif status == "일부 실패":
+            elif status_key in ("partial", "failed"):
                 cell.setForeground(QColor("#f87171"))
-            elif status == "실패":
-                cell.setForeground(QColor("#f87171"))
-            elif status == "취소됨":
+            elif status_key == "cancelled":
                 cell.setForeground(QColor("#fbbf24"))
             else:
                 cell.setForeground(QColor("#94a3b8"))
@@ -433,6 +572,10 @@ class TaskTab(QWidget):
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.check_auto_email.setEnabled(True)
+        self.check_schedule.setEnabled(True)
+        self.schedule_time_edit.setEnabled(self.check_schedule.isChecked())
+        for check in self.step_checks.values():
+            check.setEnabled(True)
         
         main_win = self.window()
         if hasattr(main_win, "set_all_tabs_locked"):
@@ -445,18 +588,27 @@ class TaskTab(QWidget):
             self.send_report_email(report_body)
         
         if success:
-            self.log(f"\n[성공] {message}")
+            self.log(f"\n[{self._text('Success', '성공', 'Powodzenie')}] {message}")
             if not scheduled_run:
-                QMessageBox.information(self, "완료", f"통합 태스크 실행이 성공적으로 완료되었습니다.\n\n{message}")
+                QMessageBox.information(
+                    self,
+                    self._text("Completed", "완료", "Zakończono"),
+                    message,
+                )
         else:
-            self.log(f"\n[중단/실패] {message}")
+            self.log(f"\n[{self._text('Stopped/Failed', '중단/실패', 'Zatrzymano/Błąd')}] {message}")
             if not scheduled_run:
-                if "중지" in message:
-                    QMessageBox.warning(self, "중지됨", message)
+                if "중지" in message or "stopped" in message.lower() or "zatrzym" in message.lower():
+                    QMessageBox.warning(self, self._text("Stopped", "중지됨", "Zatrzymano"), message)
                 elif report_body:
-                    QMessageBox.warning(self, "일부 실패", message)
+                    QMessageBox.warning(self, self._text("Partially failed", "일부 실패", "Częściowe niepowodzenie"), message)
                 else:
-                    QMessageBox.critical(self, "실패", f"작업 도중 오류가 발생했습니다:\n\n{message}")
+                    QMessageBox.critical(
+                        self,
+                        self._text("Failed", "실패", "Niepowodzenie"),
+                        self._text("An error occurred while running the tasks.", "작업 실행 중 오류가 발생했습니다.", "Wystąpił błąd podczas wykonywania zadań.")
+                        + f"\n\n{message}",
+                    )
 
     def send_report_email(self, report_body):
         """결과 리포트 이메일 전송 및 실패 시 로컬 Fallback"""
@@ -469,7 +621,7 @@ class TaskTab(QWidget):
         mail_body_header = self.config_manager.get("mail_body_header", "").strip()
         
         if not smtp_server or not sender_email or not receiver_email:
-            self.log("✗ SMTP 설정 정보가 누락되어 이메일 발송을 취소합니다.")
+            self.log(self._text("✗ Email was skipped because SMTP settings are incomplete.", "✗ SMTP 설정이 누락되어 이메일 발송을 건너뜁니다.", "✗ Pominięto e-mail z powodu niepełnych ustawień SMTP."))
             self.save_fallback_report(report_body)
             return
             
@@ -485,7 +637,7 @@ class TaskTab(QWidget):
             full_body += "=" * 60 + "\n\n"
         full_body += report_body
         
-        self.log(f"✉ [{receiver_email}] 수신자에게 이메일 발송을 시작합니다...")
+        self.log(self._text(f"✉ Sending the result to [{receiver_email}]...", f"✉ [{receiver_email}]에 결과를 발송합니다...", f"✉ Wysyłanie wyniku do [{receiver_email}]..."))
         
         # 비동기 발송이 아닌 동기적 발송으로 간결하게 처리 (완료 후 발송이므로 체감이 크지 않음)
         ok, send_msg = send_email(
@@ -499,9 +651,9 @@ class TaskTab(QWidget):
         )
         
         if ok:
-            self.log("✓ 이메일이 성공적으로 전송되었습니다.")
+            self.log(self._text("✓ Email sent successfully.", "✓ 이메일을 전송했습니다.", "✓ E-mail wysłany pomyślnie."))
         else:
-            self.log(f"✗ 이메일 전송에 실패하였습니다: {send_msg}")
+            self.log(self._text("✗ Email failed", "✗ 이메일 전송 실패", "✗ Nie udało się wysłać e-maila") + f": {send_msg}")
             # 로컬 Fallback 저장
             self.save_fallback_report(full_body)
             
@@ -535,9 +687,9 @@ class TaskTab(QWidget):
                 f.write(content)
             os.replace(temp_path, final_path)
             
-            msg = f"💾 결과 보고서가 로컬 파일로 저장되었습니다: {final_path}"
+            msg = self._text("💾 Result report saved locally", "💾 결과 보고서를 로컬에 저장했습니다", "💾 Raport zapisano lokalnie") + f": {final_path}"
             self.log(msg)
             logger.info(msg)
         except Exception as e:
             logger.error(f"Failed to save fallback report atomically: {e}")
-            self.log(f"✗ 결과 보고서 로컬 저장에 실패하였습니다: {e}")
+            self.log(self._text("✗ Could not save the result report", "✗ 결과 보고서를 저장하지 못했습니다", "✗ Nie można zapisać raportu") + f": {e}")

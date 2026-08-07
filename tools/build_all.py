@@ -21,6 +21,7 @@ LOCAL_BUILD_DIR = ROOT / "tools" / "_local"
 APP_EXE = DIST_DIR / "IntegratedDataTool.exe"
 LAUNCHER_SOURCE = ROOT / "tools" / "App05_FileOps.pyw"
 LAUNCHER_BASENAME = "App05_FileOps"
+APP_ICON = SRC / "assets" / "icon.ico"
 VERSION_FILE = SRC / "version.py"
 VERSION_PATTERN = re.compile(r'^APP_VERSION\s*=\s*["\'](\d+(?:\.\d+)*)["\']\s*$', re.MULTILINE)
 
@@ -160,7 +161,7 @@ def require_signing_configuration() -> None:
 
 
 def verify_source_tree() -> None:
-    for path in (SRC / "main.py", VERSION_FILE, SPEC_FILE, SETUP_SCRIPT, LAUNCHER_SOURCE, ROOT / "requirements.txt"):
+    for path in (SRC / "main.py", VERSION_FILE, SPEC_FILE, SETUP_SCRIPT, LAUNCHER_SOURCE, APP_ICON, ROOT / "requirements.txt"):
         require_file(path)
 
 
@@ -240,6 +241,8 @@ def build_launcher(skip_pyinstaller: bool, app_version: str) -> Path:
             str(LOCAL_BUILD_DIR),
             "--version-file",
             str(version_resource),
+            "--icon",
+            str(APP_ICON),
             str(LAUNCHER_SOURCE),
         ]
     )

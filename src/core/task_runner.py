@@ -24,6 +24,7 @@ from src.core.task_contracts import (
     SyncRunConfig,
     TaskStep,
 )
+from src.ui.i18n import get_app_language, tr
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +51,30 @@ class TaskRunner:
     def __init__(self, config_manager, run_plan: RunPlan):
         self.config_manager = config_manager
         self.run_plan = run_plan
+        self.language = get_app_language(config_manager)
         self.is_running = True
         self.eml_converter = EMLConverter(self.config_manager)
         self.pdf_converter = PDFConverter(self.config_manager)
         self.ocr_processor = OCRProcessor(self.config_manager)
         self.bypass_converter = BypassConverter()
+
+    def _text(self, english: str, korean: str, polish: str) -> str:
+        return {"ko": korean, "pl": polish}.get(self.language, english)
+
+    def _step_name(self, step: TaskStep) -> str:
+        return tr(f"task_step_{step.value}", self.language)
+
+    def _status_name(self, status: StepStatus) -> str:
+        status_keys = {
+            StepStatus.PENDING: "pending",
+            StepStatus.RUNNING: "running",
+            StepStatus.COMPLETED: "completed",
+            StepStatus.PARTIAL: "partial",
+            StepStatus.FAILED: "failed",
+            StepStatus.CANCELLED: "cancelled",
+            StepStatus.SKIPPED: "skipped",
+        }
+        return tr(f"task_status_{status_keys[status]}", self.language)
 
     def cancel(self) -> None:
         self.is_running = False
@@ -67,7 +87,7 @@ class TaskRunner:
         callbacks = callbacks or RunnerCallbacks()
         active_steps = self.run_plan.active_steps
         if not active_steps:
-            return RunReport({}, "", "실행할 활성 태스크가 없습니다. 각 탭의 세팅을 확인해 주세요.", False)
+            return RunReport({}, "", tr("task_no_selection_body", self.language), False)
 
         results = {
             step: StepResult(step=step, status=StepStatus.PENDING)
@@ -76,10 +96,15 @@ class TaskRunner:
 
         callbacks.total_progress(0)
         callbacks.log("=" * 60)
-        callbacks.log("▶ 통합 일괄 순차 실행 작업을 시작합니다.")
+        callbacks.log(self._text(
+            "▶ Starting the selected tasks.",
+            "▶ 선택한 작업을 시작합니다.",
+            "▶ Uruchamianie wybranych zadań.",
+        ))
         callbacks.log(
-            f"활성화된 작업 단계 ({len(active_steps)}개): "
-            + ", ".join(self.STEP_NAMES[step] for step in active_steps)
+            self._text("Selected features", "선택한 기능", "Wybrane funkcje")
+            + f" ({len(active_steps)}): "
+            + ", ".join(self._step_name(step) for step in active_steps)
         )
         callbacks.log("=" * 60)
 
@@ -91,7 +116,7 @@ class TaskRunner:
                 return RunReport(
                     results,
                     "",
-                    "사용자에 의해 전체 작업이 중지되었습니다.",
+                    self._text("The tasks were stopped by the user.", "사용자가 작업을 중지했습니다.", "Zadania zostały zatrzymane przez użytkownika."),
                     False,
                     cancelled=True,
                 )
@@ -115,30 +140,42 @@ class TaskRunner:
                 logger.error("Error in %s step: %s\n%s", step.value, exc, err_trace)
                 results[step].status = StepStatus.FAILED
                 results[step].error_message = str(exc)
-                results[step].details.append(f"치명적 오류: {exc}")
+                results[step].details.append(
+                    self._text("Fatal error", "치명적 오류", "Błąd krytyczny") + f": {exc}"
+                )
 
             callbacks.status_changed(step, results[step].status)
             callbacks.total_progress(int(index / len(active_steps) * 100))
 
         if not self.is_running:
-            return RunReport(results, "", "사용자에 의해 전체 작업이 중지되었습니다.", False, cancelled=True)
+            return RunReport(
+                results,
+                "",
+                self._text("The tasks were stopped by the user.", "사용자가 작업을 중지했습니다.", "Zadania zostały zatrzymane przez użytkownika."),
+                False,
+                cancelled=True,
+            )
 
         report_body = self._build_report(results, active_steps)
         callbacks.total_progress(100)
         callbacks.log("\n" + "=" * 60)
-        callbacks.log("🎉 모든 통합 순차 실행이 완료되었습니다!")
+        callbacks.log(self._text(
+            "🎉 All selected tasks have finished!",
+            "🎉 선택한 모든 작업이 끝났습니다!",
+            "🎉 Wszystkie wybrane zadania zostały zakończone!",
+        ))
         callbacks.log("=" * 60)
 
         overall_success = all(results[step].status == StepStatus.COMPLETED for step in active_steps)
         message = (
-            "통합 태스크 실행이 완료되었습니다."
+            self._text("The selected tasks completed successfully.", "선택한 작업이 완료되었습니다.", "Wybrane zadania zakończyły się pomyślnie.")
             if overall_success
-            else "통합 태스크 실행은 끝났지만 일부 작업이 실패했습니다. 결과 보고서를 확인해 주세요."
+            else self._text("The tasks finished, but some items failed. Check the result report.", "작업은 끝났지만 일부 항목이 실패했습니다. 결과 보고서를 확인해 주세요.", "Zadania zakończono, ale niektóre elementy nie powiodły się. Sprawdź raport.")
         )
         return RunReport(results, report_body, message, overall_success)
 
     def _run_sync(self, config: SyncRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
-        callbacks.log("\n[1단계: Folder Sync 동기화 진행]")
+        callbacks.log("\n[1] " + self._step_name(TaskStep.SYNC))
         total_groups = len(config.sync_groups)
         success_count = 0
 
@@ -147,27 +184,47 @@ class TaskRunner:
                 result.status = StepStatus.CANCELLED
                 return
 
-            callbacks.log(f" -> 그룹 [{group.name}] 동기화 분석 및 실행 중...")
-            callbacks.step_progress(idx, total_groups, f"그룹 동기화 진행 중: {group.name}")
+            callbacks.log(self._text(
+                f" -> Analyzing and synchronizing group [{group.name}]...",
+                f" -> 그룹 [{group.name}] 분석 및 동기화 중...",
+                f" -> Analizowanie i synchronizowanie grupy [{group.name}]...",
+            ))
+            callbacks.step_progress(idx, total_groups, self._text(
+                f"Synchronizing group: {group.name}",
+                f"그룹 동기화 중: {group.name}",
+                f"Synchronizowanie grupy: {group.name}",
+            ))
             manager = SyncManager(folders=group.folders, move_to_deleted=group.move_to_deleted)
             actions = manager.analyze_sync()
             success_files, fail_files, errors = manager.execute_sync(actions)
 
             if not errors:
                 success_count += 1
-                msg = f"✓ 그룹 [{group.name}] 완료 (성공: {success_files}건, 실패: {fail_files}건)"
+                msg = self._text(
+                    f"✓ Group [{group.name}] completed (successful: {success_files}, failed: {fail_files})",
+                    f"✓ 그룹 [{group.name}] 완료 (성공: {success_files}건, 실패: {fail_files}건)",
+                    f"✓ Grupa [{group.name}] zakończona (powodzenie: {success_files}, błędy: {fail_files})",
+                )
             else:
-                msg = f"⚠ 그룹 [{group.name}] 일부 오류 발생 (성공: {success_files}건, 실패: {fail_files}건)"
+                msg = self._text(
+                    f"⚠ Group [{group.name}] completed with errors (successful: {success_files}, failed: {fail_files})",
+                    f"⚠ 그룹 [{group.name}] 일부 오류 발생 (성공: {success_files}건, 실패: {fail_files}건)",
+                    f"⚠ Grupa [{group.name}] zakończona z błędami (powodzenie: {success_files}, błędy: {fail_files})",
+                )
                 for err in errors[:5]:
-                    callbacks.log(f"     - 에러: {err}")
+                    callbacks.log(f"     - {self._text('Error', '오류', 'Błąd')}: {err}")
             callbacks.log(f"   {msg}")
             result.details.append(msg)
-            result.details.extend(f"에러: {err}" for err in errors[:5])
+            result.details.extend(f"{self._text('Error', '오류', 'Błąd')}: {err}" for err in errors[:5])
 
         result.success_count = success_count
         result.total_count = total_groups
         result.status = StepStatus.COMPLETED if success_count == total_groups else StepStatus.PARTIAL
-        callbacks.step_progress(total_groups, total_groups, "Folder Sync 완료")
+        callbacks.step_progress(
+            total_groups,
+            total_groups,
+            self._text("Folder synchronization completed", "폴더 동기화 완료", "Synchronizacja folderów zakończona"),
+        )
 
     def _run_eml(self, config: EmlRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
         callbacks.log("\n[2단계: EML Image 파일 변환 진행]")
@@ -336,27 +393,27 @@ class TaskRunner:
 
     def _build_report(self, results: dict[TaskStep, StepResult], active_steps: list[TaskStep]) -> str:
         report_lines = [
-            "# 통합 태스크 실행 결과 보고서",
-            f"- **실행 일시**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            self._text("# Task Result Report", "# 작업 실행 결과 보고서", "# Raport wyników zadań"),
+            self._text("- **Run time**", "- **실행 일시**", "- **Czas uruchomienia**") + f": {time.strftime('%Y-%m-%d %H:%M:%S')}",
             "",
-            "## [1] 작업 단계별 상태 요약",
-            "| 작업 단계 | 상태 | 성공 개수 / 전체 개수 |",
+            self._text("## [1] Status summary", "## [1] 기능별 상태 요약", "## [1] Podsumowanie stanu"),
+            self._text("| Feature | Status | Successful / Total |", "| 기능 | 상태 | 성공 / 전체 |", "| Funkcja | Stan | Powodzenie / Razem |"),
             "| :--- | :--- | :--- |",
         ]
         for step in active_steps:
             result = results[step]
             report_lines.append(
-                f"| {self.STEP_NAMES[step]} | {result.status.value} | "
+                f"| {self._step_name(step)} | {self._status_name(result.status)} | "
                 f"{result.success_count} / {result.total_count} |"
             )
 
-        report_lines.extend(["", "## [2] 세부 변동 내역"])
+        report_lines.extend(["", self._text("## [2] Details", "## [2] 상세 내역", "## [2] Szczegóły")])
         for step in active_steps:
             result = results[step]
-            report_lines.append(f"### 📍 {self.STEP_NAMES[step]} 상세 내역")
+            report_lines.append(f"### 📍 {self._step_name(step)}")
             if result.details:
                 report_lines.extend(f"- {line}" for line in result.details)
             else:
-                report_lines.append("- 실행된 세부 변동 사항이 없습니다.")
+                report_lines.append(self._text("- No detail entries.", "- 상세 내역이 없습니다.", "- Brak szczegółów."))
             report_lines.append("")
         return "\n".join(report_lines)

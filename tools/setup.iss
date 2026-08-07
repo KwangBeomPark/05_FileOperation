@@ -23,8 +23,8 @@ CloseApplicationsFilter=IntegratedDataTool.exe
 Source: "..\dist\IntegratedDataTool.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\IntegratedDataTool"; Filename: "{app}\IntegratedDataTool.exe"
-Name: "{userdesktop}\IntegratedDataTool"; Filename: "{app}\IntegratedDataTool.exe"; Tasks: desktopicon
+Name: "{group}\IntegratedDataTool"; Filename: "{app}\IntegratedDataTool.exe"; IconFilename: "{app}\IntegratedDataTool.exe"; AppUserModelID: "fileops.hub.desktop.v1"
+Name: "{userdesktop}\IntegratedDataTool"; Filename: "{app}\IntegratedDataTool.exe"; IconFilename: "{app}\IntegratedDataTool.exe"; AppUserModelID: "fileops.hub.desktop.v1"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

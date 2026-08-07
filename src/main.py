@@ -50,14 +50,22 @@ def main() -> int:
     try:
         app = QApplication(sys.argv)
 
-        icon_path = os.path.join(SRC_PATH, "assets", "icon.ico")
+        runtime_root = getattr(sys, "_MEIPASS", PROJECT_ROOT)
+        icon_path = os.path.join(runtime_root, "src", "assets", "icon.ico")
+        app_icon = QIcon()
         if os.path.exists(icon_path):
-            app.setWindowIcon(QIcon(icon_path))
+            app_icon = QIcon(icon_path)
+            app.setWindowIcon(app_icon)
 
         app.setStyle("Fusion")
         app.setPalette(create_dark_palette())
         app.setStyleSheet(APP_STYLESHEET)
         window = MainWindow()
+        if not app_icon.isNull():
+            # QApplication 상속에만 의존하지 않고 각 Windows 표면에 명시적으로 적용합니다.
+            window.setWindowIcon(app_icon)
+            if window.tray_icon:
+                window.tray_icon.setIcon(app_icon)
         window.show()
         return app.exec()
     except Exception as exc:

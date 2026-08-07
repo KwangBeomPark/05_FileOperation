@@ -394,12 +394,19 @@ class OCRTab(QWidget):
             return None
             
         if not self.ocr_processor.check_ocr_available():
-            raise TaskValidationError("사용 가능한 OCR 엔진이 없습니다. Tesseract를 설치하거나 Windows OCR 언어팩을 확인하세요.")
+            raise TaskValidationError(
+                "사용 가능한 OCR 엔진이 없습니다. Tesseract를 설치하거나 Windows OCR 언어팩을 확인하세요.",
+                message_key="ocr_engine_missing",
+            )
             
         # 이미지 파일들의 실제 존재 여부 검사
         for path in checked_paths:
             if not os.path.exists(path):
-                raise TaskValidationError(f"분석할 이미지 파일이 존재하지 않습니다: {path}")
+                raise TaskValidationError(
+                    f"분석할 이미지 파일이 존재하지 않습니다: {path}",
+                    message_key="ocr_file_missing",
+                    values={"path": path},
+                )
                 
         return OcrRunConfig(image_paths=checked_paths)
 

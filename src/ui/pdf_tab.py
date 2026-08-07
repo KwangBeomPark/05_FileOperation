@@ -311,12 +311,19 @@ class PDFTab(QWidget):
             
         output_folder = self.output_path_input.text().strip()
         if not output_folder:
-            raise TaskValidationError("PDF 변환 저장 폴더가 지정되지 않았습니다.")
+            raise TaskValidationError(
+                "PDF 변환 저장 폴더가 지정되지 않았습니다.",
+                message_key="pdf_output_folder_empty",
+            )
             
         # PDF 파일들의 실제 존재 여부 검사
         for path in self.selected_pdf_paths:
             if not os.path.exists(path):
-                raise TaskValidationError(f"변환할 PDF 파일이 존재하지 않습니다: {path}")
+                raise TaskValidationError(
+                    f"변환할 PDF 파일이 존재하지 않습니다: {path}",
+                    message_key="pdf_file_missing",
+                    values={"path": path},
+                )
                 
         return PdfRunConfig(pdf_paths=list(self.selected_pdf_paths), output_folder=output_folder)
 

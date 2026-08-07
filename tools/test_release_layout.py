@@ -67,6 +67,7 @@ class ReleaseLayoutTests(unittest.TestCase):
         command = commands[0]
         output_index = command.index("--distpath") + 1
         self.assertEqual(command[output_index], str(release_dir))
+        self.assertEqual(command[command.index("--icon") + 1], str(build_all.APP_ICON))
 
     def test_requirements_are_utf8_text_without_null_bytes(self):
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")

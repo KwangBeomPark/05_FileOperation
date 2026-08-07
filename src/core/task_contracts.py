@@ -24,10 +24,19 @@ class StepStatus(str, Enum):
 
 
 class TaskValidationError(ValueError):
-    def __init__(self, user_message: str, detail: str | None = None):
+    def __init__(
+        self,
+        user_message: str,
+        detail: str | None = None,
+        *,
+        message_key: str | None = None,
+        values: dict[str, Any] | None = None,
+    ):
         super().__init__(user_message)
         self.user_message = user_message
         self.detail = detail or user_message
+        self.message_key = message_key
+        self.values = values or {}
 
 
 class DependencyError(RuntimeError):

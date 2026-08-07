@@ -463,11 +463,23 @@ class EMLTab(QWidget):
             name = task.get("name", f"태스크 {idx+1}")
             
             if not src:
-                raise TaskValidationError(f"EML 태스크 '{name}'의 소스 폴더 경로가 입력되지 않았습니다.")
+                raise TaskValidationError(
+                    f"EML 태스크 '{name}'의 소스 폴더 경로가 입력되지 않았습니다.",
+                    message_key="eml_source_folder_empty",
+                    values={"name": name},
+                )
             if not os.path.exists(src):
-                raise TaskValidationError(f"EML 태스크 '{name}'의 소스 폴더가 존재하지 않습니다: {src}")
+                raise TaskValidationError(
+                    f"EML 태스크 '{name}'의 소스 폴더가 존재하지 않습니다: {src}",
+                    message_key="eml_source_folder_missing",
+                    values={"name": name, "path": src},
+                )
             if not tgt:
-                raise TaskValidationError(f"EML 태스크 '{name}'의 저장 폴더 경로가 입력되지 않았습니다.")
+                raise TaskValidationError(
+                    f"EML 태스크 '{name}'의 저장 폴더 경로가 입력되지 않았습니다.",
+                    message_key="eml_target_folder_empty",
+                    values={"name": name},
+                )
             run_tasks.append(EmlTaskConfig(name=name, source_folder=src, target_folder=tgt))
                 
         width = int(self.config_manager.get("eml_output_width", 1024))

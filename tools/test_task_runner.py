@@ -84,7 +84,7 @@ class TaskRunnerTests(unittest.TestCase):
             report = TaskRunner(FakeConfig(), plan).run()
 
         self.assertTrue(report.overall_success)
-        self.assertIn("Folder Sync", report.report_body)
+        self.assertIn("Sync Folders", report.report_body)
         self.assertIn("1 / 1", report.report_body)
 
     def test_sync_partial_failure_report(self):
@@ -93,7 +93,7 @@ class TaskRunnerTests(unittest.TestCase):
             report = TaskRunner(FakeConfig(), plan).run()
 
         self.assertFalse(report.overall_success)
-        self.assertIn("일부 실패", report.report_body)
+        self.assertIn("Partially failed", report.report_body)
         self.assertIn("copy failed", "\n".join(report.results[TaskStep.SYNC].details))
 
     def test_all_task_steps_produce_a_complete_report(self):
@@ -131,7 +131,7 @@ class TaskRunnerTests(unittest.TestCase):
 
         self.assertTrue(report.overall_success)
         self.assertEqual(set(report.results), set(plan.active_steps))
-        self.assertIn("Bypass Convert", report.report_body)
+        self.assertIn("Convert Files", report.report_body)
 
     def test_cancel_marks_report_as_cancelled(self):
         plan = RunPlan({TaskStep.SYNC: SyncRunConfig([SyncGroupConfig("g", ["a", "b"])])})

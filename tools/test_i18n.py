@@ -29,6 +29,14 @@ class LocalizationTests(unittest.TestCase):
         self.assertEqual(tr("tray_exit", "pl"), "Zakończ FileOps Hub")
         self.assertIn("background", tr("tray_tooltip", "en"))
 
+    def test_run_task_labels_and_validation_are_localized(self):
+        self.assertEqual(tr("task_step_sync", "en"), "Sync Folders")
+        self.assertEqual(tr("task_status_skipped", "en"), "Not selected")
+        self.assertNotRegex(
+            tr("bypass_source_folder_missing", "en", path=r"C:\missing"),
+            r"[가-힣]",
+        )
+
     def test_qt_static_widget_retranslation_keeps_the_original_source_text(self):
         import os
 

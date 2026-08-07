@@ -433,6 +433,7 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         localize_widget_tree(self.centralWidget(), self.language)
+        self.task_tab.refresh_language()
         self._set_tab_labels()
         self.status_bar.showMessage(tr("ready", self.language))
 
@@ -763,6 +764,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(tr("app_title", self.language, version=self.current_version))
         self.create_menu_bar()
         localize_widget_tree(self.centralWidget(), self.language)
+        self.task_tab.refresh_language()
         self._set_tab_labels()
         self.update_banner_title.setText(tr("update_available", self.language))
         self.update_download_btn.setText(tr("download", self.language))

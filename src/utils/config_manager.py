@@ -63,6 +63,9 @@ class ConfigManager:
         "task_schedule_time": "18:00",
         "task_schedule_last_run_date": "",
         "task_auto_email": True,
+        # Run Tasks에서 실제로 실행할 기능. 기존 설정에는 이 키가 없으므로
+        # 안전한 기본값인 폴더 동기화만 선택합니다.
+        "task_enabled_steps": ["sync"],
         "smtp_server": "",
         "smtp_port": "",
         "sender_email": "",
