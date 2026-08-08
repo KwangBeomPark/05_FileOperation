@@ -89,6 +89,49 @@ class TaskRunner:
             text = text.replace(korean, english)
         return text
 
+    def _bypass_message(self, value: object) -> str:
+        text = str(value)
+        marker, _separator, detail = text.partition("|")
+        if marker == "SOURCE_KEPT":
+            return self._text("source kept", "원본 보존", "źródło zachowane")
+        if marker == "SOURCE_BACKED_UP":
+            return self._text(
+                f"source backed up: {detail}",
+                f"원본 백업 이동: {detail}",
+                f"kopia źródła: {detail}",
+            )
+        if marker == "SOURCE_BACKUP_FAILED":
+            return self._text(
+                f"conversion succeeded, but source backup failed: {detail}",
+                f"변환 성공 후 원본 백업 이동 실패: {detail}",
+                f"konwersja udana, ale kopia źródła nie powiodła się: {detail}",
+            )
+        if marker == "OUTPUT_NOT_CREATED":
+            return self._text(
+                f"output file was not created: {detail}",
+                f"출력 파일이 생성되지 않음: {detail}",
+                f"plik wyjściowy nie został utworzony: {detail}",
+            )
+        if marker == "SOURCE_TARGET_SAME":
+            return self._text(
+                f"source and output paths are identical: {detail}",
+                f"원본과 출력 경로가 동일함: {detail}",
+                f"ścieżki źródłowa i wyjściowa są identyczne: {detail}",
+            )
+        if marker == "TARGET_ALREADY_EXISTS":
+            return self._text(
+                f"output path already exists: {detail}",
+                f"출력 경로에 파일이 이미 있음: {detail}",
+                f"plik wyjściowy już istnieje: {detail}",
+            )
+        if marker == "OUTPUT_EMPTY":
+            return self._text(
+                f"the output file is empty: {detail}",
+                f"출력 파일이 비어 있음: {detail}",
+                f"plik wyjściowy jest pusty: {detail}",
+            )
+        return self._runtime_text(value)
+
     def _status_name(self, status: StepStatus) -> str:
         status_keys = {
             StepStatus.PENDING: "pending",
@@ -381,13 +424,14 @@ class TaskRunner:
                     tgt_path=task.tgt,
                     target_ext=task.ext,
                     preserve_meta=task.preserve_meta,
-                    delete_original=task.delete_original,
+                    source_disposition=task.source_disposition,
                 )
                 if success:
                     success_count += 1
-                    rep_msg = self._text(f"✓ Conversion completed: {filename} -> {os.path.basename(task.tgt)}", f"✓ 파일 변환 완료: {filename} -> {os.path.basename(task.tgt)}", f"✓ Konwersja zakończona: {filename} -> {os.path.basename(task.tgt)}")
+                    disposition_detail = self._bypass_message(msg)
+                    rep_msg = self._text(f"✓ Conversion completed: {filename} -> {os.path.basename(task.tgt)}", f"✓ 파일 변환 완료: {filename} -> {os.path.basename(task.tgt)}", f"✓ Konwersja zakończona: {filename} -> {os.path.basename(task.tgt)}") + f" ({disposition_detail})"
                 else:
-                    detail = self._runtime_text(msg)
+                    detail = self._bypass_message(msg)
                     rep_msg = self._text(f"✗ Conversion failed ({filename}): {detail}", f"✗ 파일 변환 실패 ({filename}): {detail}", f"✗ Konwersja nie powiodła się ({filename}): {detail}")
             except Exception as file_err:
                 detail = self._runtime_text(file_err)

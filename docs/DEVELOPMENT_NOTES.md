@@ -1,0 +1,136 @@
+# FileOps Hub Development Notes
+
+## 2026-08-08 — Phase 1: Scheduled-run reliability
+
+### Implemented decisions
+
+- Persist separate timestamps for the latest schedule attempt, worker start, success, and failure.
+- Retry only failures that happen before a task worker starts: 10-minute delay, maximum three attempts per day.
+- Never automatically retry after a worker starts. File conversion or synchronization may have partially changed files, so an automatic second run could duplicate or repeat destructive work.
+- Show the next run or retry, the last outcome, and the requirement that FileOps Hub remain running.
+- Offer an unchecked installer option that starts FileOps Hub with Windows in hidden tray mode.
+- Enforce one running instance. A later desktop or launcher invocation activates the existing window instead of creating a second scheduler.
+
+### Follow-up observations
+
+1. The Windows startup shortcut runs only after the user signs in. Logged-out or pre-login execution still needs a future Windows Task Scheduler/service mode.
+2. Existing installations must run a future installer and select the startup option; the current Settings screen cannot toggle startup registration yet.
+3. Persistent run history is still a separate planned phase. The new schedule summary shows only the latest success or failure.
+4. Real suspend/resume, overnight network-share availability, and locked-screen Office COM behavior still need environment testing even though deterministic time-boundary tests now pass.
+5. The source QA process used roughly 230–240 MB while idle. This is acceptable for the current desktop scope but should be measured again before broad workstation deployment.
+
+### Next planned phase
+
+Protect source files in Convert Files: default to keeping originals, add a destructive-action summary, and prefer recoverable backup/move behavior over permanent deletion.
+
+## 2026-08-08 — Phase 2: Convert Files source protection
+
+### Implemented decisions
+
+- Keep every source file by default. Existing `bypass_delete_original=true` settings are deliberately ignored by the new safe default and the legacy key is persisted as `false`.
+- Replace permanent deletion with an explicit, recoverable move to `Original Backup` under each source folder.
+- Move a source only after the converter reports success and the output exists as a non-empty file.
+- Treat backup-move failure as a visible partial failure while leaving both the converted output and the source in place.
+- Ask for confirmation immediately before a direct conversion run. The confirmation lists file count, total size, and source, output, and backup folders; `No` is the default.
+- Preserve an existing backup by generating a numbered backup filename instead of overwriting it.
+
+### Audit status
+
+- **Fixed:** permanent source deletion and the unsafe default inherited from older settings.
+- **Fixed:** source/output path equality when a file is converted to its current extension. The output now receives `_converted` and never aliases the source.
+- **Fixed:** two source files in one run resolving to the same output filename. Output paths are reserved while the plan is built.
+- **Fixed:** overwriting a pre-existing output at the core converter boundary.
+- **Mitigated:** scheduled runs expose backup moves as preflight warnings. The action remains recoverable, but scheduled execution cannot display the direct-run confirmation dialog.
+- **Open:** real Office COM conversions on locked workstations and network shares still require environment validation.
+
+### Follow-up observations before Phase 3
+
+1. Do not add automatic backup expiry yet. Retention cleanup is destructive and should wait until run history and a recovery/cleanup screen can show exactly what will be removed.
+2. A future scheduling UI should include a separate `Allow scheduled source backup moves` consent. For now, the checked Convert Files option and preflight warning are the stored consent path.
+3. The next planned phase should be a run-readiness/history view: selected features, last outcome per feature, pending retry, and source-backup action should be visible before unattended scheduling is enabled.
+
+## 2026-08-08 — Phase 3: Run readiness and latest-result dashboard
+
+### Implemented decisions
+
+- Expand the Run Tasks grid to show selection, feature, readiness, current status, and the latest persisted result.
+- Check only selected features. Configuration errors are shown against the responsible feature instead of opening unrelated validation messages.
+- Persist one compact latest-result snapshot per feature: status, completion count, total count, timestamp, and a short detail. Full reports remain in the existing report/log path.
+- Require a separate, persistent consent before a scheduled Convert Files run may move sources to `Original Backup`.
+- Revoke that consent whenever the Convert Files source action changes or Convert Files is newly selected for scheduling.
+- Hide the consent control unless daily scheduling, Convert Files selection, and source backup movement are all active.
+- Convert an unexpected worker exception into a visible failure completion so the UI and other feature tabs are always unlocked.
+
+### Audit status
+
+- **Fixed:** no feature-level readiness view before starting an unattended run.
+- **Fixed:** latest outcomes disappeared from the dashboard after restarting the app.
+- **Fixed:** scheduled source backup movement relied only on the general Convert Files checkbox.
+- **Fixed:** an unhandled worker exception could leave the entire application locked in a running state.
+- **Mitigated:** readiness checks Office package availability without launching every Office COM app. The execution preflight still performs the deep launch check.
+- **Open:** the dashboard stores only the latest result per feature, not a browsable multi-run history.
+
+### Follow-up observations before Phase 4
+
+1. The most useful next increment is a diagnostics and recovery screen rather than adding more automation: test network folders, Office COM, OCR, SMTP, and open the relevant settings from each failure.
+2. Full multi-run history should reuse the existing report files and add an `Open report` action instead of putting large logs in the configuration JSON.
+3. `Original Backup` recovery and cleanup should be added together. Cleanup must remain manual until the user can preview files and restore them from the same screen.
+4. Real network-share disconnect/reconnect, Windows lock-screen Office automation, and overnight resume behavior remain environment-validation items before a commercial rollout.
+
+## 2026-08-08 — Phase 4: Diagnostics and recovery routing
+
+### Implemented decisions
+
+- Add a dedicated Diagnostics and Recovery dialog instead of adding another permanent table to the Run Tasks dashboard.
+- Diagnose only selected features and reuse their current typed run configurations.
+- Keep diagnostics non-destructive: inspect file/folder accessibility, but never create probe files in business folders.
+- Launch and close required Office COM applications, launch the EML headless browser, and validate the configured OCR engine in a background diagnostics thread.
+- Test SMTP with a five-second TCP connection only. Diagnostics never authenticate and never send a test message.
+- Show configuration-validation failures alongside runtime dependency failures and route each failed/warning row to its feature tab, Run Tasks consent, or Settings.
+- Prevent unexpected diagnostics exceptions from escaping the worker and leaving the dialog without a result.
+
+### Audit status
+
+- **Fixed:** dependency failures were visible only when the full task run was already being started.
+- **Fixed:** users had to infer which tab or settings page could resolve a preflight failure.
+- **Fixed:** SMTP configuration had no safe connection-only test.
+- **Fixed:** diagnostic Office, browser, and network checks would otherwise block the main UI thread.
+- **Mitigated:** folder write access uses Windows access checks without creating files. Actual writes can still fail later because of SMB disconnects, quota, or concurrent permission changes.
+- **Open:** a stalled OS network call or Office first-run/license dialog can keep the diagnostics worker busy longer than expected; hard process-level timeouts are still needed before commercial rollout.
+
+### Follow-up observations before Phase 5
+
+1. Add `Original Backup` recovery before cleanup: preview backed-up files, restore with collision-safe names, and open the containing folder. Do not add deletion yet.
+2. A future explicit `Send test email` action may validate TLS and authentication, but it must be separate from passive diagnostics because it creates an external message.
+3. Isolate Office and network probes in timeout-controlled helper processes so a broken COM server or disconnected share cannot hold diagnostics indefinitely.
+4. Full multi-run history should continue to use report files, with filters and an `Open report` action rather than expanding the settings JSON.
+
+## 2026-08-08 — Phase 5: Original Backup recovery
+
+### Implemented decisions
+
+- Add a dedicated recovery dialog from Convert Files instead of mixing backup contents into the conversion scan table.
+- Preview the actual backup file name, size, modified time, and proposed restore target before any file operation.
+- Restore only explicitly selected rows after a confirmation dialog whose default action is `No`.
+- Never overwrite a source file. When the source name already exists, restore to a numbered `_restored_N` name.
+- Reject paths outside the selected source folder's direct `Original Backup` directory and ignore symbolic links.
+- Continue restoring independent files after one failure; failed items remain in `Original Backup` and are reported by name.
+- Allow opening the backup folder in Explorer, but do not create, clean, expire, or delete backups from this screen.
+- Keep compatibility with backups made before recovery history existed. Their real backup names are displayed instead of guessing an earlier filename.
+
+### Audit status
+
+- **Fixed (P1):** source backup movement had no in-app return path, forcing manual Explorer operations.
+- **Fixed (P1):** a manual restore could overwrite a new file with the same name; recovery now always selects a free target name.
+- **Fixed (P2):** users could not preview recovery destinations or isolate a subset of files.
+- **Fixed (P2):** one locked or unavailable backup file could obscure the outcome for other files; results are now per file.
+- **Mitigated (P2):** direct-child validation and symlink rejection prevent the recovery service from moving arbitrary paths supplied outside the dialog.
+- **Open (P2):** legacy collision-numbered backups do not contain their pre-move original filename. The dialog exposes the real restore target and does not infer potentially wrong names.
+- **Open (P2):** listing a very large or unavailable network backup folder is synchronous. A process-isolated scan with a timeout is still recommended for commercial hardening.
+
+### Follow-up observations before Phase 6
+
+1. Record a small, append-only backup manifest for future moves so recovery can show both the original path and stored backup name. Manifest failure must never turn a successful conversion into source loss.
+2. Add process-level timeouts for network-folder, Office COM, and diagnostics probes as one reliability phase rather than separate thread-only fixes.
+3. Add a report-backed multi-run history view before considering manual retention cleanup. Cleanup must remain a separate, explicit action with preview and no automatic default.
+4. Keep the current recovery dialog separate from conversion execution; its different intent and confirmation boundary are clearer than adding more states to the scan table.

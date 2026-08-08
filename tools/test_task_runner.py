@@ -12,6 +12,7 @@ from src.core.task_contracts import (
     OcrRunConfig,
     PdfRunConfig,
     RunPlan,
+    SourceDisposition,
     SyncGroupConfig,
     SyncRunConfig,
     TaskStep,
@@ -120,8 +121,8 @@ class TaskRunnerTests(unittest.TestCase):
                 TaskStep.PDF: PdfRunConfig([pdf_path], output_dir),
                 TaskStep.OCR: OcrRunConfig([image_path]),
                 TaskStep.BYPASS: BypassRunConfig(
-                    [BypassFileConfig(source_doc, os.path.join(output_dir, "book.xlsb"), ".xlsb", True, False)],
-                    False,
+                    [BypassFileConfig(source_doc, os.path.join(output_dir, "book.xlsb"), ".xlsb", True, SourceDisposition.KEEP)],
+                    SourceDisposition.KEEP,
                 ),
             })
             with (

@@ -9,9 +9,17 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from src.ui.workflow_widget import WorkflowWidget
 from src.ui.toast_notification import show_toast
 from src.ui.i18n import choose, get_app_language, tr
+from src.ui.backup_recovery_dialog import BackupRecoveryDialog
 from src.core.bypass_converter import BypassConverter
 from src.core.preflight import check_run_plan
-from src.core.task_contracts import BypassFileConfig, BypassRunConfig, RunPlan, TaskStep, TaskValidationError
+from src.core.task_contracts import (
+    BypassFileConfig,
+    BypassRunConfig,
+    RunPlan,
+    SourceDisposition,
+    TaskStep,
+    TaskValidationError,
+)
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -48,7 +56,7 @@ class BypassConvertWorker(QThread):
                 tgt = task["tgt"]
                 ext = task["ext"]
                 preserve_meta = task["preserve_meta"]
-                delete_original = task["delete_original"]
+                source_disposition = task.get("source_disposition", SourceDisposition.KEEP.value)
                 
                 filename = os.path.basename(src)
                 self.progress.emit(idx, total, self._t(f"Converting file: {filename}", f"우회 변환 진행 중: {filename}"))
@@ -59,12 +67,12 @@ class BypassConvertWorker(QThread):
                     tgt_path=tgt,
                     target_ext=ext,
                     preserve_meta=preserve_meta,
-                    delete_original=delete_original
+                    source_disposition=source_disposition,
                 )
                 
                 if success:
                     success_count += 1
-                    self.file_completed.emit(src, tgt, True, self._t("Success", "성공"))
+                    self.file_completed.emit(src, tgt, True, msg)
                 else:
                     self.file_completed.emit(src, tgt, False, msg)
                     
@@ -119,8 +127,111 @@ class BypassTab(QWidget):
             translated = translated.replace(korean, english)
         return translated
 
+    def _converter_message(self, message):
+        if not isinstance(message, str):
+            return str(message)
+        marker, _separator, detail = message.partition("|")
+        if marker == "SOURCE_KEPT":
+            return self._t("Source kept in place.", "원본을 그대로 보존했습니다.", "Plik źródłowy pozostawiono na miejscu.")
+        if marker == "SOURCE_BACKED_UP":
+            return self._t(
+                f"Source moved to backup: {detail}",
+                f"원본을 백업 폴더로 이동했습니다: {detail}",
+                f"Plik źródłowy przeniesiono do kopii zapasowej: {detail}",
+            )
+        if marker == "SOURCE_BACKUP_FAILED":
+            return self._t(
+                f"Conversion succeeded, but the source could not be moved to backup: {detail}",
+                f"변환은 성공했지만 원본을 백업 폴더로 이동하지 못했습니다: {detail}",
+                f"Konwersja zakończyła się, ale nie udało się przenieść źródła do kopii: {detail}",
+            )
+        if marker == "OUTPUT_NOT_CREATED":
+            return self._t(
+                f"The converter reported success, but no output file was created: {detail}",
+                f"변환기가 성공을 보고했지만 출력 파일이 생성되지 않았습니다: {detail}",
+                f"Konwerter zgłosił sukces, ale plik wyjściowy nie powstał: {detail}",
+            )
+        if marker == "SOURCE_TARGET_SAME":
+            return self._t(
+                f"Source and output paths are identical: {detail}",
+                f"원본과 출력 경로가 같습니다: {detail}",
+                f"Ścieżki źródłowa i wyjściowa są identyczne: {detail}",
+            )
+        if marker == "TARGET_ALREADY_EXISTS":
+            return self._t(
+                f"An output file already exists at this path: {detail}",
+                f"출력 경로에 파일이 이미 있습니다: {detail}",
+                f"Plik wyjściowy już istnieje: {detail}",
+            )
+        if marker == "OUTPUT_EMPTY":
+            return self._t(
+                f"The generated output file is empty: {detail}",
+                f"생성된 출력 파일이 비어 있습니다: {detail}",
+                f"Wygenerowany plik wyjściowy jest pusty: {detail}",
+            )
+        if marker == "INVALID_SOURCE_DISPOSITION":
+            return self._t(
+                f"Unknown source-file action: {detail}",
+                f"알 수 없는 원본 파일 처리 방식입니다: {detail}",
+                f"Nieznana akcja dla pliku źródłowego: {detail}",
+            )
+        return self._error_text(message)
+
+    @staticmethod
+    def _format_size(byte_count):
+        size = float(byte_count)
+        for unit in ("B", "KB", "MB", "GB"):
+            if size < 1024 or unit == "GB":
+                return f"{size:.1f} {unit}"
+            size /= 1024
+
+    def _backup_confirmation_text(self, run_config):
+        total_size = sum(os.path.getsize(task.src) for task in run_config.tasks if os.path.exists(task.src))
+        source_folders = sorted({os.path.dirname(task.src) for task in run_config.tasks})
+        target_folders = sorted({os.path.dirname(task.tgt) for task in run_config.tasks})
+        backup_folders = sorted({os.path.join(folder, "Original Backup") for folder in source_folders})
+        lines = [
+            self._t(
+                "After each output is successfully created and verified, its source file will be moved to a recoverable backup folder.",
+                "각 출력 파일이 정상 생성되었는지 확인한 뒤 원본을 복구 가능한 백업 폴더로 이동합니다.",
+                "Po utworzeniu i sprawdzeniu każdego wyniku plik źródłowy zostanie przeniesiony do folderu kopii zapasowej.",
+            ),
+            "",
+            self._t(f"Files: {len(run_config.tasks)}", f"파일 수: {len(run_config.tasks)}개", f"Pliki: {len(run_config.tasks)}"),
+            self._t(f"Total size: {self._format_size(total_size)}", f"전체 크기: {self._format_size(total_size)}", f"Łączny rozmiar: {self._format_size(total_size)}"),
+            "",
+            self._t("Source folders:", "원본 폴더:", "Foldery źródłowe:"),
+            *[f"- {path}" for path in source_folders],
+            self._t("Output folders:", "출력 폴더:", "Foldery wyjściowe:"),
+            *[f"- {path}" for path in target_folders],
+            self._t("Backup folders:", "백업 폴더:", "Foldery kopii zapasowej:"),
+            *[f"- {path}" for path in backup_folders],
+            "",
+            self._t("Continue?", "계속할까요?", "Kontynuować?"),
+        ]
+        return "\n".join(lines)
+
+    def _confirm_backup_move(self, run_config):
+        if run_config.source_disposition != SourceDisposition.BACKUP:
+            return True
+        answer = QMessageBox.question(
+            self,
+            self._t("Confirm source backup", "원본 백업 이동 확인", "Potwierdź kopię źródeł"),
+            self._backup_confirmation_text(run_config),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def refresh_language(self):
         self.summary_label.setText(self._t(f"Files found: {len(self.scanned_files)}", f"검색된 대상 파일: {len(self.scanned_files)}개"))
+        self.backup_recovery_btn.setText(
+            self._t(
+                "Review / Restore Original Backup",
+                "Original Backup 확인 / 복구",
+                "Przejrzyj / przywróć Original Backup",
+            )
+        )
         if not self.scanned_files:
             if self.src_entry.text().startswith(("드래그 앤 드롭", "Drag a folder")):
                 self.src_entry.setText(self._t("Drag a folder here or choose one with the button.", "드래그 앤 드롭 또는 우측 버튼으로 폴더를 선택하세요."))
@@ -220,7 +331,7 @@ class BypassTab(QWidget):
         self.pdf_combo.addItems([".zip", ".pdf"])
         
         # 옵션 체크박스
-        self.check_delete_orig = QCheckBox("변환 완료 후 원본 파일 삭제 (Delete Original)")
+        self.check_backup_orig = QCheckBox("변환 완료 후 원본을 'Original Backup' 폴더로 이동")
         self.check_preserve_meta = QCheckBox("파일 메타정보(생성/수정/액세스 날짜) 보존 (Preserve Meta)")
         
         # 설정값 반영
@@ -228,7 +339,9 @@ class BypassTab(QWidget):
         self.ppt_combo.setCurrentText(self.config_manager.get("bypass_ppt_target", ".pptm"))
         self.word_combo.setCurrentText(self.config_manager.get("bypass_word_target", ".docm"))
         self.pdf_combo.setCurrentText(self.config_manager.get("bypass_pdf_target", ".zip"))
-        self.check_delete_orig.setChecked(self.config_manager.get("bypass_delete_original", True))
+        disposition = self.config_manager.get("bypass_source_disposition", SourceDisposition.KEEP.value)
+        self.check_backup_orig.setChecked(disposition == SourceDisposition.BACKUP.value)
+        self.check_backup_orig.toggled.connect(self._save_source_disposition)
         self.check_preserve_meta.setChecked(self.config_manager.get("bypass_preserve_meta", True))
         
         # 레이아웃 배치
@@ -249,8 +362,17 @@ class BypassTab(QWidget):
         rules_layout.addLayout(v_combos, 3)
         
         v_options = QVBoxLayout()
-        v_options.addWidget(self.check_delete_orig)
+        v_options.addWidget(self.check_backup_orig)
         v_options.addWidget(self.check_preserve_meta)
+        self.backup_recovery_btn = QPushButton(
+            self._t(
+                "Review / Restore Original Backup",
+                "Original Backup 확인 / 복구",
+                "Przejrzyj / przywróć Original Backup",
+            )
+        )
+        self.backup_recovery_btn.clicked.connect(self.open_backup_recovery)
+        v_options.addWidget(self.backup_recovery_btn)
         rules_layout.addLayout(v_options, 2)
         
         layout.addWidget(rules_group)
@@ -319,6 +441,30 @@ class BypassTab(QWidget):
             self.set_target_folder_path(last_tgt)
             self.radio_custom.setChecked(True)
             self.tgt_layout_widget.setVisible(True)
+
+    def _save_source_disposition(self, backup_enabled):
+        disposition = SourceDisposition.BACKUP if backup_enabled else SourceDisposition.KEEP
+        values = {
+            "bypass_source_disposition": disposition.value,
+            "bypass_delete_original": False,
+            # Any change to the source action requires renewed unattended consent.
+            "task_schedule_allow_source_backup": False,
+        }
+        update = getattr(self.config_manager, "update", None)
+        if callable(update):
+            update(values)
+        else:
+            for key, value in values.items():
+                self.config_manager.set(key, value)
+
+    def open_backup_recovery(self):
+        current_source = self.src_entry.text().strip()
+        if not os.path.isdir(current_source):
+            current_source = self.config_manager.get("last_bypass_source_directory", "")
+        dialog = BackupRecoveryDialog(self.config_manager, current_source, self)
+        dialog.exec()
+        if dialog.restored_any and os.path.normcase(dialog.source_folder) == os.path.normcase(current_source):
+            self.scan_source_folder()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -434,7 +580,9 @@ class BypassTab(QWidget):
         self.config_manager.set("bypass_ppt_target", self.ppt_combo.currentText())
         self.config_manager.set("bypass_word_target", self.word_combo.currentText())
         self.config_manager.set("bypass_pdf_target", self.pdf_combo.currentText())
-        self.config_manager.set("bypass_delete_original", self.check_delete_orig.isChecked())
+        disposition = SourceDisposition.BACKUP if self.check_backup_orig.isChecked() else SourceDisposition.KEEP
+        self.config_manager.set("bypass_source_disposition", disposition.value)
+        self.config_manager.set("bypass_delete_original", False)
         self.config_manager.set("bypass_preserve_meta", self.check_preserve_meta.isChecked())
         
         try:
@@ -455,6 +603,10 @@ class BypassTab(QWidget):
         )
         if preflight.has_blockers:
             QMessageBox.critical(self, self._t("Preflight check failed", "사전 점검 실패"), preflight.format(include_warnings=False, language=self.language))
+            return
+
+        if not self._confirm_backup_move(run_config):
+            self.log_area.append(self._t("Source backup was cancelled.", "원본 백업 이동을 취소했습니다.", "Anulowano kopię źródeł."))
             return
 
         tasks = [task.to_legacy_dict() for task in run_config.tasks]
@@ -504,9 +656,10 @@ class BypassTab(QWidget):
                 if success:
                     self.file_table.setItem(idx, 3, QTableWidgetItem(self._t("Completed", "완료")))
                     self.file_table.item(idx, 3).setForeground(Qt.GlobalColor.green)
-                    self.log_area.append(self._t(f"🟢 [Success] {filename} -> {tgt_name}", f"🟢 [성공] {filename} -> {tgt_name}"))
+                    detail = self._converter_message(message)
+                    self.log_area.append(self._t(f"🟢 [Success] {filename} -> {tgt_name}", f"🟢 [성공] {filename} -> {tgt_name}") + f" — {detail}")
                 else:
-                    message = self._error_text(message)
+                    message = self._converter_message(message)
                     self.file_table.setItem(idx, 3, QTableWidgetItem(self._t(f"Failed: {message}", f"실패: {message}")))
                     self.file_table.item(idx, 3).setForeground(Qt.GlobalColor.red)
                     self.log_area.append(self._t(f"🔴 [Failed] {filename}: {message}", f"🔴 [실패] {filename}: {message}"))
@@ -532,7 +685,7 @@ class BypassTab(QWidget):
             show_toast(self, self._t(f"Operation failed: {message}", f"작업 실패: {message}"), "error")
             QMessageBox.critical(self, self._t("Error", "오류"), self._t(f"Operation error: {message}", f"작업 에러: {message}"))
             
-        # 스캔 리스트 리프레시 (원본 파일이 지워졌을 수 있으므로)
+        # 스캔 리스트 리프레시 (원본 파일이 백업 폴더로 이동했을 수 있으므로)
         self.scan_source_folder()
 
     def build_run_config(self):
@@ -571,6 +724,8 @@ class BypassTab(QWidget):
             
         # 작업 리스트 작성
         tasks = []
+        reserved_targets = set()
+        source_disposition = SourceDisposition.BACKUP if self.check_backup_orig.isChecked() else SourceDisposition.KEEP
         for idx in range(self.file_table.rowCount()):
             filename = self.file_table.item(idx, 0).text()
             src_file = os.path.join(src_dir, filename)
@@ -585,25 +740,42 @@ class BypassTab(QWidget):
             name_no_ext, _ = os.path.splitext(filename)
             tgt_filename = f"{name_no_ext}{tgt_ext}"
             tgt_file = os.path.join(tgt_dir, tgt_filename)
-            
-            if os.path.exists(tgt_file) and tgt_file != src_file:
+
+            normalized_target = os.path.normcase(os.path.abspath(tgt_file))
+            normalized_source = os.path.normcase(os.path.abspath(src_file))
+            same_as_source = normalized_target == normalized_source
+            if same_as_source:
+                tgt_filename = f"{name_no_ext}_converted{tgt_ext}"
+                tgt_file = os.path.join(tgt_dir, tgt_filename)
+                normalized_target = os.path.normcase(os.path.abspath(tgt_file))
+                suffix = "_converted"
+                counter = 1
+                while os.path.exists(tgt_file) or normalized_target in reserved_targets:
+                    tgt_filename = f"{name_no_ext}{suffix}_{counter}{tgt_ext}"
+                    tgt_file = os.path.join(tgt_dir, tgt_filename)
+                    normalized_target = os.path.normcase(os.path.abspath(tgt_file))
+                    counter += 1
+            elif os.path.exists(tgt_file) or normalized_target in reserved_targets:
                 counter = 1
                 while True:
                     tgt_filename = f"{name_no_ext}_{counter}{tgt_ext}"
                     tgt_file = os.path.join(tgt_dir, tgt_filename)
-                    if not os.path.exists(tgt_file):
+                    normalized_target = os.path.normcase(os.path.abspath(tgt_file))
+                    if not os.path.exists(tgt_file) and normalized_target not in reserved_targets:
                         break
                     counter += 1
+
+            reserved_targets.add(normalized_target)
                     
             tasks.append(BypassFileConfig(
                 src=src_file,
                 tgt=tgt_file,
                 ext=tgt_ext,
                 preserve_meta=self.check_preserve_meta.isChecked(),
-                delete_original=self.check_delete_orig.isChecked(),
+                source_disposition=source_disposition,
             ))
             
-        return BypassRunConfig(tasks=tasks, delete_original=self.check_delete_orig.isChecked())
+        return BypassRunConfig(tasks=tasks, source_disposition=source_disposition)
 
     def get_task_info(self):
         config = self.build_run_config()
@@ -620,5 +792,5 @@ class BypassTab(QWidget):
         self.ppt_combo.setEnabled(not locked)
         self.word_combo.setEnabled(not locked)
         self.pdf_combo.setEnabled(not locked)
-        self.check_delete_orig.setEnabled(not locked)
+        self.check_backup_orig.setEnabled(not locked)
         self.check_preserve_meta.setEnabled(not locked)

@@ -1,8 +1,11 @@
 import os
+import shutil
 import zipfile
 import ctypes
 from ctypes import wintypes
 import logging
+
+from src.core.task_contracts import SourceDisposition
 
 logger = logging.getLogger(__name__)
 
@@ -110,18 +113,58 @@ class BypassConverter:
         finally:
             pythoncom.CoUninitialize()
 
-    def convert_file(self, src_path, tgt_path, target_ext, preserve_meta=True, delete_original=True):
+    @staticmethod
+    def _same_path(first_path, second_path):
+        return os.path.normcase(os.path.abspath(first_path)) == os.path.normcase(os.path.abspath(second_path))
+
+    @staticmethod
+    def _unique_backup_path(src_path, backup_folder_name="Original Backup"):
+        backup_dir = os.path.join(os.path.dirname(src_path), backup_folder_name)
+        filename = os.path.basename(src_path)
+        name, ext = os.path.splitext(filename)
+        candidate = os.path.join(backup_dir, filename)
+        counter = 1
+        while os.path.exists(candidate):
+            candidate = os.path.join(backup_dir, f"{name}_{counter}{ext}")
+            counter += 1
+        return candidate
+
+    def convert_file(
+        self,
+        src_path,
+        tgt_path,
+        target_ext,
+        preserve_meta=True,
+        source_disposition=SourceDisposition.KEEP,
+        delete_original=None,
+    ):
         """
-        단일 파일을 변환하고, 메타데이터 보존 및 원본 삭제 처리를 수행합니다.
+        단일 파일을 변환하고 메타데이터를 보존합니다. 선택 시 원본은 삭제하지
+        않고 원본 폴더 아래의 ``Original Backup`` 폴더로 이동합니다.
         
         Returns:
             tuple: (success, message)
         """
         src_path = os.path.normpath(src_path)
         tgt_path = os.path.normpath(tgt_path)
+
+        # Old callers may still pass delete_original=True. Preserve compatibility
+        # without preserving the destructive behavior: True now means backup.
+        if delete_original is not None:
+            source_disposition = SourceDisposition.BACKUP if delete_original else SourceDisposition.KEEP
+        try:
+            source_disposition = SourceDisposition(source_disposition)
+        except (TypeError, ValueError):
+            return False, f"INVALID_SOURCE_DISPOSITION|{source_disposition}"
         
         if not os.path.exists(src_path):
             return False, f"원본 파일을 찾을 수 없습니다: {src_path}"
+
+        if self._same_path(src_path, tgt_path):
+            return False, f"SOURCE_TARGET_SAME|{src_path}"
+
+        if os.path.exists(tgt_path):
+            return False, f"TARGET_ALREADY_EXISTS|{tgt_path}"
             
         if self.is_file_locked(src_path):
             return False, f"파일이 이미 다른 프로그램에서 사용 중입니다 (Locked): {os.path.basename(src_path)}"
@@ -160,6 +203,12 @@ class BypassConverter:
             
         if not success:
             return False, err_msg
+
+        # Never move a source until the converter has produced a real output file.
+        if not os.path.isfile(tgt_path):
+            return False, f"OUTPUT_NOT_CREATED|{tgt_path}"
+        if os.path.getsize(tgt_path) == 0:
+            return False, f"OUTPUT_EMPTY|{tgt_path}"
             
         # 2. 메타데이터 (시간 타임스탬프) 복구 적용
         if preserve_meta and os.path.exists(tgt_path):
@@ -169,17 +218,18 @@ class BypassConverter:
                 logger.error(f"Failed to restore metadata for {tgt_path}: {meta_ex}")
                 # 메타데이터 보존 실패는 파일 자체의 변환 성공을 무효화하지는 않음 (경고만 기록)
                 
-        # 3. 원본 파일 안전 삭제
-        if delete_original and success:
+        # 3. 요청된 경우 원본을 복구 가능한 백업 폴더로 이동
+        if source_disposition == SourceDisposition.BACKUP:
             try:
-                # 읽기전용 속성 해제 후 삭제
-                os.chmod(src_path, 0o777)
-                os.remove(src_path)
-            except Exception as del_ex:
-                logger.error(f"Failed to delete original file {src_path}: {del_ex}")
-                return True, f"변환 성공했으나 원본 파일 삭제 실패: {str(del_ex)}"
+                backup_path = self._unique_backup_path(src_path)
+                os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+                shutil.move(src_path, backup_path)
+                return True, f"SOURCE_BACKED_UP|{backup_path}"
+            except Exception as backup_ex:
+                logger.error(f"Failed to move original file to backup {src_path}: {backup_ex}")
+                return False, f"SOURCE_BACKUP_FAILED|{str(backup_ex)}"
                 
-        return True, "성공"
+        return True, "SOURCE_KEPT"
 
     def _convert_excel(self, src_path, tgt_path, target_ext):
         """Excel COM 자동화를 이용한 바이너리/매크로 형식 변환"""

@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass, field
 from enum import Enum
 
-from src.core.task_contracts import BypassRunConfig, RunPlan, TaskStep
+from src.core.task_contracts import BypassRunConfig, RunPlan, SourceDisposition, TaskStep
 from src.ui.i18n import choose, get_app_language
 
 
@@ -250,6 +250,17 @@ def check_run_plan(
             report.add_warning(
                 t("Office conversion depends on Excel, Word, or PowerPoint being installed on this computer.", "Office 파일 변환은 대상 PC의 Excel/Word/PowerPoint COM 설치 상태에 의존합니다."),
                 ", ".join(apps),
+                TaskStep.BYPASS,
+            )
+        if bypass_config.source_disposition == SourceDisposition.BACKUP:
+            source_folders = sorted({os.path.dirname(task.src) for task in bypass_config.tasks})
+            backup_folders = [os.path.join(folder, "Original Backup") for folder in source_folders]
+            report.add_warning(
+                t(
+                    "Convert Files will move source files to recoverable backup folders after verified conversion.",
+                    "파일 변환은 출력 검증 후 원본을 복구 가능한 백업 폴더로 이동합니다.",
+                ),
+                "\n".join(backup_folders),
                 TaskStep.BYPASS,
             )
 

@@ -17,7 +17,18 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QIcon
 
 from src.ui.main_window import APP_STYLESHEET, MainWindow, create_dark_palette
+from src.ui.single_instance import SingleInstanceController
 from src.utils.logger import setup_logger
+
+
+SINGLE_INSTANCE_NAME = "fileops.hub.desktop.v1"
+
+
+def parse_startup_arguments(argv):
+    """Remove FileOps-specific switches before passing arguments to Qt."""
+    start_in_tray = "--tray" in argv[1:]
+    qt_argv = [argv[0], *(arg for arg in argv[1:] if arg != "--tray")]
+    return qt_argv, start_in_tray
 
 def show_fatal_error(summary: str, details: str) -> None:
     """Report startup failures even when the Qt window could not be constructed."""
@@ -48,7 +59,14 @@ def main() -> int:
             pass
 
     try:
-        app = QApplication(sys.argv)
+        qt_argv, start_in_tray = parse_startup_arguments(sys.argv)
+        app = QApplication(qt_argv)
+        instance_controller = SingleInstanceController.acquire(
+            SINGLE_INSTANCE_NAME,
+            show_existing=not start_in_tray,
+        )
+        if instance_controller is None:
+            return 0
 
         runtime_root = getattr(sys, "_MEIPASS", PROJECT_ROOT)
         icon_path = os.path.join(runtime_root, "src", "assets", "icon.ico")
@@ -61,13 +79,19 @@ def main() -> int:
         app.setPalette(create_dark_palette())
         app.setStyleSheet(APP_STYLESHEET)
         window = MainWindow()
+        instance_controller.activation_requested.connect(window.show_from_tray)
         if not app_icon.isNull():
             # QApplication 상속에만 의존하지 않고 각 Windows 표면에 명시적으로 적용합니다.
             window.setWindowIcon(app_icon)
             if window.tray_icon:
                 window.tray_icon.setIcon(app_icon)
-        window.show()
-        return app.exec()
+        if start_in_tray and window.tray_icon and window.tray_icon.isVisible():
+            window.hide()
+        else:
+            window.show()
+        exit_code = app.exec()
+        instance_controller.close()
+        return exit_code
     except Exception as exc:
         details = traceback.format_exc()
         logging.getLogger(__name__).critical("Application startup failed:\n%s", details)

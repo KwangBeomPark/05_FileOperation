@@ -74,6 +74,12 @@ class ReleaseLayoutTests(unittest.TestCase):
         self.assertNotIn("\0", requirements)
         self.assertIn("qtawesome==1.4.2", requirements)
 
+    def test_installer_can_start_one_hidden_instance_with_windows(self):
+        setup_text = (ROOT / "tools" / "setup.iss").read_text(encoding="utf-8")
+        self.assertIn('{userstartup}\\FileOps Hub', setup_text)
+        self.assertIn('Parameters: "--tray"', setup_text)
+        self.assertIn('Tasks: startup', setup_text)
+
 
 if __name__ == "__main__":
     unittest.main()

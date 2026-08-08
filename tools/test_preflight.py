@@ -7,6 +7,7 @@ from src.core.task_contracts import (
     BypassRunConfig,
     OcrRunConfig,
     RunPlan,
+    SourceDisposition,
     TaskStep,
 )
 
@@ -39,8 +40,8 @@ class PreflightTests(unittest.TestCase):
 
     def test_bypass_office_tasks_emit_warning_when_not_deep_checking_com(self):
         config = BypassRunConfig(
-            [BypassFileConfig("source.xlsx", "target.xlsb", ".xlsb", True, True)],
-            delete_original=True,
+            [BypassFileConfig("source.xlsx", "target.xlsb", ".xlsb", True, SourceDisposition.KEEP)],
+            source_disposition=SourceDisposition.KEEP,
         )
         plan = RunPlan({TaskStep.BYPASS: config})
         with patch("src.core.preflight.check_office_imports", return_value=(True, "ok")):
@@ -52,8 +53,8 @@ class PreflightTests(unittest.TestCase):
 
     def test_bypass_office_tasks_block_when_required_app_cannot_launch(self):
         config = BypassRunConfig(
-            [BypassFileConfig("source.xlsx", "target.xlsb", ".xlsb", True, True)],
-            delete_original=True,
+            [BypassFileConfig("source.xlsx", "target.xlsb", ".xlsb", True, SourceDisposition.KEEP)],
+            source_disposition=SourceDisposition.KEEP,
         )
         plan = RunPlan({TaskStep.BYPASS: config})
         with (
@@ -65,6 +66,19 @@ class PreflightTests(unittest.TestCase):
         self.assertTrue(report.has_blockers)
         self.assertEqual(report.blockers[0].step, TaskStep.BYPASS)
         self.assertIn("Excel.Application", report.blockers[0].detail)
+
+    def test_bypass_backup_action_is_visible_in_preflight(self):
+        config = BypassRunConfig(
+            [BypassFileConfig("source.pdf", "target.zip", ".zip", True, SourceDisposition.BACKUP)],
+            source_disposition=SourceDisposition.BACKUP,
+        )
+        plan = RunPlan({TaskStep.BYPASS: config})
+        with patch("src.core.preflight.check_office_imports", return_value=(True, "ok")):
+            report = check_run_plan(plan, FakeConfig(), check_office=False)
+
+        backup_warnings = [issue for issue in report.warnings if "Original Backup" in issue.detail]
+        self.assertEqual(len(backup_warnings), 1)
+        self.assertEqual(backup_warnings[0].step, TaskStep.BYPASS)
 
     def test_smtp_missing_fields_are_warnings(self):
         plan = RunPlan({})

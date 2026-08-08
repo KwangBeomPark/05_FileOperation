@@ -25,9 +25,11 @@ Source: "..\dist\IntegratedDataTool.exe"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{group}\IntegratedDataTool"; Filename: "{app}\IntegratedDataTool.exe"; IconFilename: "{app}\IntegratedDataTool.exe"; AppUserModelID: "fileops.hub.desktop.v1"
 Name: "{userdesktop}\IntegratedDataTool"; Filename: "{app}\IntegratedDataTool.exe"; IconFilename: "{app}\IntegratedDataTool.exe"; AppUserModelID: "fileops.hub.desktop.v1"; Tasks: desktopicon
+Name: "{userstartup}\FileOps Hub"; Filename: "{app}\IntegratedDataTool.exe"; Parameters: "--tray"; WorkingDir: "{app}"; IconFilename: "{app}\IntegratedDataTool.exe"; AppUserModelID: "fileops.hub.desktop.v1"; Tasks: startup
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "startup"; Description: "Start FileOps Hub automatically when Windows starts"; GroupDescription: "Startup:"; Flags: unchecked
 
 [Run]
 Filename: "{app}\IntegratedDataTool.exe"; Description: "{cm:LaunchProgram,IntegratedDataTool}"; Flags: nowait postinstall skipifsilent

@@ -34,6 +34,23 @@ class ConfigSecurityTests(unittest.TestCase):
             self.assertEqual(manager.get("sender_password"), "legacy-secret")
             self.assertEqual(manager.get("config_version"), 2)
 
+    def test_legacy_source_deletion_setting_migrates_to_keep(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(os.environ, {"LOCALAPPDATA": temp_dir}, clear=False):
+            app_dir = os.path.join(temp_dir, "IntegratedDataTool")
+            os.makedirs(app_dir, exist_ok=True)
+            config_path = os.path.join(app_dir, "settings.json")
+            with open(config_path, "w", encoding="utf-8") as file:
+                json.dump({"config_version": 2, "bypass_delete_original": True}, file)
+
+            manager = ConfigManager("settings.json")
+
+            self.assertFalse(manager.get("bypass_delete_original"))
+            self.assertEqual(manager.get("bypass_source_disposition"), "keep")
+            with open(config_path, "r", encoding="utf-8") as file:
+                persisted = json.load(file)
+            self.assertFalse(persisted["bypass_delete_original"])
+            self.assertEqual(persisted["bypass_source_disposition"], "keep")
+
 
 if __name__ == "__main__":
     unittest.main()

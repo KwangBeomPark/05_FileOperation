@@ -23,6 +23,11 @@ class StepStatus(str, Enum):
     SKIPPED = "건너뜀"
 
 
+class SourceDisposition(str, Enum):
+    KEEP = "keep"
+    BACKUP = "backup"
+
+
 class TaskValidationError(ValueError):
     def __init__(
         self,
@@ -120,7 +125,10 @@ class BypassFileConfig:
     tgt: str
     ext: str
     preserve_meta: bool
-    delete_original: bool
+    source_disposition: SourceDisposition = SourceDisposition.KEEP
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_disposition", SourceDisposition(self.source_disposition))
 
     def to_legacy_dict(self) -> dict[str, Any]:
         return {
@@ -128,19 +136,26 @@ class BypassFileConfig:
             "tgt": self.tgt,
             "ext": self.ext,
             "preserve_meta": self.preserve_meta,
-            "delete_original": self.delete_original,
+            "source_disposition": self.source_disposition.value,
+            # Older workers understand only this key. Keep it explicitly false so
+            # upgrading can never turn the new recoverable action into deletion.
+            "delete_original": False,
         }
 
 
 @dataclass(frozen=True)
 class BypassRunConfig:
     tasks: list[BypassFileConfig]
-    delete_original: bool
+    source_disposition: SourceDisposition = SourceDisposition.KEEP
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_disposition", SourceDisposition(self.source_disposition))
 
     def to_legacy_dict(self) -> dict[str, Any]:
         return {
             "tasks": [task.to_legacy_dict() for task in self.tasks],
-            "delete_original": self.delete_original,
+            "source_disposition": self.source_disposition.value,
+            "delete_original": False,
         }
 
 

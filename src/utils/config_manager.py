@@ -53,7 +53,9 @@ class ConfigManager:
         "bypass_ppt_target": ".pptm",
         "bypass_word_target": ".docm",
         "bypass_pdf_target": ".zip",
-        "bypass_delete_original": True,
+        "bypass_source_disposition": "keep",
+        # Legacy safety key. Permanent source deletion is no longer supported.
+        "bypass_delete_original": False,
         "bypass_preserve_meta": True,
         "last_bypass_source_directory": "",
         "last_bypass_target_directory": "",
@@ -62,6 +64,15 @@ class ConfigManager:
         "task_schedule_enabled": False,
         "task_schedule_time": "18:00",
         "task_schedule_last_run_date": "",
+        "task_schedule_attempt_date": "",
+        "task_schedule_attempt_count": 0,
+        "task_schedule_last_attempt_at": "",
+        "task_schedule_last_started_at": "",
+        "task_schedule_last_success_at": "",
+        "task_schedule_last_failure_at": "",
+        "task_schedule_last_failure_reason": "",
+        "task_schedule_allow_source_backup": False,
+        "task_step_last_results": {},
         "task_auto_email": True,
         # Run Tasks에서 실제로 실행할 기능. 기존 설정에는 이 키가 없으므로
         # 안전한 기본값인 폴더 동기화만 선택합니다.
@@ -153,6 +164,14 @@ class ConfigManager:
         if "config_version" not in loaded:
             config["config_version"] = 2
             migrated = True
+        # v1.1.x could permanently delete converted source files and defaulted
+        # that action to on. Never carry that destructive choice across upgrade.
+        if loaded.get("bypass_delete_original") is not False:
+            config["bypass_delete_original"] = False
+            migrated = True
+        if loaded.get("bypass_source_disposition") not in {"keep", "backup"}:
+            config["bypass_source_disposition"] = "keep"
+            migrated = True
         return migrated
 
     def save_config(self) -> bool:
@@ -211,6 +230,14 @@ class ConfigManager:
             
             # 설정 값 변경 시 세이브 자동 유도 가능하도록 구성
             # 실시간 안전 저장을 위해 즉시 save 호출
+            return self._save_config_raw(self.config)
+
+    def update(self, values: dict) -> bool:
+        """Persist several non-sensitive runtime state values atomically."""
+        if any(key in self.SECURE_KEYS for key in values):
+            raise ValueError("ConfigManager.update does not accept secure keys.")
+        with self.lock:
+            self.config.update(values)
             return self._save_config_raw(self.config)
             
     def remove(self, key):

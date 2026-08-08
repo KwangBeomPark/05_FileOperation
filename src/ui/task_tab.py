@@ -11,15 +11,27 @@ from PyQt6.QtGui import QFont, QColor
 
 # Core Modules
 from src.core.email_sender import send_email
+from src.core.diagnostics import DiagnosticItem, DiagnosticStatus
 from src.core.preflight import check_run_plan
-from src.core.task_contracts import RunPlan, StepStatus, TaskStep, TaskValidationError
+from src.core.schedule import evaluate_daily_schedule, parse_timestamp
+from src.core.task_contracts import BypassRunConfig, RunPlan, SourceDisposition, StepStatus, TaskStep, TaskValidationError
+from src.core.task_history import merge_run_report_history, normalize_step_history
 from src.ui.i18n import get_app_language, tr
+from src.ui.diagnostics_dialog import DiagnosticsDialog
 from src.ui.task_worker import TaskWorker
 from src.utils.logger import get_logger
 
 logger = get_logger()
 
 class TaskTab(QWidget):
+    SCHEDULE_RETRY_MINUTES = 10
+    SCHEDULE_MAX_START_ATTEMPTS = 3
+    COL_RUN = 0
+    COL_FEATURE = 1
+    COL_READINESS = 2
+    COL_STATUS = 3
+    COL_LAST_RESULT = 4
+
     STEP_ORDER = (
         TaskStep.SYNC,
         TaskStep.EML,
@@ -34,13 +46,15 @@ class TaskTab(QWidget):
         self.worker = None
         self.is_running = False
         self.is_scheduled_run = False
+        self.start_failure_reason = ""
         self.init_ui()
 
         self.schedule_timer = QTimer(self)
         self.schedule_timer.setInterval(30_000)
-        self.schedule_timer.timeout.connect(self.check_scheduled_run)
+        self.schedule_timer.timeout.connect(self._on_schedule_tick)
         self.schedule_timer.start()
-        QTimer.singleShot(0, self.check_scheduled_run)
+        QTimer.singleShot(0, self._on_schedule_tick)
+        QTimer.singleShot(0, self.refresh_readiness)
         
     def init_ui(self):
         layout = QVBoxLayout()
@@ -91,11 +105,6 @@ class TaskTab(QWidget):
         self.check_auto_email.setStyleSheet("font-size: 11px;")
         ctrl_layout.addWidget(self.check_auto_email)
 
-        self.check_schedule.toggled.connect(self.schedule_time_edit.setEnabled)
-        self.check_schedule.toggled.connect(self.save_automation_settings)
-        self.schedule_time_edit.timeChanged.connect(self.save_automation_settings)
-        self.check_auto_email.toggled.connect(self.save_automation_settings)
-        
         # 시작 / 중지 버튼
         self.start_btn = QPushButton()
         self.start_btn.setMinimumHeight(35)
@@ -144,22 +153,58 @@ class TaskTab(QWidget):
         
         layout.addWidget(ctrl_frame)
 
+        hint_layout = QHBoxLayout()
         self.selection_hint = QLabel()
         self.selection_hint.setWordWrap(True)
         self.selection_hint.setStyleSheet("color: #94a3b8; padding: 2px 4px;")
-        layout.addWidget(self.selection_hint)
+        hint_layout.addWidget(self.selection_hint, 1)
+        self.readiness_btn = QPushButton()
+        self.readiness_btn.setMinimumHeight(30)
+        self.readiness_btn.clicked.connect(self.refresh_readiness)
+        hint_layout.addWidget(self.readiness_btn)
+        self.diagnostics_btn = QPushButton()
+        self.diagnostics_btn.setMinimumHeight(30)
+        self.diagnostics_btn.clicked.connect(self.open_diagnostics)
+        hint_layout.addWidget(self.diagnostics_btn)
+        layout.addLayout(hint_layout)
+
+        self.schedule_status_label = QLabel()
+        self.schedule_status_label.setWordWrap(True)
+        self.schedule_status_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.schedule_status_label.setStyleSheet(
+            "color: #7dd3fc; background-color: #17212b; border: 1px solid #334155; "
+            "border-radius: 5px; padding: 6px 8px;"
+        )
+        layout.addWidget(self.schedule_status_label)
+
+        self.check_allow_source_backup = QCheckBox()
+        self.check_allow_source_backup.setChecked(
+            bool(self.config_manager.get("task_schedule_allow_source_backup", False))
+        )
+        self.check_allow_source_backup.setEnabled(self.check_schedule.isChecked())
+        self.check_allow_source_backup.setStyleSheet(
+            "color: #fbbf24; background-color: #2b2113; border: 1px solid #713f12; "
+            "border-radius: 5px; padding: 6px 8px;"
+        )
+        layout.addWidget(self.check_allow_source_backup)
+
+        self.check_schedule.toggled.connect(self._on_schedule_toggled)
+        self.schedule_time_edit.timeChanged.connect(self.save_automation_settings)
+        self.check_auto_email.toggled.connect(self.save_automation_settings)
+        self.check_allow_source_backup.toggled.connect(self.save_automation_settings)
         
         # 2. 중간 상태 그리드 테이블 (Tab Summary Status)
         self.status_table = QTableWidget()
-        self.status_table.setColumnCount(3)
+        self.status_table.setColumnCount(5)
         self.status_table.setRowCount(5)
-        self.status_table.setHorizontalHeaderLabels(["", "", ""])
+        self.status_table.setHorizontalHeaderLabels(["", "", "", "", ""])
         self.status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.status_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.status_table.horizontalHeader().setSectionResizeMode(self.COL_RUN, QHeaderView.ResizeMode.ResizeToContents)
+        self.status_table.horizontalHeader().setSectionResizeMode(self.COL_STATUS, QHeaderView.ResizeMode.ResizeToContents)
         self.status_table.verticalHeader().setVisible(False)
         self.status_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self.status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.status_table.setMinimumHeight(180)
+        self.status_table.setMinimumHeight(205)
         self.status_table.setStyleSheet("""
             QTableWidget {
                 background-color: #1e1e1e;
@@ -196,20 +241,30 @@ class TaskTab(QWidget):
             check_layout.setContentsMargins(0, 0, 0, 0)
             check_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
             check_layout.addWidget(run_check)
-            self.status_table.setCellWidget(row_idx, 0, check_holder)
+            self.status_table.setCellWidget(row_idx, self.COL_RUN, check_holder)
             self.step_checks[step] = run_check
             
             # 단계명
             name_item = QTableWidgetItem()
             name_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             name_item.setFont(QFont("Malgun Gothic", 9, QFont.Weight.Bold))
-            self.status_table.setItem(row_idx, 1, name_item)
+            self.status_table.setItem(row_idx, self.COL_FEATURE, name_item)
+
+            readiness_item = QTableWidgetItem()
+            readiness_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            readiness_item.setForeground(QColor("#94a3b8"))
+            self.status_table.setItem(row_idx, self.COL_READINESS, readiness_item)
             
             # 상태
             status_item = QTableWidgetItem()
             status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             status_item.setForeground(QColor("#94a3b8"))
-            self.status_table.setItem(row_idx, 2, status_item)
+            self.status_table.setItem(row_idx, self.COL_STATUS, status_item)
+
+            history_item = QTableWidgetItem()
+            history_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            history_item.setForeground(QColor("#cbd5e1"))
+            self.status_table.setItem(row_idx, self.COL_LAST_RESULT, history_item)
             
         layout.addWidget(self.status_table)
         
@@ -262,6 +317,8 @@ class TaskTab(QWidget):
             }
         """)
         layout.addWidget(self.log_area)
+        self.refresh_history_display()
+        self._update_backup_consent_visibility()
         self.refresh_language()
 
     @property
@@ -293,30 +350,65 @@ class TaskTab(QWidget):
         return [step for step in self.STEP_ORDER if self.step_checks[step].isChecked()]
 
     def save_enabled_steps(self, _checked=False):
-        self.config_manager.set("task_enabled_steps", [step.value for step in self.selected_steps()])
+        previous = self.config_manager.get("task_enabled_steps", [TaskStep.SYNC.value])
+        previous_steps = {str(value) for value in previous} if isinstance(previous, list) else {TaskStep.SYNC.value}
+        selected_values = [step.value for step in self.selected_steps()]
+        self.config_manager.set("task_enabled_steps", selected_values)
+        if TaskStep.BYPASS.value in selected_values and TaskStep.BYPASS.value not in previous_steps:
+            self.check_allow_source_backup.setChecked(False)
         if not self.is_running:
             for step in self.STEP_ORDER:
                 row = self.step_keys[step.value]
                 status_key = "pending" if self.step_checks[step].isChecked() else "skipped"
-                self._set_status_item(self.status_table.item(row, 2), status_key)
+                self._set_status_item(self.status_table.item(row, self.COL_STATUS), status_key)
+                readiness_key = "not_checked" if self.step_checks[step].isChecked() else "not_selected"
+                self._set_readiness_item(step, readiness_key)
+        self._update_backup_consent_visibility()
+
+    def _update_backup_consent_visibility(self):
+        bypass_check = getattr(self, "step_checks", {}).get(TaskStep.BYPASS)
+        bypass_selected = bool(bypass_check and bypass_check.isChecked())
+        backup_enabled = (
+            self.config_manager.get("bypass_source_disposition", SourceDisposition.KEEP.value)
+            == SourceDisposition.BACKUP.value
+        )
+        relevant = self.check_schedule.isChecked() and bypass_selected and backup_enabled
+        self.check_allow_source_backup.setVisible(relevant)
+        self.check_allow_source_backup.setEnabled(relevant and not self.is_running)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._update_backup_consent_visibility()
 
     def refresh_language(self):
         language = self.language
         self.title_label.setText(tr("task_title", language))
         self.check_schedule.setText(tr("task_schedule", language))
         self.check_auto_email.setText(tr("task_auto_email", language))
+        self.check_allow_source_backup.setText(tr("task_schedule_allow_source_backup", language))
+        self.check_allow_source_backup.setToolTip(tr("task_schedule_allow_source_backup_help", language))
         self.start_btn.setText(tr("task_start", language))
         self.stop_btn.setText(tr("task_stop", language))
+        self.readiness_btn.setText(tr("task_check_readiness", language))
+        self.diagnostics_btn.setText(tr("diagnostics_open", language))
         self.selection_hint.setText(tr("task_selection_hint", language))
         self.status_table.setHorizontalHeaderLabels([
             tr("task_run_header", language),
             tr("task_feature_header", language),
+            tr("task_readiness_header", language),
             tr("task_status_header", language),
+            tr("task_last_result_header", language),
         ])
         for step in self.STEP_ORDER:
             row = self.step_keys[step.value]
-            self.status_table.item(row, 1).setText(self.step_label(step))
-            status_item = self.status_table.item(row, 2)
+            self.status_table.item(row, self.COL_FEATURE).setText(self.step_label(step))
+            readiness_item = self.status_table.item(row, self.COL_READINESS)
+            readiness_key = readiness_item.data(Qt.ItemDataRole.UserRole) or (
+                "not_checked" if self.step_checks[step].isChecked() else "not_selected"
+            )
+            readiness_detail = readiness_item.data(Qt.ItemDataRole.UserRole.value + 1) or ""
+            self._set_readiness_item(step, readiness_key, readiness_detail)
+            status_item = self.status_table.item(row, self.COL_STATUS)
             status_key = status_item.data(Qt.ItemDataRole.UserRole)
             if not status_key:
                 status_key = "pending" if self.step_checks[step].isChecked() else "skipped"
@@ -324,47 +416,347 @@ class TaskTab(QWidget):
         self.progress_bar.setFormat(tr("task_progress_format", language))
         self.detail_label.setText(tr("task_waiting", language))
         self.log_label.setText(tr("task_log_title", language))
+        self.refresh_history_display()
+        self.refresh_schedule_summary()
 
     def _set_status_item(self, item, status_key):
         item.setData(Qt.ItemDataRole.UserRole, status_key)
         item.setText(tr(f"task_status_{status_key}", self.language))
+
+    def _set_readiness_item(self, step, readiness_key, detail=""):
+        row = self.step_keys[step.value]
+        item = self.status_table.item(row, self.COL_READINESS)
+        item.setData(Qt.ItemDataRole.UserRole, readiness_key)
+        item.setData(Qt.ItemDataRole.UserRole.value + 1, detail)
+        item.setText(tr(f"task_readiness_{readiness_key}", self.language))
+        item.setToolTip(detail)
+        colors = {
+            "ready": "#4ade80",
+            "warning": "#fbbf24",
+            "blocked": "#f87171",
+            "not_checked": "#94a3b8",
+            "not_selected": "#64748b",
+        }
+        item.setForeground(QColor(colors.get(readiness_key, "#94a3b8")))
+
+    def refresh_history_display(self):
+        history = normalize_step_history(self.config_manager.get("task_step_last_results", {}))
+        for step in self.STEP_ORDER:
+            row = self.step_keys[step.value]
+            item = self.status_table.item(row, self.COL_LAST_RESULT)
+            entry = history.get(step.value)
+            if not entry:
+                item.setText(tr("task_history_none", self.language))
+                item.setToolTip("")
+                item.setForeground(QColor("#64748b"))
+                continue
+            try:
+                timestamp = datetime.fromisoformat(entry["timestamp"]).strftime("%Y-%m-%d %H:%M")
+            except (TypeError, ValueError):
+                timestamp = entry["timestamp"]
+            status_text = tr(f"task_status_{entry['status']}", self.language)
+            counts = ""
+            if entry["total_count"]:
+                counts = f" · {entry['success_count']}/{entry['total_count']}"
+            item.setText(f"{status_text}{counts} · {timestamp}")
+            item.setToolTip(entry["detail"])
+            item.setForeground(QColor("#4ade80" if entry["status"] == "completed" else "#fbbf24" if entry["status"] == "cancelled" else "#f87171"))
+
+    def capture_run_report(self, report):
+        history = merge_run_report_history(
+            self.config_manager.get("task_step_last_results", {}),
+            report,
+        )
+        self._update_config({"task_step_last_results": history})
+        self.refresh_history_display()
+
+    def refresh_readiness(self):
+        if self.is_running:
+            return
+        self._update_backup_consent_visibility()
+        main_win = self.window()
+        tabs = {
+            TaskStep.SYNC: getattr(main_win, "sync_tab", None),
+            TaskStep.EML: getattr(main_win, "eml_tab", None),
+            TaskStep.PDF: getattr(main_win, "pdf_tab", None),
+            TaskStep.OCR: getattr(main_win, "ocr_tab", None),
+            TaskStep.BYPASS: getattr(main_win, "bypass_tab", None),
+        }
+        configs = {}
+        for step in self.STEP_ORDER:
+            if not self.step_checks[step].isChecked():
+                self._set_readiness_item(step, "not_selected")
+                continue
+            tab_obj = tabs.get(step)
+            if tab_obj is None or not hasattr(tab_obj, "build_run_config"):
+                self._set_readiness_item(step, "blocked", tr("task_readiness_tab_unavailable", self.language))
+                continue
+            try:
+                config = tab_obj.build_run_config()
+                if config is None:
+                    raise TaskValidationError(tr("task_no_config", self.language))
+                configs[step] = config
+                self._set_readiness_item(step, "ready")
+            except TaskValidationError as exc:
+                detail = tr(exc.message_key, self.language, **exc.values) if exc.message_key else exc.user_message
+                self._set_readiness_item(step, "blocked", detail)
+            except Exception as exc:
+                self._set_readiness_item(step, "blocked", str(exc))
+
+        if configs:
+            report = check_run_plan(
+                RunPlan(configs=configs),
+                self.config_manager,
+                auto_email=False,
+                check_office=False,
+            )
+            for step in configs:
+                blockers = [issue for issue in report.blockers if issue.step == step]
+                warnings = [issue for issue in report.warnings if issue.step == step]
+                if blockers:
+                    detail = "\n".join(filter(None, [issue.message + (f"\n{issue.detail}" if issue.detail else "") for issue in blockers]))
+                    self._set_readiness_item(step, "blocked", detail)
+                elif warnings:
+                    detail = "\n".join(filter(None, [issue.message + (f"\n{issue.detail}" if issue.detail else "") for issue in warnings]))
+                    self._set_readiness_item(step, "warning", detail)
+
+        bypass_config = configs.get(TaskStep.BYPASS)
+        if (
+            self.check_schedule.isChecked()
+            and isinstance(bypass_config, BypassRunConfig)
+            and bypass_config.source_disposition == SourceDisposition.BACKUP
+            and not self.check_allow_source_backup.isChecked()
+        ):
+            self._set_readiness_item(
+                TaskStep.BYPASS,
+                "blocked",
+                tr("task_schedule_backup_consent_required", self.language),
+            )
+
+    def open_diagnostics(self):
+        selected_steps = self.selected_steps()
+        if not selected_steps:
+            QMessageBox.warning(
+                self,
+                tr("task_no_selection_title", self.language),
+                tr("task_no_selection_body", self.language),
+            )
+            return
+
+        main_win = self.window()
+        tabs = {
+            TaskStep.SYNC: getattr(main_win, "sync_tab", None),
+            TaskStep.EML: getattr(main_win, "eml_tab", None),
+            TaskStep.PDF: getattr(main_win, "pdf_tab", None),
+            TaskStep.OCR: getattr(main_win, "ocr_tab", None),
+            TaskStep.BYPASS: getattr(main_win, "bypass_tab", None),
+        }
+        configs = {}
+        validation_items = []
+        for step in selected_steps:
+            tab_obj = tabs.get(step)
+            try:
+                if tab_obj is None or not hasattr(tab_obj, "build_run_config"):
+                    raise TaskValidationError(tr("task_readiness_tab_unavailable", self.language))
+                config = tab_obj.build_run_config()
+                if config is None:
+                    raise TaskValidationError(tr("task_no_config", self.language))
+                configs[step] = config
+            except TaskValidationError as exc:
+                detail = tr(exc.message_key, self.language, **exc.values) if exc.message_key else exc.user_message
+                validation_items.append(DiagnosticItem(
+                    f"{step.value}_config",
+                    tr("diagnostics_feature_config", self.language, feature=self.step_label(step)),
+                    DiagnosticStatus.FAIL,
+                    detail,
+                    step.value,
+                ))
+            except Exception as exc:
+                validation_items.append(DiagnosticItem(
+                    f"{step.value}_config",
+                    tr("diagnostics_feature_config", self.language, feature=self.step_label(step)),
+                    DiagnosticStatus.FAIL,
+                    str(exc),
+                    step.value,
+                ))
+
+        self.diagnostics_dialog = DiagnosticsDialog(
+            self.config_manager,
+            RunPlan(configs=configs),
+            validation_items,
+            self._navigate_diagnostic_target,
+            auto_email=self.check_auto_email.isChecked(),
+            parent=self,
+        )
+        self.diagnostics_dialog.exec()
+        self.refresh_readiness()
+
+    def _navigate_diagnostic_target(self, target):
+        main_win = self.window()
+        if target == "settings" and hasattr(main_win, "open_settings"):
+            main_win.open_settings()
+            return
+        if target == "tasks":
+            if hasattr(main_win, "tab_widget"):
+                main_win.tab_widget.setCurrentWidget(self)
+            return
+        try:
+            step = TaskStep(target)
+        except ValueError:
+            return
+        widgets = {
+            TaskStep.SYNC: getattr(main_win, "sync_tab", None),
+            TaskStep.EML: getattr(main_win, "eml_tab", None),
+            TaskStep.PDF: getattr(main_win, "pdf_tab", None),
+            TaskStep.OCR: getattr(main_win, "ocr_tab", None),
+            TaskStep.BYPASS: getattr(main_win, "bypass_tab", None),
+        }
+        widget = widgets.get(step)
+        if widget is not None and hasattr(main_win, "tab_widget"):
+            main_win.tab_widget.setCurrentWidget(widget)
         
     def log(self, message):
         self.log_area.append(message)
         sb = self.log_area.verticalScrollBar()
         sb.setValue(sb.maximum())
 
-    def save_automation_settings(self):
+    def _start_rejected(self, reason):
+        self.start_failure_reason = str(reason or "").strip()
+        return False
+
+    def _update_config(self, values):
+        update = getattr(self.config_manager, "update", None)
+        if callable(update):
+            return update(values)
+        result = True
+        for key, value in values.items():
+            result = bool(self.config_manager.set(key, value)) and result
+        return result
+
+    def _on_schedule_tick(self):
+        self.check_scheduled_run()
+        self.refresh_schedule_summary()
+
+    def _schedule_decision(self, now):
+        return evaluate_daily_schedule(
+            now=now,
+            schedule_time=self.schedule_time_edit.time().toString("HH:mm"),
+            last_started_at=self.config_manager.get("task_schedule_last_started_at", ""),
+            legacy_last_run_date=self.config_manager.get("task_schedule_last_run_date", ""),
+            attempt_date=self.config_manager.get("task_schedule_attempt_date", ""),
+            attempt_count=self.config_manager.get("task_schedule_attempt_count", 0),
+            last_attempt_at=self.config_manager.get("task_schedule_last_attempt_at", ""),
+            retry_minutes=self.SCHEDULE_RETRY_MINUTES,
+            max_start_attempts=self.SCHEDULE_MAX_START_ATTEMPTS,
+        )
+
+    def _last_schedule_outcome_text(self):
+        success_at = parse_timestamp(self.config_manager.get("task_schedule_last_success_at", ""))
+        failure_at = parse_timestamp(self.config_manager.get("task_schedule_last_failure_at", ""))
+        if success_at and (not failure_at or success_at >= failure_at):
+            return tr(
+                "task_schedule_last_success",
+                self.language,
+                timestamp=success_at.strftime("%Y-%m-%d %H:%M"),
+            )
+        if failure_at:
+            reason = str(self.config_manager.get("task_schedule_last_failure_reason", "")).strip()
+            if len(reason) > 140:
+                reason = reason[:137] + "..."
+            return tr(
+                "task_schedule_last_failure",
+                self.language,
+                timestamp=failure_at.strftime("%Y-%m-%d %H:%M"),
+                reason=reason or tr("task_schedule_unknown_failure", self.language),
+            )
+        return tr("task_schedule_no_history", self.language)
+
+    def refresh_schedule_summary(self, now=None):
+        now = now or datetime.now()
+        if not self.check_schedule.isChecked():
+            primary = tr("task_schedule_off", self.language)
+        elif self.is_running and self.is_scheduled_run:
+            primary = tr("task_schedule_in_progress", self.language)
+        else:
+            decision = self._schedule_decision(now)
+            timestamp = decision.next_at.strftime("%Y-%m-%d %H:%M")
+            if decision.status == "retry_wait":
+                primary = tr(
+                    "task_schedule_next_retry",
+                    self.language,
+                    timestamp=timestamp,
+                    attempts=decision.attempt_count,
+                    maximum=self.SCHEDULE_MAX_START_ATTEMPTS,
+                )
+            elif decision.status == "attempts_exhausted":
+                primary = tr(
+                    "task_schedule_attempts_exhausted",
+                    self.language,
+                    attempts=decision.attempt_count,
+                    timestamp=timestamp,
+                )
+            elif decision.should_start:
+                primary = tr("task_schedule_due_now", self.language)
+            else:
+                primary = tr("task_schedule_next_run", self.language, timestamp=timestamp)
+
+        lines = [primary, self._last_schedule_outcome_text()]
+        if self.check_schedule.isChecked():
+            lines.append(tr("task_schedule_app_note", self.language))
+        self.schedule_status_label.setText("\n".join(lines))
+
+    def _on_schedule_toggled(self, enabled):
+        self.schedule_time_edit.setEnabled(enabled and not self.is_running)
+        was_enabled = bool(self.config_manager.get("task_schedule_enabled", False))
+        if enabled and not was_enabled:
+            # A newly enabled unattended schedule requires fresh consent for
+            # moving Convert Files sources, even if an old consent was stored.
+            self.check_allow_source_backup.setChecked(False)
+        self.save_automation_settings()
+        self._update_backup_consent_visibility()
+        self.refresh_readiness()
+
+    def save_automation_settings(self, *_args):
         """예약 실행과 이메일 자동 발송 옵션을 즉시 저장합니다."""
-        self.config_manager.set(
-            "task_schedule_enabled", self.check_schedule.isChecked()
+        enabled = self.check_schedule.isChecked()
+        schedule_time = self.schedule_time_edit.time().toString("HH:mm")
+        changed = (
+            bool(self.config_manager.get("task_schedule_enabled", False)) != enabled
+            or str(self.config_manager.get("task_schedule_time", "18:00")) != schedule_time
         )
-        self.config_manager.set(
-            "task_schedule_time", self.schedule_time_edit.time().toString("HH:mm")
-        )
-        self.config_manager.set(
-            "task_auto_email", self.check_auto_email.isChecked()
-        )
+        values = {
+            "task_schedule_enabled": enabled,
+            "task_schedule_time": schedule_time,
+            "task_auto_email": self.check_auto_email.isChecked(),
+            "task_schedule_allow_source_backup": self.check_allow_source_backup.isChecked(),
+        }
+        if changed:
+            values.update({
+                "task_schedule_attempt_date": "",
+                "task_schedule_attempt_count": 0,
+                "task_schedule_last_attempt_at": "",
+            })
+        self._update_config(values)
         self.save_enabled_steps()
+        self.refresh_schedule_summary()
 
     def check_scheduled_run(self, now=None):
-        """앱이 실행 중일 때 지정 시각 이후 하루 한 번 일괄 작업을 시작합니다."""
+        """Start once per day, retrying only failures that occur before worker start."""
         if not self.check_schedule.isChecked() or self.is_running:
             return False
 
         now = now or datetime.now()
-        scheduled_time = self.schedule_time_edit.time()
-        scheduled_minutes = scheduled_time.hour() * 60 + scheduled_time.minute()
-        current_minutes = now.hour * 60 + now.minute
-        today = now.strftime("%Y-%m-%d")
-
-        if current_minutes < scheduled_minutes:
-            return False
-        if self.config_manager.get("task_schedule_last_run_date", "") == today:
+        decision = self._schedule_decision(now)
+        if not decision.should_start:
             return False
 
-        # 잘못된 설정으로 30초마다 재시도하지 않도록 당일 실행 시도를 먼저 기록합니다.
-        self.config_manager.set("task_schedule_last_run_date", today)
+        attempt_count = decision.attempt_count + 1
+        timestamp = now.isoformat(timespec="seconds")
+        self._update_config({
+            "task_schedule_attempt_date": now.date().isoformat(),
+            "task_schedule_attempt_count": attempt_count,
+            "task_schedule_last_attempt_at": timestamp,
+        })
         prefix = tr("task_scheduled_prefix", self.language)
         self.log(f"[{prefix}] " + tr(
             "task_scheduled_start",
@@ -372,18 +764,53 @@ class TaskTab(QWidget):
             timestamp=now.strftime('%Y-%m-%d %H:%M:%S'),
         ))
         started = self.start_all_tasks(scheduled=True)
-        if not started:
+        if started:
+            self._update_config({
+                "task_schedule_last_started_at": timestamp,
+                # Retained for compatibility with existing configuration files.
+                "task_schedule_last_run_date": now.date().isoformat(),
+                "task_schedule_last_failure_reason": "",
+            })
+        else:
+            reason = self.start_failure_reason or tr("task_scheduled_skipped", self.language)
+            self._update_config({
+                "task_schedule_last_failure_at": timestamp,
+                "task_schedule_last_failure_reason": reason,
+            })
+            next_decision = self._schedule_decision(now)
             self.log(f"[{prefix}] {tr('task_scheduled_skipped', self.language)}")
+            if next_decision.status == "retry_wait":
+                self.log(
+                    f"[{prefix}] "
+                    + tr(
+                        "task_schedule_retry_planned",
+                        self.language,
+                        timestamp=next_decision.next_at.strftime("%Y-%m-%d %H:%M"),
+                        attempts=attempt_count,
+                        maximum=self.SCHEDULE_MAX_START_ATTEMPTS,
+                    )
+                )
+            elif next_decision.status == "attempts_exhausted":
+                self.log(
+                    f"[{prefix}] "
+                    + tr(
+                        "task_schedule_retry_exhausted_log",
+                        self.language,
+                        attempts=attempt_count,
+                    )
+                )
+        self.refresh_schedule_summary(now)
         return started
 
     def start_all_tasks(self, checked=False, scheduled=False):
         """통합 일괄 실행 시작"""
+        self.start_failure_reason = ""
         if self.is_running:
-            return False
+            return self._start_rejected(tr("task_schedule_already_running", self.language))
             
         main_win = self.window()
         if not main_win:
-            return False
+            return self._start_rejected(tr("task_schedule_window_unavailable", self.language))
 
         selected_steps = self.selected_steps()
         if not selected_steps:
@@ -398,7 +825,7 @@ class TaskTab(QWidget):
                     tr("task_no_selection_title", self.language),
                     tr("task_no_selection_body", self.language),
                 )
-            return False
+            return self._start_rejected(tr("task_no_selection_body", self.language))
             
         # 1. 5개 탭의 명시적 실행 계약 수집
         configs = {}
@@ -441,7 +868,7 @@ class TaskTab(QWidget):
                 self.log(f"[{tr('task_scheduled_prefix', self.language)}] {title}\n{body}")
             else:
                 QMessageBox.warning(self, title, body)
-            return False
+            return self._start_rejected(body)
         except Exception as ex:
             feature = self.step_label(current_step)
             body = tr(
@@ -454,7 +881,7 @@ class TaskTab(QWidget):
                 self.log(f"[{tr('task_scheduled_prefix', self.language)}] {body}")
             else:
                 QMessageBox.critical(self, tr("run_error", self.language), body)
-            return False
+            return self._start_rejected(body)
 
         run_plan = RunPlan(configs=configs)
             
@@ -463,7 +890,18 @@ class TaskTab(QWidget):
                 self.log(self._text("[Scheduled run] No runnable task was found.", "[예약 실행] 실행 가능한 작업이 없습니다.", "[Harmonogram] Nie znaleziono zadania do uruchomienia."))
             else:
                 QMessageBox.warning(self, tr("task_no_selection_title", self.language), tr("task_no_selection_body", self.language))
-            return False
+            return self._start_rejected(tr("task_no_selection_body", self.language))
+
+        bypass_config = run_plan.get(TaskStep.BYPASS)
+        backup_move_requested = (
+            isinstance(bypass_config, BypassRunConfig)
+            and bypass_config.source_disposition == SourceDisposition.BACKUP
+        )
+        if scheduled and backup_move_requested and not self.check_allow_source_backup.isChecked():
+            reason = tr("task_schedule_backup_consent_required", self.language)
+            self.log(f"[{tr('task_scheduled_prefix', self.language)}] {reason}")
+            self._set_readiness_item(TaskStep.BYPASS, "blocked", reason)
+            return self._start_rejected(reason)
 
         # 2. 활성 단계 기준 외부 의존성 사전 점검
         preflight = check_run_plan(
@@ -477,7 +915,7 @@ class TaskTab(QWidget):
                 self.log(self._text("[Scheduled run] Preflight blocker:\n", "[예약 실행] 사전 점검 차단 항목:\n", "[Harmonogram] Problem kontroli wstępnej:\n") + preflight.format(include_warnings=False))
             else:
                 QMessageBox.critical(self, self._text("Preflight check failed", "사전 점검 실패", "Kontrola wstępna nie powiodła się"), preflight.format(include_warnings=False))
-            return False
+            return self._start_rejected(preflight.format(include_warnings=False, language=self.language))
 
         if preflight.warnings:
             warning_text = preflight.format(include_warnings=True)
@@ -489,7 +927,7 @@ class TaskTab(QWidget):
                     self._text("Preflight warning", "사전 점검 경고", "Ostrzeżenie kontroli wstępnej"),
                     warning_text + "\n\n" + self._text("Continue anyway?", "계속 진행할까요?", "Czy mimo to kontynuować?"),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes,
+                    QMessageBox.StandardButton.No if backup_move_requested else QMessageBox.StandardButton.Yes,
                 )
                 if reply == QMessageBox.StandardButton.No:
                     return False
@@ -501,7 +939,10 @@ class TaskTab(QWidget):
         self.stop_btn.setEnabled(True)
         self.check_auto_email.setEnabled(False)
         self.check_schedule.setEnabled(False)
+        self.check_allow_source_backup.setEnabled(False)
         self.schedule_time_edit.setEnabled(False)
+        self.readiness_btn.setEnabled(False)
+        self.diagnostics_btn.setEnabled(False)
         for check in self.step_checks.values():
             check.setEnabled(False)
         
@@ -509,11 +950,11 @@ class TaskTab(QWidget):
         for key in self.step_keys.keys():
             row = self.step_keys[key]
             if TaskStep(key) not in run_plan.configs:
-                self._set_status_item(self.status_table.item(row, 2), "skipped")
-                self.status_table.item(row, 2).setForeground(QColor("#94a3b8"))
+                self._set_status_item(self.status_table.item(row, self.COL_STATUS), "skipped")
+                self.status_table.item(row, self.COL_STATUS).setForeground(QColor("#94a3b8"))
             else:
-                self._set_status_item(self.status_table.item(row, 2), "pending")
-                self.status_table.item(row, 2).setForeground(QColor("#38bdf8"))
+                self._set_status_item(self.status_table.item(row, self.COL_STATUS), "pending")
+                self.status_table.item(row, self.COL_STATUS).setForeground(QColor("#38bdf8"))
                 
         self.progress_bar.setValue(0)
         self.detail_label.setText(tr("task_status_running", self.language))
@@ -529,6 +970,7 @@ class TaskTab(QWidget):
         self.worker.step_progress.connect(self.update_step_progress)
         self.worker.total_progress.connect(self.progress_bar.setValue)
         self.worker.status_changed.connect(self.update_status_cell)
+        self.worker.report_ready.connect(self.capture_run_report)
         self.worker.finished.connect(self.on_tasks_finished)
         self.worker.start()
         return True
@@ -557,7 +999,7 @@ class TaskTab(QWidget):
     def update_status_cell(self, key, status):
         if key in self.step_keys:
             row = self.step_keys[key]
-            cell = self.status_table.item(row, 2)
+            cell = self.status_table.item(row, self.COL_STATUS)
             status_keys = {
                 StepStatus.PENDING.value: "pending",
                 StepStatus.RUNNING.value: "running",
@@ -588,15 +1030,40 @@ class TaskTab(QWidget):
         self.stop_btn.setEnabled(False)
         self.check_auto_email.setEnabled(True)
         self.check_schedule.setEnabled(True)
+        self.check_allow_source_backup.setEnabled(self.check_schedule.isChecked())
         self.schedule_time_edit.setEnabled(self.check_schedule.isChecked())
+        self.readiness_btn.setEnabled(True)
+        self.diagnostics_btn.setEnabled(True)
         for check in self.step_checks.values():
             check.setEnabled(True)
+
+        if not success and not report_body:
+            for step in self.selected_steps():
+                row = self.step_keys[step.value]
+                status_item = self.status_table.item(row, self.COL_STATUS)
+                if status_item.data(Qt.ItemDataRole.UserRole) in {"pending", "running"}:
+                    self._set_status_item(status_item, "failed")
+                    status_item.setForeground(QColor("#f87171"))
         
         main_win = self.window()
         if hasattr(main_win, "set_all_tabs_locked"):
             main_win.set_all_tabs_locked(False)
             
         self.detail_label.setText(message)
+
+        if scheduled_run:
+            finished_at = datetime.now().isoformat(timespec="seconds")
+            if success:
+                self._update_config({
+                    "task_schedule_last_success_at": finished_at,
+                    "task_schedule_last_failure_reason": "",
+                })
+            else:
+                self._update_config({
+                    "task_schedule_last_failure_at": finished_at,
+                    "task_schedule_last_failure_reason": str(message),
+                })
+            self.refresh_schedule_summary()
 
         # 성공/부분 실패와 무관하게 실행 결과가 있으면 담당자에게 보고합니다.
         if self.check_auto_email.isChecked() and report_body:
@@ -624,6 +1091,8 @@ class TaskTab(QWidget):
                         self._text("An error occurred while running the tasks.", "작업 실행 중 오류가 발생했습니다.", "Wystąpił błąd podczas wykonywania zadań.")
                         + f"\n\n{message}",
                     )
+
+        QTimer.singleShot(0, self.refresh_readiness)
 
     def send_report_email(self, report_body):
         """결과 리포트 이메일 전송 및 실패 시 로컬 Fallback"""
