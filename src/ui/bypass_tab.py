@@ -10,8 +10,8 @@ from src.ui.workflow_widget import WorkflowWidget
 from src.ui.toast_notification import show_toast
 from src.ui.i18n import choose, get_app_language, tr
 from src.ui.backup_recovery_dialog import BackupRecoveryDialog
+from src.ui.preflight_dialog import run_bounded_preflight
 from src.core.bypass_converter import BypassConverter
-from src.core.preflight import check_run_plan
 from src.core.task_contracts import (
     BypassFileConfig,
     BypassRunConfig,
@@ -138,6 +138,13 @@ class BypassTab(QWidget):
                 f"Source moved to backup: {detail}",
                 f"원본을 백업 폴더로 이동했습니다: {detail}",
                 f"Plik źródłowy przeniesiono do kopii zapasowej: {detail}",
+            )
+        if marker == "SOURCE_BACKED_UP_MANIFEST_WARNING":
+            backup_path, _separator, error = detail.partition("|")
+            return self._t(
+                f"Source moved to backup, but recovery history could not be recorded: {backup_path} ({error})",
+                f"원본은 백업으로 이동했지만 복구 이력을 기록하지 못했습니다: {backup_path} ({error})",
+                f"Źródło przeniesiono do kopii, ale nie zapisano historii odzyskiwania: {backup_path} ({error})",
             )
         if marker == "SOURCE_BACKUP_FAILED":
             return self._t(
@@ -596,11 +603,24 @@ class BypassTab(QWidget):
             QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Scan the source folder first.", "변환할 대상 파일을 먼저 스캔해 주세요."))
             return
 
-        preflight = check_run_plan(
+        preflight, preflight_error, preflight_cancelled = run_bounded_preflight(
+            self,
             RunPlan({TaskStep.BYPASS: run_config}),
             self.config_manager,
-            check_office=True,
+            auto_email=False,
+            visible=True,
         )
+        if preflight is None:
+            detail = self._t(
+                "Preflight was cancelled. No conversion was started."
+                if preflight_cancelled else f"Preflight could not be completed: {preflight_error}",
+                "실행 전 점검을 취소했습니다. 변환은 시작되지 않았습니다."
+                if preflight_cancelled else f"실행 전 점검을 완료하지 못했습니다: {preflight_error}",
+                "Anulowano kontrolę. Konwersja nie została uruchomiona."
+                if preflight_cancelled else f"Nie można ukończyć kontroli: {preflight_error}",
+            )
+            QMessageBox.warning(self, self._t("Preflight Check", "실행 전 점검", "Kontrola przed uruchomieniem"), detail)
+            return
         if preflight.has_blockers:
             QMessageBox.critical(self, self._t("Preflight check failed", "사전 점검 실패"), preflight.format(include_warnings=False, language=self.language))
             return

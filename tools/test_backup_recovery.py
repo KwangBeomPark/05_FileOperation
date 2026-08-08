@@ -5,9 +5,16 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from src.core.backup_recovery import backup_directory, list_backup_entries, restore_backup_files
+from src.core.backup_recovery import (
+    MANIFEST_FILENAME,
+    backup_directory,
+    list_backup_entries,
+    record_backup_move,
+    restore_backup_files,
+)
 from src.ui.backup_recovery_dialog import BackupRecoveryDialog
 
 
@@ -25,6 +32,13 @@ class BackupRecoveryTests(unittest.TestCase):
     def _write(path: str, content: bytes) -> None:
         with open(path, "wb") as file:
             file.write(content)
+
+    @classmethod
+    def _wait_for_scan(cls, dialog):
+        while dialog.scan_worker is not None and dialog.scan_worker.isRunning():
+            cls.app.processEvents()
+            QTest.qWait(10)
+        cls.app.processEvents()
 
     def test_listing_previews_regular_files_without_following_links(self):
         with tempfile.TemporaryDirectory() as source_folder:
@@ -108,6 +122,7 @@ class BackupRecoveryTests(unittest.TestCase):
             backup_file = os.path.join(backup_folder, "preview.pdf")
             self._write(backup_file, b"preview")
             dialog = BackupRecoveryDialog(FakeConfig(), source_folder)
+            self._wait_for_scan(dialog)
             dialog.table.selectRow(0)
 
             with patch(
@@ -121,6 +136,59 @@ class BackupRecoveryTests(unittest.TestCase):
             self.assertTrue(os.path.exists(backup_file))
             self.assertEqual(question.call_args.args[-1], QMessageBox.StandardButton.No)
             dialog.close()
+
+    def test_manifest_maps_numbered_backup_to_exact_original_name(self):
+        with tempfile.TemporaryDirectory() as source_folder:
+            backup_folder = backup_directory(source_folder)
+            os.makedirs(backup_folder)
+            original_path = os.path.join(source_folder, "report.xlsx")
+            stored_path = os.path.join(backup_folder, "report_1.xlsx")
+            self._write(stored_path, b"backed up")
+            recorded, error = record_backup_move(original_path, stored_path)
+
+            entries = list_backup_entries(source_folder)
+
+            self.assertTrue(recorded, error)
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0].file_name, "report_1.xlsx")
+            self.assertEqual(entries[0].original_name, "report.xlsx")
+            self.assertTrue(entries[0].manifest_recorded)
+            self.assertEqual(entries[0].restore_target, original_path)
+
+    def test_corrupt_manifest_falls_back_without_listing_it_as_backup(self):
+        with tempfile.TemporaryDirectory() as source_folder:
+            backup_folder = backup_directory(source_folder)
+            os.makedirs(backup_folder)
+            backup_file = os.path.join(backup_folder, "legacy.pdf")
+            self._write(backup_file, b"legacy")
+            with open(os.path.join(backup_folder, MANIFEST_FILENAME), "w", encoding="utf-8") as manifest:
+                manifest.write("not json\n")
+                manifest.write('{"schema":1,"event":"backup","stored_name":"../escape","original_name":"bad"}\n')
+
+            entries = list_backup_entries(source_folder)
+
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0].file_name, "legacy.pdf")
+            self.assertEqual(entries[0].original_name, "legacy.pdf")
+            self.assertFalse(entries[0].manifest_recorded)
+
+    def test_restore_uses_manifest_name_and_records_completed_restore(self):
+        with tempfile.TemporaryDirectory() as source_folder:
+            backup_folder = backup_directory(source_folder)
+            os.makedirs(backup_folder)
+            original_path = os.path.join(source_folder, "report.xlsx")
+            stored_path = os.path.join(backup_folder, "report_4.xlsx")
+            self._write(stored_path, b"old report")
+            recorded, error = record_backup_move(original_path, stored_path)
+            self.assertTrue(recorded, error)
+            self._write(original_path, b"current report")
+
+            result = restore_backup_files(source_folder, [stored_path])[0]
+
+            self.assertTrue(result.success)
+            self.assertEqual(result.restored_path, os.path.join(source_folder, "report_restored_1.xlsx"))
+            self.assertEqual(result.warning, "")
+            self.assertEqual(list_backup_entries(source_folder), [])
 
 
 if __name__ == "__main__":

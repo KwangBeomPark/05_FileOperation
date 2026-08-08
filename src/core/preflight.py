@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from enum import Enum
+from threading import Event
 
 from src.core.task_contracts import BypassRunConfig, RunPlan, SourceDisposition, TaskStep
+from src.core.probe_runner import DEPENDENCY_TIMEOUT_SECONDS, OFFICE_TIMEOUT_SECONDS, run_probe
 from src.ui.i18n import choose, get_app_language
 
 
@@ -193,6 +195,8 @@ def check_run_plan(
     auto_email: bool = False,
     check_browser: bool = False,
     check_office: bool = True,
+    isolated: bool = False,
+    cancel_event: Event | None = None,
 ) -> PreflightReport:
     language = get_app_language(config_manager)
     report = PreflightReport(language=language)
@@ -221,15 +225,45 @@ def check_run_plan(
             translated = translated.replace(korean, english)
         return translated
 
+    def probe_failure(label: str, result) -> str:
+        if result.timed_out:
+            return t(
+                f"{label} timed out after {result.elapsed_seconds:.1f} seconds. Open Diagnostics for recovery guidance.",
+                f"{label} 검사가 {result.elapsed_seconds:.1f}초 후 시간 초과되었습니다. 진단 및 복구에서 해결 방법을 확인하세요.",
+            )
+        if result.cancelled:
+            return t(f"{label} was cancelled.", f"{label} 검사가 취소되었습니다.")
+        return t(f"{label} could not be checked: {result.error}", f"{label} 검사 실패: {result.error}")
+
     if TaskStep.OCR in run_plan.configs:
-        ok, detail, using_fallback = check_ocr_engines(config_manager)
+        if isolated:
+            result = run_probe(
+                "ocr_engine",
+                {"tesseract_path": config_manager.get("tesseract_path", "")},
+                timeout_seconds=DEPENDENCY_TIMEOUT_SECONDS,
+                cancel_event=cancel_event,
+            )
+            ok = bool(result.ok and result.value.get("ok"))
+            detail = str(result.value.get("detail", "")) if result.ok else probe_failure(t("OCR engine", "OCR 엔진"), result)
+            using_fallback = bool(result.ok and result.value.get("using_fallback"))
+        else:
+            ok, detail, using_fallback = check_ocr_engines(config_manager)
         if not ok:
             report.add_blocker(t("No OCR engine is available.", "사용 가능한 OCR 엔진이 없습니다."), detail_text(detail), TaskStep.OCR)
         elif using_fallback:
             report.add_warning(t("Windows OCR will be used instead of Tesseract.", "Tesseract 대신 Windows 내장 OCR로 진행합니다."), detail_text(detail), TaskStep.OCR)
 
     if TaskStep.EML in run_plan.configs:
-        ok, detail = check_playwright_driver(check_browser=check_browser)
+        if isolated and check_browser:
+            result = run_probe(
+                "playwright_browser",
+                timeout_seconds=DEPENDENCY_TIMEOUT_SECONDS,
+                cancel_event=cancel_event,
+            )
+            ok = bool(result.ok and result.value.get("ok"))
+            detail = str(result.value.get("detail", "")) if result.ok else probe_failure(t("EML browser", "EML 브라우저"), result)
+        else:
+            ok, detail = check_playwright_driver(check_browser=check_browser)
         if not ok:
             report.add_blocker(t("The Playwright EML rendering driver is unavailable.", "Playwright EML 렌더링 드라이버를 사용할 수 없습니다."), detail_text(detail), TaskStep.EML)
         custom_chromium = config_manager.get("offline_chromium_path", "")
@@ -243,7 +277,17 @@ def check_run_plan(
             report.add_blocker(t("The Office COM automation module (pywin32) is unavailable.", "Office COM 자동화 모듈(pywin32)을 사용할 수 없습니다."), detail_text(detail), TaskStep.BYPASS)
         apps = required_office_apps(bypass_config)
         if apps and check_office:
-            office_ok, errors = check_office_apps(apps)
+            if isolated:
+                result = run_probe(
+                    "office_apps",
+                    {"apps": apps},
+                    timeout_seconds=OFFICE_TIMEOUT_SECONDS,
+                    cancel_event=cancel_event,
+                )
+                office_ok = bool(result.ok and result.value.get("ok"))
+                errors = list(result.value.get("errors") or []) if result.ok else [probe_failure(t("Office automation", "Office 자동화"), result)]
+            else:
+                office_ok, errors = check_office_apps(apps)
             if not office_ok:
                 report.add_blocker(t("The required Microsoft Office COM application could not be started.", "필요한 Microsoft Office COM 앱을 실행할 수 없습니다."), "\n".join(errors), TaskStep.BYPASS)
         elif apps:

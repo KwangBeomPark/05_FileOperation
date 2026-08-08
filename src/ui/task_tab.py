@@ -18,6 +18,7 @@ from src.core.task_contracts import BypassRunConfig, RunPlan, SourceDisposition,
 from src.core.task_history import merge_run_report_history, normalize_step_history
 from src.ui.i18n import get_app_language, tr
 from src.ui.diagnostics_dialog import DiagnosticsDialog
+from src.ui.preflight_dialog import run_bounded_preflight
 from src.ui.task_worker import TaskWorker
 from src.utils.logger import get_logger
 
@@ -46,6 +47,7 @@ class TaskTab(QWidget):
         self.worker = None
         self.is_running = False
         self.is_scheduled_run = False
+        self.is_preflighting = False
         self.start_failure_reason = ""
         self.init_ui()
 
@@ -742,7 +744,7 @@ class TaskTab(QWidget):
 
     def check_scheduled_run(self, now=None):
         """Start once per day, retrying only failures that occur before worker start."""
-        if not self.check_schedule.isChecked() or self.is_running:
+        if not self.check_schedule.isChecked() or self.is_running or self.is_preflighting:
             return False
 
         now = now or datetime.now()
@@ -904,12 +906,35 @@ class TaskTab(QWidget):
             return self._start_rejected(reason)
 
         # 2. 활성 단계 기준 외부 의존성 사전 점검
-        preflight = check_run_plan(
-            run_plan,
-            self.config_manager,
-            auto_email=self.check_auto_email.isChecked(),
-            check_office=True,
-        )
+        self.is_preflighting = True
+        try:
+            preflight, preflight_error, preflight_cancelled = run_bounded_preflight(
+                self,
+                run_plan,
+                self.config_manager,
+                auto_email=self.check_auto_email.isChecked(),
+                visible=not scheduled,
+            )
+        finally:
+            self.is_preflighting = False
+        if preflight is None:
+            if preflight_cancelled:
+                reason = self._text(
+                    "Preflight was cancelled. No task was started.",
+                    "실행 전 점검을 취소했습니다. 작업은 시작되지 않았습니다.",
+                    "Anulowano kontrolę. Zadanie nie zostało uruchomione.",
+                )
+            else:
+                reason = self._text(
+                    f"Preflight could not be completed: {preflight_error}",
+                    f"실행 전 점검을 완료하지 못했습니다: {preflight_error}",
+                    f"Nie można ukończyć kontroli: {preflight_error}",
+                )
+            if scheduled:
+                self.log(f"[{tr('task_scheduled_prefix', self.language)}] {reason}")
+            else:
+                QMessageBox.warning(self, self._text("Preflight Check", "실행 전 점검", "Kontrola przed uruchomieniem"), reason)
+            return self._start_rejected(reason)
         if preflight.has_blockers:
             if scheduled:
                 self.log(self._text("[Scheduled run] Preflight blocker:\n", "[예약 실행] 사전 점검 차단 항목:\n", "[Harmonogram] Problem kontroli wstępnej:\n") + preflight.format(include_warnings=False))

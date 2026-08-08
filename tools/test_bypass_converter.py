@@ -97,6 +97,31 @@ class BypassConverterSafetyTests(unittest.TestCase):
             self.assertEqual(message, "SOURCE_BACKUP_FAILED|blocked")
             self.assertTrue(os.path.exists(source))
 
+    def test_manifest_failure_does_not_turn_completed_backup_into_source_loss(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = os.path.join(temp_dir, "source.pdf")
+            target = os.path.join(temp_dir, "source.zip")
+            with open(source, "wb") as file:
+                file.write(b"source")
+            converter = BypassConverter()
+            converter._convert_pdf = self._successful_pdf_conversion
+
+            with patch(
+                "src.core.bypass_converter.record_backup_move",
+                return_value=(False, "manifest blocked"),
+            ):
+                success, message = converter.convert_file(
+                    source,
+                    target,
+                    ".zip",
+                    source_disposition=SourceDisposition.BACKUP,
+                )
+
+            self.assertTrue(success)
+            self.assertTrue(message.startswith("SOURCE_BACKED_UP_MANIFEST_WARNING|"))
+            self.assertFalse(os.path.exists(source))
+            self.assertTrue(os.path.exists(os.path.join(temp_dir, "Original Backup", "source.pdf")))
+
     def test_legacy_delete_flag_is_migrated_to_recoverable_backup(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source = os.path.join(temp_dir, "source.pdf")

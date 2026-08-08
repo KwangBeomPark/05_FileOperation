@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from src.core.preflight import IssueLevel, check_run_plan
+from src.core.probe_runner import ProbeResult
 from src.core.task_contracts import (
     BypassFileConfig,
     BypassRunConfig,
@@ -66,6 +67,23 @@ class PreflightTests(unittest.TestCase):
         self.assertTrue(report.has_blockers)
         self.assertEqual(report.blockers[0].step, TaskStep.BYPASS)
         self.assertIn("Excel.Application", report.blockers[0].detail)
+
+    def test_isolated_office_timeout_is_a_named_blocker(self):
+        config = BypassRunConfig(
+            [BypassFileConfig("source.xlsx", "target.xlsb", ".xlsb", True, SourceDisposition.KEEP)],
+            source_disposition=SourceDisposition.KEEP,
+        )
+        plan = RunPlan({TaskStep.BYPASS: config})
+        timeout = ProbeResult(False, error="slow", timed_out=True, elapsed_seconds=20.0)
+        with (
+            patch("src.core.preflight.check_office_imports", return_value=(True, "ok")),
+            patch("src.core.preflight.run_probe", return_value=timeout),
+        ):
+            report = check_run_plan(plan, FakeConfig(), isolated=True)
+
+        self.assertTrue(report.has_blockers)
+        self.assertEqual(report.blockers[0].step, TaskStep.BYPASS)
+        self.assertIn("timed out", report.blockers[0].detail)
 
     def test_bypass_backup_action_is_visible_in_preflight(self):
         config = BypassRunConfig(

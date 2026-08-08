@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.core.diagnostics import DiagnosticStatus, run_diagnostics
+from src.core.diagnostics import DiagnosticsCancelled, DiagnosticStatus, run_diagnostics
+from src.core.probe_runner import ProbeResult
 from src.core.task_contracts import (
     BypassFileConfig,
     BypassRunConfig,
@@ -120,6 +121,29 @@ class DiagnosticsTests(unittest.TestCase):
             worker.run()
 
         self.assertEqual(failures, ["broken check"])
+
+    def test_isolated_path_timeout_reports_feature_and_recovery_target(self):
+        plan = RunPlan({
+            TaskStep.SYNC: SyncRunConfig([SyncGroupConfig("daily", ["network-share"])]),
+        })
+        timeout = ProbeResult(False, error="slow", timed_out=True, elapsed_seconds=8.0)
+
+        with patch("src.core.diagnostics.run_probe", return_value=timeout):
+            items = run_diagnostics(plan, FakeConfig(), auto_email=False, isolated=True)
+
+        self.assertEqual(items[0].status, DiagnosticStatus.FAIL)
+        self.assertEqual(items[0].target, TaskStep.SYNC.value)
+        self.assertIn("timed out", items[0].detail)
+
+    def test_diagnostics_worker_emits_cancelled(self):
+        worker = DiagnosticsWorker(RunPlan(), FakeConfig(), False)
+        cancelled = []
+        worker.cancelled.connect(lambda: cancelled.append(True))
+
+        with patch("src.ui.diagnostics_dialog.run_diagnostics", side_effect=DiagnosticsCancelled()):
+            worker.run()
+
+        self.assertEqual(cancelled, [True])
 
 
 if __name__ == "__main__":

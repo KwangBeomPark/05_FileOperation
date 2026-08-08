@@ -23,6 +23,7 @@ App05_FileOps*.exe
 
 # Local-only scratch files under tracked validation tools
 tools/_local/
+.local_build/
 
 # Configuration files (containing private tokens & local path configurations)
 setting_integrated.json

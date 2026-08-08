@@ -80,6 +80,12 @@ class ReleaseLayoutTests(unittest.TestCase):
         self.assertIn('Parameters: "--tray"', setup_text)
         self.assertIn('Tasks: startup', setup_text)
 
+    def test_frozen_probe_workers_are_diverted_before_qt_imports(self):
+        main_text = (ROOT / "src" / "main.py").read_text(encoding="utf-8")
+        freeze_index = main_text.index("multiprocessing.freeze_support()")
+        qt_index = main_text.index("from PyQt6.QtWidgets")
+        self.assertLess(freeze_index, qt_index)
+
 
 if __name__ == "__main__":
     unittest.main()

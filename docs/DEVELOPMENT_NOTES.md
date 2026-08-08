@@ -134,3 +134,36 @@ Protect source files in Convert Files: default to keeping originals, add a destr
 2. Add process-level timeouts for network-folder, Office COM, and diagnostics probes as one reliability phase rather than separate thread-only fixes.
 3. Add a report-backed multi-run history view before considering manual retention cleanup. Cleanup must remain a separate, explicit action with preview and no automatic default.
 4. Keep the current recovery dialog separate from conversion execution; its different intent and confirmation boundary are clearer than adding more states to the scan table.
+
+## 2026-08-08 — Phase 6: bounded probes and portable backup provenance
+
+### Implemented decisions
+
+- Preserve Phases 1–5 in local checkpoint commit `375f102` after all 97 baseline tests passed.
+- Execute only an allow-listed set of non-destructive probes in disposable spawned processes; arbitrary callables cannot be submitted to the worker.
+- Apply fixed budgets: folder and backup listing 8 seconds, SMTP socket 5 seconds, OCR/browser 15 seconds, and Office COM 20 seconds.
+- Terminate the probe process tree on timeout or cancellation. Do not apply this kill policy to real conversions or synchronization jobs.
+- Run Diagnostics in a cancellable thread and process combination. Closing a running diagnostics dialog requests cancellation instead of destroying a live thread.
+- Keep direct-run preflight responsive with a cancellable progress dialog; scheduled preflight uses a hidden nested event loop so tray and Qt events continue to be processed.
+- Scan Original Backup asynchronously with a generation token so cancelled or late results cannot replace a newer folder selection.
+- Store future backup provenance in `.fileops-backup.jsonl` beside the backup files. Records contain only schema, event, stored name, original name, size, and UTC time—never an absolute source path.
+- Treat manifest writes as best-effort recovery metadata. A manifest failure produces a warning but never reverses a completed source move or marks the source as lost.
+- Replay backup and restore events, ignore malformed/unsupported lines, reject path-like names and manifest symlinks, and fall back to legacy stored-name recovery.
+
+### Audit status
+
+- **Fixed (P1):** Office, browser, OCR, SMTP, or disconnected-folder checks could wait indefinitely inside the application process.
+- **Fixed (P1):** a running diagnostics thread could not be cancelled safely and prevented the dialog from closing.
+- **Fixed (P2):** backup listing could block the recovery dialog on an unavailable network share.
+- **Fixed (P2):** collision-numbered future backups could not be mapped back to their exact original file name.
+- **Fixed (P2):** a late backup scan result could conceptually replace a newer selection; results now carry a generation token.
+- **Mitigated (P2):** direct and scheduled preflight remain synchronous from the caller's perspective, but execute work off the UI thread while the Qt event loop stays responsive.
+- **Open (P2):** real conversion and synchronization workers are cooperative and may still wait on a blocked OS or Office operation. Hard-killing them is intentionally excluded because outputs may be partially written.
+- **Open (P2):** real disconnected SMB shares, Windows lock/unlock, Office first-run dialogs, and sleep/resume require environment testing outside unit tests.
+
+### Follow-up observations before Phase 7
+
+1. Add report-backed multi-run history with filters and an `Open report` action; do not expand settings JSON with full logs.
+2. Add step heartbeats and a user-visible `Possibly stalled` state before considering any force-stop policy for real file operations.
+3. Keep retention cleanup separate until recovery manifests and report history have been used in real environments. Cleanup must remain manual, previewed, and default to no selection.
+4. An explicit SMTP authentication/test-message action remains separate from passive diagnostics because it sends external data.

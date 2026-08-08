@@ -36,6 +36,8 @@ class LocalizationTests(unittest.TestCase):
             tr("bypass_source_folder_missing", "en", path=r"C:\missing"),
             r"[가-힣]",
         )
+        self.assertEqual(tr("diagnostics_cancel", "ko"), "취소")
+        self.assertEqual(tr("diagnostics_cancelled", "pl"), "Diagnostyka została anulowana. Pliki źródłowe nie zostały zmienione.")
 
     def test_qt_static_widget_retranslation_keeps_the_original_source_text(self):
         import os

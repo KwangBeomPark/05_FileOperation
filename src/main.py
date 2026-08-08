@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import multiprocessing
 import os
 import sys
 import traceback
@@ -12,6 +13,11 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 if SRC_PATH not in sys.path:
     sys.path.insert(0, SRC_PATH)
+
+# In a frozen build, child probe processes must be diverted before importing
+# Qt and constructing any desktop objects.
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QIcon

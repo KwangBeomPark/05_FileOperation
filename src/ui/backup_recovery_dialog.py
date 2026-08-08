@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from threading import Event
 
-from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import QThread, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -19,8 +20,30 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.core.backup_recovery import backup_directory, list_backup_entries, restore_backup_files
+from src.core.backup_recovery import BackupEntry, backup_directory, restore_backup_files
+from src.core.probe_runner import PATH_TIMEOUT_SECONDS, run_probe
 from src.ui.i18n import choose, get_app_language
+
+
+class BackupScanWorker(QThread):
+    result_ready = pyqtSignal(object)
+
+    def __init__(self, source_folder: str):
+        super().__init__()
+        self.source_folder = source_folder
+        self.cancel_event = Event()
+
+    def cancel(self):
+        self.cancel_event.set()
+
+    def run(self):
+        result = run_probe(
+            "backup_list",
+            {"source_folder": self.source_folder},
+            timeout_seconds=PATH_TIMEOUT_SECONDS,
+            cancel_event=self.cancel_event,
+        )
+        self.result_ready.emit(result)
 
 
 class BackupRecoveryDialog(QDialog):
@@ -31,6 +54,8 @@ class BackupRecoveryDialog(QDialog):
         self.source_folder = source_folder if os.path.isdir(source_folder) else ""
         self.entries = []
         self.restored_any = False
+        self.scan_worker = None
+        self.scan_generation = 0
 
         self.setWindowTitle(self._t("Original Backup Recovery", "Original Backup 복구", "Odzyskiwanie Original Backup"))
         self.resize(920, 560)
@@ -77,10 +102,11 @@ class BackupRecoveryDialog(QDialog):
         folder_row.addWidget(self.choose_button)
         layout.addLayout(folder_row)
 
-        self.table = QTableWidget(0, 4)
+        self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
             [
-                self._t("Backup File", "백업 파일", "Plik kopii"),
+                self._t("Stored Backup", "저장된 백업", "Zapisana kopia"),
+                self._t("Original Name", "원래 파일명", "Nazwa oryginalna"),
                 self._t("Size", "크기", "Rozmiar"),
                 self._t("Modified", "수정 시각", "Zmodyfikowano"),
                 self._t("Restore To", "복구 위치", "Przywróć do"),
@@ -94,7 +120,8 @@ class BackupRecoveryDialog(QDialog):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.table.itemSelectionChanged.connect(self._update_restore_button)
         layout.addWidget(self.table, 1)
 
@@ -132,44 +159,87 @@ class BackupRecoveryDialog(QDialog):
             self.refresh_entries()
 
     def refresh_entries(self) -> None:
+        self.scan_generation += 1
+        generation = self.scan_generation
         self.folder_label.setText(self.source_folder or self._t("No source folder selected", "선택된 원본 폴더가 없습니다", "Nie wybrano folderu źródłowego"))
+        if self.scan_worker is not None and self.scan_worker.isRunning():
+            self.scan_worker.cancel()
+            self.scan_worker.wait(1500)
         self.table.setRowCount(0)
         self.entries = []
+        self.open_button.setEnabled(False)
+        self.refresh_button.setEnabled(False)
+        self._update_restore_button()
+        if not self.source_folder:
+            self.status_label.setText(self._t("Choose a source folder to find its backups.", "원본 폴더를 선택하면 백업을 찾을 수 있습니다.", "Wybierz folder źródłowy, aby znaleźć kopie."))
+            self.refresh_button.setEnabled(True)
+            return
 
-        try:
-            self.entries = list_backup_entries(self.source_folder)
-        except Exception as exc:
-            self.status_label.setText(
-                self._t(
-                    f"Could not read the backup folder: {exc}",
-                    f"백업 폴더를 읽지 못했습니다: {exc}",
-                    f"Nie można odczytać folderu kopii: {exc}",
-                )
+        self.status_label.setText(
+            self._t(
+                f"Reading Original Backup (timeout: {PATH_TIMEOUT_SECONDS:g} seconds)...",
+                f"Original Backup을 확인하는 중입니다(제한 시간: {PATH_TIMEOUT_SECONDS:g}초)...",
+                f"Odczytywanie Original Backup (limit: {PATH_TIMEOUT_SECONDS:g} s)...",
             )
-        else:
-            for row, entry in enumerate(self.entries):
-                self.table.insertRow(row)
-                name_item = QTableWidgetItem(entry.file_name)
-                name_item.setData(Qt.ItemDataRole.UserRole, entry.backup_path)
-                self.table.setItem(row, 0, name_item)
-                self.table.setItem(row, 1, QTableWidgetItem(self._format_size(entry.size)))
-                self.table.setItem(row, 2, QTableWidgetItem(datetime.fromtimestamp(entry.modified_time).strftime("%Y-%m-%d %H:%M")))
-                self.table.setItem(row, 3, QTableWidgetItem(entry.restore_target))
+        )
+        self.scan_worker = BackupScanWorker(self.source_folder)
+        self.scan_worker.result_ready.connect(lambda result, token=generation: self._on_scan_result(token, result))
+        self.scan_worker.start()
 
-            if not self.source_folder:
-                message = self._t("Choose a source folder to find its backups.", "원본 폴더를 선택하면 백업을 찾을 수 있습니다.", "Wybierz folder źródłowy, aby znaleźć kopie.")
-            elif self.entries:
-                total_size = sum(entry.size for entry in self.entries)
+    def _on_scan_result(self, generation: int, result) -> None:
+        if generation != self.scan_generation:
+            return
+        self.refresh_button.setEnabled(True)
+        self.open_button.setEnabled(bool(self.source_folder) and os.path.isdir(backup_directory(self.source_folder)))
+        if result.cancelled:
+            self.status_label.setText(self._t("Backup scan was cancelled.", "백업 조회를 취소했습니다.", "Anulowano skanowanie kopii."))
+            return
+        if not result.ok:
+            if result.timed_out:
                 message = self._t(
-                    f"{len(self.entries)} backup file(s), {self._format_size(total_size)} total. Select rows to restore.",
-                    f"백업 파일 {len(self.entries)}개, 총 {self._format_size(total_size)}입니다. 복구할 행을 선택하세요.",
-                    f"Pliki kopii: {len(self.entries)}, razem {self._format_size(total_size)}. Wybierz wiersze do przywrócenia.",
+                    f"The backup folder did not respond within {result.elapsed_seconds:.1f} seconds. Check the network connection and try again.",
+                    f"백업 폴더가 {result.elapsed_seconds:.1f}초 안에 응답하지 않았습니다. 네트워크 연결을 확인하고 다시 시도하세요.",
+                    f"Folder kopii nie odpowiedział w ciągu {result.elapsed_seconds:.1f} s. Sprawdź sieć i spróbuj ponownie.",
                 )
             else:
-                message = self._t("No backup files were found.", "백업 파일이 없습니다.", "Nie znaleziono plików kopii.")
+                message = self._t(
+                    f"Could not read the backup folder: {result.error}",
+                    f"백업 폴더를 읽지 못했습니다: {result.error}",
+                    f"Nie można odczytać folderu kopii: {result.error}",
+                )
             self.status_label.setText(message)
+            return
 
-        self.open_button.setEnabled(bool(self.source_folder) and os.path.isdir(backup_directory(self.source_folder)))
+        self.entries = [BackupEntry(**entry) for entry in result.value]
+        for row, entry in enumerate(self.entries):
+            self.table.insertRow(row)
+            name_item = QTableWidgetItem(entry.file_name)
+            name_item.setData(Qt.ItemDataRole.UserRole, entry.backup_path)
+            self.table.setItem(row, 0, name_item)
+            original_item = QTableWidgetItem(entry.original_name or entry.file_name)
+            if not entry.manifest_recorded:
+                original_item.setForeground(QColor("#fbbf24"))
+                original_item.setToolTip(self._t(
+                    "Legacy backup: no exact original-name record; the stored name will be used.",
+                    "기존 백업: 정확한 원래 파일명 기록이 없어 저장된 이름을 사용합니다.",
+                    "Starsza kopia: brak dokładnego zapisu nazwy; zostanie użyta nazwa kopii.",
+                ))
+            self.table.setItem(row, 1, original_item)
+            self.table.setItem(row, 2, QTableWidgetItem(self._format_size(entry.size)))
+            self.table.setItem(row, 3, QTableWidgetItem(datetime.fromtimestamp(entry.modified_time).strftime("%Y-%m-%d %H:%M")))
+            self.table.setItem(row, 4, QTableWidgetItem(entry.restore_target))
+
+        if self.entries:
+            total_size = sum(entry.size for entry in self.entries)
+            legacy_count = sum(not entry.manifest_recorded for entry in self.entries)
+            message = self._t(
+                f"{len(self.entries)} backup file(s), {self._format_size(total_size)} total. Exact history: {len(self.entries) - legacy_count}; legacy: {legacy_count}.",
+                f"백업 파일 {len(self.entries)}개, 총 {self._format_size(total_size)}입니다. 정확한 이력: {len(self.entries) - legacy_count}개, 기존 백업: {legacy_count}개입니다.",
+                f"Pliki: {len(self.entries)}, razem {self._format_size(total_size)}. Dokładna historia: {len(self.entries) - legacy_count}; starsze: {legacy_count}.",
+            )
+        else:
+            message = self._t("No backup files were found.", "백업 파일이 없습니다.", "Nie znaleziono plików kopii.")
+        self.status_label.setText(message)
         self._update_restore_button()
 
     def _selected_backup_paths(self) -> list[str]:
@@ -206,18 +276,21 @@ class BackupRecoveryDialog(QDialog):
         results = restore_backup_files(self.source_folder, selected_paths)
         succeeded = [result for result in results if result.success]
         failed = [result for result in results if not result.success]
+        warnings = [result.warning for result in results if result.warning]
         self.restored_any = self.restored_any or bool(succeeded)
         self.refresh_entries()
 
-        if failed:
+        if failed or warnings:
             failures = "\n".join(f"- {os.path.basename(result.backup_path)}: {result.error}" for result in failed)
+            warning_text = "\n".join(f"- {warning}" for warning in warnings)
+            details = "\n".join(part for part in (failures, warning_text) if part)
             QMessageBox.warning(
                 self,
                 self._t("Restore Incomplete", "일부 복구 실패", "Niepełne przywracanie"),
                 self._t(
-                    f"Restored {len(succeeded)} of {len(results)} file(s). Failed files remain in Original Backup.\n\n{failures}",
-                    f"{len(results)}개 중 {len(succeeded)}개를 복구했습니다. 실패한 파일은 Original Backup에 그대로 남아 있습니다.\n\n{failures}",
-                    f"Przywrócono {len(succeeded)} z {len(results)} plików. Nieudane pliki pozostają w Original Backup.\n\n{failures}",
+                    f"Restored {len(succeeded)} of {len(results)} file(s). Failed files remain in Original Backup.\n\n{details}",
+                    f"{len(results)}개 중 {len(succeeded)}개를 복구했습니다. 실패한 파일은 Original Backup에 그대로 남아 있습니다.\n\n{details}",
+                    f"Przywrócono {len(succeeded)} z {len(results)} plików. Nieudane pliki pozostają w Original Backup.\n\n{details}",
                 ),
             )
         else:
@@ -246,3 +319,9 @@ class BackupRecoveryDialog(QDialog):
                 self._t("Open Failed", "열기 실패", "Nie udało się otworzyć"),
                 self._t(f"Could not open: {folder}", f"폴더를 열지 못했습니다: {folder}", f"Nie można otworzyć: {folder}"),
             )
+
+    def closeEvent(self, event):
+        if self.scan_worker is not None and self.scan_worker.isRunning():
+            self.scan_worker.cancel()
+            self.scan_worker.wait(1500)
+        super().closeEvent(event)

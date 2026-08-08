@@ -6,6 +6,7 @@ from ctypes import wintypes
 import logging
 
 from src.core.task_contracts import SourceDisposition
+from src.core.backup_recovery import record_backup_move
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +225,10 @@ class BypassConverter:
                 backup_path = self._unique_backup_path(src_path)
                 os.makedirs(os.path.dirname(backup_path), exist_ok=True)
                 shutil.move(src_path, backup_path)
+                manifest_ok, manifest_error = record_backup_move(src_path, backup_path)
+                if not manifest_ok:
+                    logger.warning("Source backup manifest could not be updated for %s: %s", backup_path, manifest_error)
+                    return True, f"SOURCE_BACKED_UP_MANIFEST_WARNING|{backup_path}|{manifest_error}"
                 return True, f"SOURCE_BACKED_UP|{backup_path}"
             except Exception as backup_ex:
                 logger.error(f"Failed to move original file to backup {src_path}: {backup_ex}")

@@ -100,6 +100,13 @@ class TaskRunner:
                 f"원본 백업 이동: {detail}",
                 f"kopia źródła: {detail}",
             )
+        if marker == "SOURCE_BACKED_UP_MANIFEST_WARNING":
+            backup_path, _separator, error = detail.partition("|")
+            return self._text(
+                f"source backed up, but recovery history was not recorded: {backup_path} ({error})",
+                f"원본 백업 이동 완료, 복구 이력 기록 실패: {backup_path} ({error})",
+                f"kopia źródła utworzona, ale nie zapisano historii: {backup_path} ({error})",
+            )
         if marker == "SOURCE_BACKUP_FAILED":
             return self._text(
                 f"conversion succeeded, but source backup failed: {detail}",

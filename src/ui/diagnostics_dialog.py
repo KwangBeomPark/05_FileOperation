@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from threading import Event
 
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -16,7 +17,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.core.diagnostics import DiagnosticItem, DiagnosticStatus, run_diagnostics
+from src.core.diagnostics import DiagnosticsCancelled, DiagnosticItem, DiagnosticStatus, run_diagnostics
 from src.core.task_contracts import RunPlan
 from src.ui.i18n import get_app_language, tr
 from src.utils.logger import get_logger
@@ -28,6 +29,7 @@ logger = get_logger()
 class DiagnosticsWorker(QThread):
     completed = pyqtSignal(object)
     failed = pyqtSignal(str)
+    cancelled = pyqtSignal()
 
     def __init__(self, run_plan, config_manager, auto_email, initial_items=None):
         super().__init__()
@@ -35,6 +37,10 @@ class DiagnosticsWorker(QThread):
         self.config_manager = config_manager
         self.auto_email = auto_email
         self.initial_items = list(initial_items or [])
+        self.cancel_event = Event()
+
+    def cancel(self):
+        self.cancel_event.set()
 
     def run(self):
         try:
@@ -42,8 +48,12 @@ class DiagnosticsWorker(QThread):
                 self.run_plan,
                 self.config_manager,
                 auto_email=self.auto_email,
+                isolated=True,
+                cancel_event=self.cancel_event,
             )
             self.completed.emit(items)
+        except DiagnosticsCancelled:
+            self.cancelled.emit()
         except Exception as exc:
             logger.exception("Diagnostics failed unexpectedly")
             self.failed.emit(str(exc))
@@ -119,6 +129,9 @@ class DiagnosticsDialog(QDialog):
         self.run_again_btn.setEnabled(False)
         self.run_again_btn.clicked.connect(self.start_diagnostics)
         buttons.addWidget(self.run_again_btn)
+        self.cancel_btn = QPushButton(tr("diagnostics_cancel", self.language))
+        self.cancel_btn.clicked.connect(self.cancel_diagnostics)
+        buttons.addWidget(self.cancel_btn)
         self.close_btn = QPushButton(tr("diagnostics_close", self.language))
         self.close_btn.setEnabled(False)
         self.close_btn.clicked.connect(self.accept)
@@ -134,6 +147,7 @@ class DiagnosticsDialog(QDialog):
         self.progress_bar.setRange(0, 0)
         self.progress_bar.show()
         self.run_again_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(True)
         self.close_btn.setEnabled(False)
         self.worker = DiagnosticsWorker(
             self.run_plan,
@@ -143,7 +157,15 @@ class DiagnosticsDialog(QDialog):
         )
         self.worker.completed.connect(self._on_completed)
         self.worker.failed.connect(self._on_failed)
+        self.worker.cancelled.connect(self._on_cancelled)
         self.worker.start()
+
+    def cancel_diagnostics(self):
+        if not self.is_running or self.worker is None:
+            return
+        self.cancel_btn.setEnabled(False)
+        self.summary_label.setText(tr("diagnostics_cancelling", self.language))
+        self.worker.cancel()
 
     def _on_completed(self, items):
         self.is_running = False
@@ -167,6 +189,7 @@ class DiagnosticsDialog(QDialog):
         )
         self.progress_bar.hide()
         self.run_again_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
         self.close_btn.setEnabled(True)
 
     def _on_failed(self, detail):
@@ -175,6 +198,16 @@ class DiagnosticsDialog(QDialog):
         self.summary_label.setStyleSheet("color: #f87171; font-weight: bold; padding: 4px;")
         self.progress_bar.hide()
         self.run_again_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
+        self.close_btn.setEnabled(True)
+
+    def _on_cancelled(self):
+        self.is_running = False
+        self.summary_label.setText(tr("diagnostics_cancelled", self.language))
+        self.summary_label.setStyleSheet("color: #fbbf24; font-weight: bold; padding: 4px;")
+        self.progress_bar.hide()
+        self.run_again_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
         self.close_btn.setEnabled(True)
 
     def _populate(self, items: list[DiagnosticItem]):
@@ -212,6 +245,7 @@ class DiagnosticsDialog(QDialog):
 
     def closeEvent(self, event):
         if self.is_running:
+            self.cancel_diagnostics()
             event.ignore()
             return
         super().closeEvent(event)
