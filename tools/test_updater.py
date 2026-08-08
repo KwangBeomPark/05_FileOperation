@@ -43,6 +43,14 @@ class FakeOpener:
 
 
 class UpdaterTests(unittest.TestCase):
+    def test_default_release_repository_is_the_canonical_repository(self):
+        with patch("src.core.updater.ConfigManager") as config_manager:
+            config_manager.return_value.get.return_value = ""
+            updater = AutoUpdater()
+
+        self.assertEqual(updater.repo_owner, "KwangBeomPark")
+        self.assertEqual(updater.repo_name, "05_FileOperation")
+
     def test_version_comparison(self):
         updater = AutoUpdater(current_version="v1.0.0")
 

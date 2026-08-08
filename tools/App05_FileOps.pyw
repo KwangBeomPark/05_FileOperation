@@ -28,7 +28,7 @@ APP_TITLE = "FileOps Hub"
 APP_EXE = "IntegratedDataTool.exe"
 INSTALL_DIR = "IntegratedDataTool"
 REPO_OWNER = "KwangBeomPark"
-REPO_NAME = "FileOps-Hub"
+REPO_NAME = "05_FileOperation"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 TRUSTED_HOSTS = {
     "github.com",

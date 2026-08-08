@@ -72,7 +72,7 @@ def installer_name_for_tag(tag_name: str) -> str | None:
 
 
 class AutoUpdater:
-    def __init__(self, current_version=APP_VERSION_TAG, repo_owner="KwangBeomPark", repo_name="FileOps-Hub"):
+    def __init__(self, current_version=APP_VERSION_TAG, repo_owner="KwangBeomPark", repo_name="05_FileOperation"):
         self.current_version = current_version
         self.repo_owner = repo_owner
         self.repo_name = repo_name

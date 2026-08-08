@@ -649,7 +649,7 @@ class MainWindow(QMainWindow):
     def show_update_banner(self, latest_version, download_url, release_notes=""):
         self.update_download_url = download_url or ""
         repo_owner = self.update_worker.updater.repo_owner if self.update_worker else "KwangBeomPark"
-        repo_name = self.update_worker.updater.repo_name if self.update_worker else "FileOps-Hub"
+        repo_name = self.update_worker.updater.repo_name if self.update_worker else "05_FileOperation"
         self.update_release_url = f"https://github.com/{repo_owner}/{repo_name}/releases/tag/{latest_version}"
 
         self.update_banner_title.setText(f"{tr('update_available', self.language)}: {latest_version}")
@@ -683,7 +683,7 @@ class MainWindow(QMainWindow):
         target_url = self.update_release_url
         if not target_url:
             repo_owner = self.update_worker.updater.repo_owner if self.update_worker else "KwangBeomPark"
-            repo_name = self.update_worker.updater.repo_name if self.update_worker else "FileOps-Hub"
+            repo_name = self.update_worker.updater.repo_name if self.update_worker else "05_FileOperation"
             target_url = f"https://github.com/{repo_owner}/{repo_name}/releases"
         webbrowser.open(target_url)
 

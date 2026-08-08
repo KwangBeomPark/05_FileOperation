@@ -58,6 +58,10 @@ class FakeProgress:
 
 
 class App05LauncherTests(unittest.TestCase):
+    def test_default_release_repository_is_the_canonical_repository(self):
+        self.assertEqual(launcher.REPO_OWNER, "KwangBeomPark")
+        self.assertEqual(launcher.REPO_NAME, "05_FileOperation")
+
     def test_language_detection_supports_windows_ui_languages_and_english_fallback(self):
         self.assertEqual(launcher.detect_language(ui_language_id=0x0412), "ko")
         self.assertEqual(launcher.detect_language(ui_language_id=0x0409), "en")
