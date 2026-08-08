@@ -274,6 +274,21 @@ class TaskTab(QWidget):
     def _text(self, english, korean, polish):
         return {"ko": korean, "pl": polish}.get(self.language, english)
 
+    def _runtime_error_text(self, value):
+        text = str(value)
+        if self.language == "ko":
+            return text
+        replacements = {
+            "필수 이메일 발송 설정 항목이 누락되었습니다": "Required email settings are missing",
+            "수신자 이메일 주소가 비어있습니다": "The recipient email address is empty",
+            "SMTP 인증에 실패했습니다": "SMTP authentication failed",
+            "이메일 주소 또는 비밀번호(앱 비밀번호)를 확인하세요": "Check the email address and app password",
+            "이메일 전송 중 에러가 발생했습니다": "An error occurred while sending email",
+        }
+        for korean, english in replacements.items():
+            text = text.replace(korean, english)
+        return text
+
     def selected_steps(self):
         return [step for step in self.STEP_ORDER if self.step_checks[step].isChecked()]
 
@@ -618,6 +633,8 @@ class TaskTab(QWidget):
         sender_password = self.config_manager.get("sender_password", "")
         receiver_email = self.config_manager.get("receiver_email", "").strip()
         mail_subject = self.config_manager.get("mail_subject", "통합 작업 완료 결과 보고서").strip()
+        if self.language != "ko" and mail_subject == "통합 작업 완료 결과 보고서":
+            mail_subject = "Task Result Report"
         mail_body_header = self.config_manager.get("mail_body_header", "").strip()
         
         if not smtp_server or not sender_email or not receiver_email:
@@ -653,7 +670,7 @@ class TaskTab(QWidget):
         if ok:
             self.log(self._text("✓ Email sent successfully.", "✓ 이메일을 전송했습니다.", "✓ E-mail wysłany pomyślnie."))
         else:
-            self.log(self._text("✗ Email failed", "✗ 이메일 전송 실패", "✗ Nie udało się wysłać e-maila") + f": {send_msg}")
+            self.log(self._text("✗ Email failed", "✗ 이메일 전송 실패", "✗ Nie udało się wysłać e-maila") + f": {self._runtime_error_text(send_msg)}")
             # 로컬 Fallback 저장
             self.save_fallback_report(full_body)
             

@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, 
     QFileDialog, QMessageBox, QGroupBox, QFormLayout, QComboBox, QScrollArea, QWidget
 )
-from src.ui.i18n import get_app_language, tr
+from src.ui.i18n import choose, get_app_language, tr
 
 class SettingsDialog(QDialog):
     def __init__(self, config_manager, parent=None):
@@ -83,21 +83,21 @@ class SettingsDialog(QDialog):
         email_group.setLayout(email_form)
         
         self.smtp_server_input = QLineEdit()
-        self.smtp_server_input.setPlaceholderText("예: smtp.gmail.com")
+        self.smtp_server_input.setPlaceholderText(choose(self.language, "Example: smtp.gmail.com", "예: smtp.gmail.com"))
         self.smtp_port_input = QLineEdit()
-        self.smtp_port_input.setPlaceholderText("예: 465 또는 587")
+        self.smtp_port_input.setPlaceholderText(choose(self.language, "Example: 465 or 587", "예: 465 또는 587"))
         self.sender_email_input = QLineEdit()
-        self.sender_email_input.setPlaceholderText("예: sender@gmail.com")
+        self.sender_email_input.setPlaceholderText(choose(self.language, "Example: sender@gmail.com", "예: sender@gmail.com"))
         self.sender_pwd_input = QLineEdit()
         self.sender_pwd_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.sender_pwd_input.setPlaceholderText("비밀번호 또는 앱 비밀번호")
+        self.sender_pwd_input.setPlaceholderText(choose(self.language, "Password or app password", "비밀번호 또는 앱 비밀번호"))
         
         self.receiver_email_input = QLineEdit()
-        self.receiver_email_input.setPlaceholderText("예: rc1@test.com, rc2@test.com (쉼표 구분)")
+        self.receiver_email_input.setPlaceholderText(choose(self.language, "Example: rc1@test.com, rc2@test.com (comma-separated)", "예: rc1@test.com, rc2@test.com (쉼표 구분)"))
         self.mail_subject_input = QLineEdit()
-        self.mail_subject_input.setPlaceholderText("작업 실행 결과 보고서")
+        self.mail_subject_input.setPlaceholderText(choose(self.language, "Task Result Report", "작업 실행 결과 보고서"))
         self.mail_body_header_input = QLineEdit()
-        self.mail_body_header_input.setPlaceholderText("본문 상단에 추가할 내용")
+        self.mail_body_header_input.setPlaceholderText(choose(self.language, "Optional text added above the report", "본문 상단에 추가할 내용"))
         
         email_form.addRow("SMTP Server:", self.smtp_server_input)
         email_form.addRow("SMTP Port:", self.smtp_port_input)
@@ -114,7 +114,7 @@ class SettingsDialog(QDialog):
         misc_group.setLayout(misc_form)
         
         self.eml_width_input = QLineEdit()
-        self.eml_width_input.setPlaceholderText("예: 1024")
+        self.eml_width_input.setPlaceholderText(choose(self.language, "Example: 1024", "예: 1024"))
         
         misc_form.addRow(tr("eml_width", self.language), self.eml_width_input)
         container_layout.addWidget(misc_group)
@@ -158,6 +158,8 @@ class SettingsDialog(QDialog):
                 
         receiver_email = self.config_manager.get("receiver_email", "")
         mail_subject = self.config_manager.get("mail_subject", "통합 작업 완료 결과 보고서")
+        if self.language != "ko" and mail_subject == "통합 작업 완료 결과 보고서":
+            mail_subject = "Task Result Report"
         mail_body_header = self.config_manager.get("mail_body_header", "")
         
         self.tesseract_path_input.setText(tesseract_path)
@@ -181,7 +183,7 @@ class SettingsDialog(QDialog):
         
     def browse_tesseract(self):
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Tesseract 실행 파일 찾기", "", "Executable Files (*.exe);;All Files (*)"
+            self, choose(self.language, "Select Tesseract Executable", "Tesseract 실행 파일 찾기"), "", "Executable Files (*.exe);;All Files (*)"
         )
         if file_path:
             self.tesseract_path_input.setText(os.path.normpath(file_path))

@@ -28,7 +28,7 @@ from src.ui.sync_tab import SyncTab
 from src.ui.bypass_tab import BypassTab
 from src.ui.task_tab import TaskTab
 from src.ui.settings_dialog import SettingsDialog
-from src.ui.i18n import get_app_language, localize_widget_tree, tr
+from src.ui.i18n import choose, get_app_language, localize_widget_tree, tr
 from src.core.updater import AutoUpdater
 from src.version import APP_VERSION_TAG
 from src.utils.config_manager import ConfigManager
@@ -342,7 +342,7 @@ class DownloadWorker(QThread):
             
         try:
             if not self.updater.latest_asset:
-                raise RuntimeError("검증된 업데이트 설치 파일 정보가 없습니다.")
+                raise RuntimeError("Verified update installer information is unavailable.")
             self.updater.download_file(
                 self.download_url,
                 self.dest_path,
@@ -381,6 +381,23 @@ class MainWindow(QMainWindow):
         # 시작 시 백그라운드 업데이트 확인. 저장소 설정이 비어 있으면 AutoUpdater 기본 저장소를 사용합니다.
         if self.config_manager.get("auto_check_update", "on_start") == "on_start":
             self.trigger_update_check(silent=True)
+
+    def _runtime_error_text(self, value):
+        text = str(value)
+        if self.language == "ko":
+            return text
+        replacements = {
+            "신뢰할 수 없는 다운로드 주소입니다": "The download address is not trusted",
+            "업데이트 파일 SHA-256 digest 형식이 올바르지 않습니다": "The update SHA-256 digest is invalid",
+            "신뢰할 수 없는 최종 다운로드 주소입니다": "The final download address is not trusted",
+            "업데이트 파일이 허용 크기를 초과했습니다": "The update file exceeds the allowed size",
+            "불완전한 다운로드 감지": "Incomplete download",
+            "수신됨": "received",
+            "업데이트 파일 SHA-256 검증에 실패했습니다": "Update SHA-256 verification failed",
+        }
+        for korean, english in replacements.items():
+            text = text.replace(korean, english)
+        return text
         
     def init_ui(self):
         self.setWindowTitle(tr("app_title", self.language, version=self.current_version))
@@ -433,7 +450,9 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         localize_widget_tree(self.centralWidget(), self.language)
-        self.task_tab.refresh_language()
+        for tab in (self.task_tab, self.sync_tab, self.eml_tab, self.pdf_tab, self.ocr_tab, self.bypass_tab):
+            if hasattr(tab, "refresh_language"):
+                tab.refresh_language()
         self._set_tab_labels()
         self.status_bar.showMessage(tr("ready", self.language))
 
@@ -611,7 +630,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     self,
                     tr("update_check_failed", self.language),
-                    tr("update_check_failed_body", self.language, detail=error_message),
+                    tr("update_check_failed_body", self.language, detail=self._runtime_error_text(error_message)),
                 )
             return
             
@@ -635,14 +654,15 @@ class MainWindow(QMainWindow):
 
         self.update_banner_title.setText(f"{tr('update_available', self.language)}: {latest_version}")
         body = tr("update_banner_body", self.language, current_version=self.current_version)
-        if release_notes:
+        if release_notes and (self.language == "ko" or not any("가" <= char <= "힣" for char in release_notes)):
             one_line_notes = " ".join(release_notes.split())
             if one_line_notes:
                 body += f"  {one_line_notes[:120]}"
                 if len(one_line_notes) > 120:
                     body += "..."
         self.update_banner_body.setText(body)
-        self.update_banner_body.setToolTip(release_notes or body)
+        safe_notes = release_notes if self.language == "ko" or not any("가" <= char <= "힣" for char in release_notes) else ""
+        self.update_banner_body.setToolTip(safe_notes or body)
         self.update_download_btn.setEnabled(bool(self.update_download_url))
         self.update_download_btn.setToolTip(
             tr("download_installer", self.language)
@@ -726,9 +746,9 @@ class MainWindow(QMainWindow):
                     try:
                         # 방어 검증: 파일 존재 여부 및 확장자 검증
                         if not os.path.exists(result):
-                            raise FileNotFoundError("다운로드된 설치 파일을 찾을 수 없습니다.")
+                            raise FileNotFoundError(choose(self.language, "The downloaded installer was not found.", "다운로드된 설치 파일을 찾을 수 없습니다."))
                         if not result.lower().endswith('.exe'):
-                            raise PermissionError("실행 가능한 설치 파일(.exe)만 바로 실행할 수 있습니다.")
+                            raise PermissionError(choose(self.language, "Only executable installer files (.exe) can be launched.", "실행 가능한 설치 파일(.exe)만 바로 실행할 수 있습니다."))
                             
                         # 설치 파일 실행
                         os.startfile(result)
@@ -742,10 +762,10 @@ class MainWindow(QMainWindow):
                         self.bypass_tab.stop_all()
                         os._exit(0)
                     except Exception as err:
-                        QMessageBox.critical(self, tr("run_error", self.language), str(err))
+                        QMessageBox.critical(self, tr("run_error", self.language), self._runtime_error_text(err))
             else:
                 if result != "Cancelled":
-                    QMessageBox.critical(self, tr("download_failed", self.language), str(result))
+                    QMessageBox.critical(self, tr("download_failed", self.language), self._runtime_error_text(result))
                     
         download_worker.finished.connect(on_download_finished)
         download_worker.start()
@@ -764,7 +784,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(tr("app_title", self.language, version=self.current_version))
         self.create_menu_bar()
         localize_widget_tree(self.centralWidget(), self.language)
-        self.task_tab.refresh_language()
+        for tab in (self.task_tab, self.sync_tab, self.eml_tab, self.pdf_tab, self.ocr_tab, self.bypass_tab):
+            if hasattr(tab, "refresh_language"):
+                tab.refresh_language()
         self._set_tab_labels()
         self.update_banner_title.setText(tr("update_available", self.language))
         self.update_download_btn.setText(tr("download", self.language))
@@ -793,24 +815,24 @@ class MainWindow(QMainWindow):
 
         active_tasks = []
         if self.task_tab.is_running:
-            active_tasks.append("통합 일괄 실행")
+            active_tasks.append(choose(self.language, "Run Tasks", "통합 일괄 실행"))
         if self.pdf_tab.is_converting:
-            active_tasks.append("PDF 이미지 변환")
+            active_tasks.append(choose(self.language, "PDF conversion", "PDF 이미지 변환"))
         if self.ocr_tab.is_converting:
-            active_tasks.append("이미지 OCR 이름 변경")
+            active_tasks.append(choose(self.language, "Image OCR and rename", "이미지 OCR 이름 변경"))
         if self.eml_tab.is_converting:
-            active_tasks.append("EML 변환")
+            active_tasks.append(choose(self.language, "EML conversion", "EML 변환"))
         if self.sync_tab.is_running:
-            active_tasks.append("폴더 동기화")
+            active_tasks.append(choose(self.language, "Folder synchronization", "폴더 동기화"))
         if self.bypass_tab.is_running:
-            active_tasks.append("포맷 우회 변환")
+            active_tasks.append(choose(self.language, "File conversion", "포맷 우회 변환"))
             
         if active_tasks:
             task_list = ", ".join(active_tasks)
             reply = QMessageBox.question(
                 self, 
-                "작업 진행 중", 
-                f"현재 [{task_list}] 작업이 실행 중입니다. 프로그램을 강제 종료하시겠습니까?\n(강제 종료 시 데이터 손상이 발생할 수 있습니다.)",
+                choose(self.language, "Tasks are running", "작업 진행 중"),
+                choose(self.language, f"The following tasks are running: [{task_list}]. Force the application to exit?\n(Forcing exit may damage data.)", f"현재 [{task_list}] 작업이 실행 중입니다. 프로그램을 강제 종료하시겠습니까?\n(강제 종료 시 데이터 손상이 발생할 수 있습니다.)"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
                 QMessageBox.StandardButton.No
             )

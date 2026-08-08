@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -19,7 +20,9 @@ from src.core.task_runner import RunnerCallbacks, TaskRunner
 
 
 class FakeConfig:
-    def get(self, _key, default=None):
+    def get(self, key, default=None):
+        if key == "ui_language":
+            return "en"
         return default
 
 
@@ -97,6 +100,7 @@ class TaskRunnerTests(unittest.TestCase):
         self.assertIn("copy failed", "\n".join(report.results[TaskStep.SYNC].details))
 
     def test_all_task_steps_produce_a_complete_report(self):
+        visible_messages = []
         with tempfile.TemporaryDirectory() as temp_dir:
             eml_dir = os.path.join(temp_dir, "eml")
             output_dir = os.path.join(temp_dir, "output")
@@ -127,11 +131,18 @@ class TaskRunnerTests(unittest.TestCase):
                 patch("src.core.task_runner.OCRProcessor", FakeOCRProcessor),
                 patch("src.core.task_runner.BypassConverter", FakeBypassConverter),
             ):
-                report = TaskRunner(FakeConfig(), plan).run()
+                report = TaskRunner(FakeConfig(), plan).run(
+                    RunnerCallbacks(
+                        log=visible_messages.append,
+                        step_progress=lambda _current, _total, message: visible_messages.append(message),
+                    )
+                )
 
         self.assertTrue(report.overall_success)
         self.assertEqual(set(report.results), set(plan.active_steps))
         self.assertIn("Convert Files", report.report_body)
+        english_output = "\n".join([report.message, report.report_body, *visible_messages])
+        self.assertIsNone(re.search(r"[가-힣]", english_output), english_output)
 
     def test_cancel_marks_report_as_cancelled(self):
         plan = RunPlan({TaskStep.SYNC: SyncRunConfig([SyncGroupConfig("g", ["a", "b"])])})

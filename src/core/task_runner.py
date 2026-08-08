@@ -64,6 +64,31 @@ class TaskRunner:
     def _step_name(self, step: TaskStep) -> str:
         return tr(f"task_step_{step.value}", self.language)
 
+    def _runtime_text(self, value: object) -> str:
+        text = str(value)
+        if self.language == "ko":
+            return text
+        replacements = {
+            "프로모션 번호를 찾을 수 없습니다": "Promotion number not found",
+            "원본 파일을 찾을 수 없습니다": "Source file not found",
+            "파일이 이미 다른 프로그램에서 사용 중입니다": "The file is open in another application",
+            "지원하지 않는 원본 파일 형식입니다": "Unsupported source file type",
+            "변환 실패": "Conversion failed",
+            "변환 중 오류": "Conversion error",
+            "압축 중 오류": "Compression error",
+            "복제 오류": "Copy error",
+            "PDF 파일을 찾을 수 없습니다": "PDF file not found",
+            "PDF 변환 중 오류 발생": "PDF conversion error",
+            "to_be_deleted이동": "move to 'to be deleted'",
+            "충돌 보존 백업": "preserve conflict backup",
+            "복사": "copy",
+            "Playwright 브라우저 드라이버": "Playwright browser driver",
+            "네트워크 연결 상태를 확인해 주세요": "Check the network connection",
+        }
+        for korean, english in replacements.items():
+            text = text.replace(korean, english)
+        return text
+
     def _status_name(self, status: StepStatus) -> str:
         status_keys = {
             StepStatus.PENDING: "pending",
@@ -139,9 +164,9 @@ class TaskRunner:
                 err_trace = traceback.format_exc()
                 logger.error("Error in %s step: %s\n%s", step.value, exc, err_trace)
                 results[step].status = StepStatus.FAILED
-                results[step].error_message = str(exc)
+                results[step].error_message = self._runtime_text(exc)
                 results[step].details.append(
-                    self._text("Fatal error", "치명적 오류", "Błąd krytyczny") + f": {exc}"
+                    self._text("Fatal error", "치명적 오류", "Błąd krytyczny") + f": {self._runtime_text(exc)}"
                 )
 
             callbacks.status_changed(step, results[step].status)
@@ -212,10 +237,10 @@ class TaskRunner:
                     f"⚠ Grupa [{group.name}] zakończona z błędami (powodzenie: {success_files}, błędy: {fail_files})",
                 )
                 for err in errors[:5]:
-                    callbacks.log(f"     - {self._text('Error', '오류', 'Błąd')}: {err}")
+                    callbacks.log(f"     - {self._text('Error', '오류', 'Błąd')}: {self._runtime_text(err)}")
             callbacks.log(f"   {msg}")
             result.details.append(msg)
-            result.details.extend(f"{self._text('Error', '오류', 'Błąd')}: {err}" for err in errors[:5])
+            result.details.extend(f"{self._text('Error', '오류', 'Błąd')}: {self._runtime_text(err)}" for err in errors[:5])
 
         result.success_count = success_count
         result.total_count = total_groups
@@ -227,7 +252,7 @@ class TaskRunner:
         )
 
     def _run_eml(self, config: EmlRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
-        callbacks.log("\n[2단계: EML Image 파일 변환 진행]")
+        callbacks.log("\n[2] " + self._step_name(TaskStep.EML))
         total_tasks = len(config.tasks)
         success_tasks = 0
 
@@ -236,8 +261,8 @@ class TaskRunner:
                 result.status = StepStatus.CANCELLED
                 return
 
-            callbacks.log(f" -> 태스크 [{task.name}] EML 파일 변환 시작...")
-            callbacks.step_progress(idx, total_tasks, f"EML 태스크 진행 중: {task.name}")
+            callbacks.log(self._text(f" -> Starting EML task [{task.name}]...", f" -> 태스크 [{task.name}] EML 파일 변환 시작...", f" -> Uruchamianie zadania EML [{task.name}]..."))
+            callbacks.step_progress(idx, total_tasks, self._text(f"Running EML task: {task.name}", f"EML 태스크 진행 중: {task.name}", f"Uruchamianie zadania EML: {task.name}"))
             os.makedirs(task.target_folder, exist_ok=True)
             eml_files = [
                 os.path.join(task.source_folder, name)
@@ -246,8 +271,8 @@ class TaskRunner:
             ]
 
             if not eml_files:
-                msg = f"태스크 [{task.name}] EML 파일 없음 (건너뜀)"
-                callbacks.log(f"   ✗ 경고: '{task.name}' 폴더 내에 EML 파일이 없습니다.")
+                msg = self._text(f"Task [{task.name}] has no EML files (skipped)", f"태스크 [{task.name}] EML 파일 없음 (건너뜀)", f"Zadanie [{task.name}] nie zawiera plików EML (pominięto)")
+                callbacks.log(self._text(f"   ✗ Warning: '{task.name}' contains no EML files.", f"   ✗ 경고: '{task.name}' 폴더 내에 EML 파일이 없습니다.", f"   ✗ Ostrzeżenie: '{task.name}' nie zawiera plików EML."))
                 result.details.append(msg)
                 continue
 
@@ -257,31 +282,32 @@ class TaskRunner:
                     result.status = StepStatus.CANCELLED
                     return
                 filename = os.path.basename(eml_path)
-                callbacks.step_progress(file_idx, len(eml_files), f"EML 변환 중: {filename}")
+                callbacks.step_progress(file_idx, len(eml_files), self._text(f"Converting EML: {filename}", f"EML 변환 중: {filename}", f"Konwersja EML: {filename}"))
                 out_png = os.path.join(task.target_folder, os.path.splitext(filename)[0] + ".png")
                 try:
                     if self.eml_converter.convert_eml_to_image(eml_path, out_png, width=config.width):
                         task_success_count += 1
                     else:
-                        callbacks.log(f"      ✗ 변환 실패: {filename}")
+                        callbacks.log(self._text(f"      ✗ Conversion failed: {filename}", f"      ✗ 변환 실패: {filename}", f"      ✗ Konwersja nie powiodła się: {filename}"))
                 except Exception as file_err:
-                    callbacks.log(f"      ✗ 오류 발생 ({filename}): {file_err}")
+                    detail = self._runtime_text(file_err)
+                    callbacks.log(self._text(f"      ✗ Error ({filename}): {detail}", f"      ✗ 오류 발생 ({filename}): {detail}", f"      ✗ Błąd ({filename}): {detail}"))
 
             if task_success_count == len(eml_files):
                 success_tasks += 1
-                msg = f"✓ 태스크 [{task.name}] 완료 (성공: {task_success_count}/{len(eml_files)})"
+                msg = self._text(f"✓ Task [{task.name}] completed ({task_success_count}/{len(eml_files)} successful)", f"✓ 태스크 [{task.name}] 완료 (성공: {task_success_count}/{len(eml_files)})", f"✓ Zadanie [{task.name}] zakończone ({task_success_count}/{len(eml_files)} powodzeń)" )
             else:
-                msg = f"⚠ 태스크 [{task.name}] 일부 완료 (성공: {task_success_count}/{len(eml_files)})"
+                msg = self._text(f"⚠ Task [{task.name}] partially completed ({task_success_count}/{len(eml_files)} successful)", f"⚠ 태스크 [{task.name}] 일부 완료 (성공: {task_success_count}/{len(eml_files)})", f"⚠ Zadanie [{task.name}] częściowo zakończone ({task_success_count}/{len(eml_files)} powodzeń)")
             callbacks.log(f"   {msg}")
             result.details.append(msg)
 
         result.success_count = success_tasks
         result.total_count = total_tasks
         result.status = StepStatus.COMPLETED if success_tasks == total_tasks else StepStatus.PARTIAL
-        callbacks.step_progress(total_tasks, total_tasks, "EML Image 변환 완료")
+        callbacks.step_progress(total_tasks, total_tasks, self._text("EML conversion completed", "EML 변환 완료", "Konwersja EML zakończona"))
 
     def _run_pdf(self, config: PdfRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
-        callbacks.log("\n[3단계: PDF Image 변환 진행]")
+        callbacks.log("\n[3] " + self._step_name(TaskStep.PDF))
         os.makedirs(config.output_folder, exist_ok=True)
         success_count = 0
 
@@ -290,24 +316,25 @@ class TaskRunner:
                 result.status = StepStatus.CANCELLED
                 return
             filename = os.path.basename(pdf_path)
-            callbacks.log(f" -> PDF 변환 중: {filename}...")
-            callbacks.step_progress(idx, len(config.pdf_paths), f"PDF 변환 진행 중: {filename}")
+            callbacks.log(self._text(f" -> Converting PDF: {filename}...", f" -> PDF 변환 중: {filename}...", f" -> Konwersja PDF: {filename}..."))
+            callbacks.step_progress(idx, len(config.pdf_paths), self._text(f"Converting PDF: {filename}", f"PDF 변환 진행 중: {filename}", f"Konwersja PDF: {filename}"))
             try:
                 image_paths = self.pdf_converter.convert(pdf_path, config.output_folder)
                 success_count += 1
-                msg = f"✓ PDF [{filename}] 완료 -> 이미지 {len(image_paths)}개 생성"
+                msg = self._text(f"✓ PDF [{filename}] completed -> {len(image_paths)} images created", f"✓ PDF [{filename}] 완료 -> 이미지 {len(image_paths)}개 생성", f"✓ PDF [{filename}] zakończony -> utworzono {len(image_paths)} obrazów")
             except Exception as file_err:
-                msg = f"✗ PDF [{filename}] 변환 실패: {file_err}"
+                detail = self._runtime_text(file_err)
+                msg = self._text(f"✗ PDF [{filename}] conversion failed: {detail}", f"✗ PDF [{filename}] 변환 실패: {detail}", f"✗ Konwersja PDF [{filename}] nie powiodła się: {detail}")
             callbacks.log(f"   {msg}")
             result.details.append(msg)
 
         result.success_count = success_count
         result.total_count = len(config.pdf_paths)
         result.status = StepStatus.COMPLETED if success_count == len(config.pdf_paths) else StepStatus.PARTIAL
-        callbacks.step_progress(len(config.pdf_paths), len(config.pdf_paths), "PDF Image 변환 완료")
+        callbacks.step_progress(len(config.pdf_paths), len(config.pdf_paths), self._text("PDF conversion completed", "PDF 변환 완료", "Konwersja PDF zakończona"))
 
     def _run_ocr(self, config: OcrRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
-        callbacks.log("\n[4단계: Image OCR 리네임 진행]")
+        callbacks.log("\n[4] " + self._step_name(TaskStep.OCR))
         success_count = 0
 
         for idx, img_path in enumerate(config.image_paths):
@@ -315,28 +342,30 @@ class TaskRunner:
                 result.status = StepStatus.CANCELLED
                 return
             filename = os.path.basename(img_path)
-            callbacks.log(f" -> OCR 분석 중: {filename}...")
-            callbacks.step_progress(idx, len(config.image_paths), f"OCR 진행 중: {filename}")
+            callbacks.log(self._text(f" -> Running OCR: {filename}...", f" -> OCR 분석 중: {filename}...", f" -> OCR: {filename}..."))
+            callbacks.step_progress(idx, len(config.image_paths), self._text(f"Running OCR: {filename}", f"OCR 진행 중: {filename}", f"OCR: {filename}"))
             try:
                 success, promo_num, _ocr_text, error_msg = self.ocr_processor.process_image(img_path)
                 if success and promo_num:
                     final_filename = self._rename_ocr_file(img_path, promo_num)
                     success_count += 1
-                    msg = f"✓ OCR 성공: {filename} -> {final_filename} (프로모션: {promo_num})"
+                    msg = self._text(f"✓ OCR succeeded: {filename} -> {final_filename} (promotion: {promo_num})", f"✓ OCR 성공: {filename} -> {final_filename} (프로모션: {promo_num})", f"✓ OCR zakończony: {filename} -> {final_filename} (promocja: {promo_num})")
                 else:
-                    msg = f"✗ OCR 분석 실패 (프로모션 미발견): {filename} ({error_msg or '미인식'})"
+                    detail = self._runtime_text(error_msg or self._text("not recognized", "미인식", "nierozpoznano"))
+                    msg = self._text(f"✗ OCR failed (promotion not found): {filename} ({detail})", f"✗ OCR 분석 실패 (프로모션 미발견): {filename} ({detail})", f"✗ OCR nie powiódł się (brak promocji): {filename} ({detail})")
             except Exception as file_err:
-                msg = f"✗ OCR 파일 분석 오류 ({filename}): {file_err}"
+                detail = self._runtime_text(file_err)
+                msg = self._text(f"✗ OCR file error ({filename}): {detail}", f"✗ OCR 파일 분석 오류 ({filename}): {detail}", f"✗ Błąd pliku OCR ({filename}): {detail}")
             callbacks.log(f"   {msg}")
             result.details.append(msg)
 
         result.success_count = success_count
         result.total_count = len(config.image_paths)
         result.status = StepStatus.COMPLETED if success_count == len(config.image_paths) else StepStatus.PARTIAL
-        callbacks.step_progress(len(config.image_paths), len(config.image_paths), "Image OCR 완료")
+        callbacks.step_progress(len(config.image_paths), len(config.image_paths), self._text("Image OCR completed", "이미지 OCR 완료", "OCR obrazów zakończony"))
 
     def _run_bypass(self, config: BypassRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
-        callbacks.log("\n[5단계: Bypass Convert 우회 변환 진행]")
+        callbacks.log("\n[5] " + self._step_name(TaskStep.BYPASS))
         success_count = 0
 
         for idx, task in enumerate(config.tasks):
@@ -344,8 +373,8 @@ class TaskRunner:
                 result.status = StepStatus.CANCELLED
                 return
             filename = os.path.basename(task.src)
-            callbacks.log(f" -> 우회 변환 중: {filename} -> {task.ext}...")
-            callbacks.step_progress(idx, len(config.tasks), f"우회 변환 진행 중: {filename}")
+            callbacks.log(self._text(f" -> Converting file: {filename} -> {task.ext}...", f" -> 파일 변환 중: {filename} -> {task.ext}...", f" -> Konwersja pliku: {filename} -> {task.ext}..."))
+            callbacks.step_progress(idx, len(config.tasks), self._text(f"Converting file: {filename}", f"파일 변환 중: {filename}", f"Konwersja pliku: {filename}"))
             try:
                 success, msg = self.bypass_converter.convert_file(
                     src_path=task.src,
@@ -356,18 +385,20 @@ class TaskRunner:
                 )
                 if success:
                     success_count += 1
-                    rep_msg = f"✓ 우회 완료: {filename} -> {os.path.basename(task.tgt)}"
+                    rep_msg = self._text(f"✓ Conversion completed: {filename} -> {os.path.basename(task.tgt)}", f"✓ 파일 변환 완료: {filename} -> {os.path.basename(task.tgt)}", f"✓ Konwersja zakończona: {filename} -> {os.path.basename(task.tgt)}")
                 else:
-                    rep_msg = f"✗ 우회 실패 ({filename}): {msg}"
+                    detail = self._runtime_text(msg)
+                    rep_msg = self._text(f"✗ Conversion failed ({filename}): {detail}", f"✗ 파일 변환 실패 ({filename}): {detail}", f"✗ Konwersja nie powiodła się ({filename}): {detail}")
             except Exception as file_err:
-                rep_msg = f"✗ 우회 파일 변환 오류 ({filename}): {file_err}"
+                detail = self._runtime_text(file_err)
+                rep_msg = self._text(f"✗ File conversion error ({filename}): {detail}", f"✗ 파일 변환 오류 ({filename}): {detail}", f"✗ Błąd konwersji pliku ({filename}): {detail}")
             callbacks.log(f"   {rep_msg}")
             result.details.append(rep_msg)
 
         result.success_count = success_count
         result.total_count = len(config.tasks)
         result.status = StepStatus.COMPLETED if success_count == len(config.tasks) else StepStatus.PARTIAL
-        callbacks.step_progress(len(config.tasks), len(config.tasks), "Bypass Convert 완료")
+        callbacks.step_progress(len(config.tasks), len(config.tasks), self._text("File conversion completed", "파일 변환 완료", "Konwersja plików zakończona"))
 
     def _rename_ocr_file(self, image_path: str, promo_num: str) -> str:
         filename = os.path.basename(image_path)

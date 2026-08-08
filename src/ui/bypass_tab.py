@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
 from src.ui.workflow_widget import WorkflowWidget
 from src.ui.toast_notification import show_toast
+from src.ui.i18n import choose, get_app_language, tr
 from src.core.bypass_converter import BypassConverter
 from src.core.preflight import check_run_plan
 from src.core.task_contracts import BypassFileConfig, BypassRunConfig, RunPlan, TaskStep, TaskValidationError
@@ -20,11 +21,15 @@ class BypassConvertWorker(QThread):
     file_completed = pyqtSignal(str, str, bool, str)  # src, tgt, success, message
     finished = pyqtSignal(bool, str)      # success, message
     
-    def __init__(self, tasks, converter):
+    def __init__(self, tasks, converter, language="en"):
         super().__init__()
         self.tasks = tasks
         self.converter = converter
         self.is_running = True
+        self.language = language
+
+    def _t(self, english, korean, polish=None):
+        return choose(self.language, english, korean, polish)
         
     def stop(self):
         self.is_running = False
@@ -36,7 +41,7 @@ class BypassConvertWorker(QThread):
         try:
             for idx, task in enumerate(self.tasks):
                 if not self.is_running:
-                    self.finished.emit(False, "사용자에 의해 중지되었습니다.")
+                    self.finished.emit(False, self._t("Stopped by the user.", "사용자에 의해 중지되었습니다."))
                     return
                     
                 src = task["src"]
@@ -46,7 +51,7 @@ class BypassConvertWorker(QThread):
                 delete_original = task["delete_original"]
                 
                 filename = os.path.basename(src)
-                self.progress.emit(idx, total, f"우회 변환 진행 중: {filename}")
+                self.progress.emit(idx, total, self._t(f"Converting file: {filename}", f"우회 변환 진행 중: {filename}"))
                 
                 # 변환 수행
                 success, msg = self.converter.convert_file(
@@ -59,19 +64,19 @@ class BypassConvertWorker(QThread):
                 
                 if success:
                     success_count += 1
-                    self.file_completed.emit(src, tgt, True, "성공")
+                    self.file_completed.emit(src, tgt, True, self._t("Success", "성공"))
                 else:
                     self.file_completed.emit(src, tgt, False, msg)
                     
-            self.progress.emit(total, total, f"변환 완료 ({success_count}/{total} 성공)")
+            self.progress.emit(total, total, self._t(f"Conversion completed ({success_count}/{total} successful)", f"변환 완료 ({success_count}/{total} 성공)"))
             self.finished.emit(
                 success_count == total,
-                f"우회 변환이 완료되었습니다. (성공: {success_count}개 / 전체: {total}개)"
+                self._t(f"File conversion completed. (Successful: {success_count} / Total: {total})", f"우회 변환이 완료되었습니다. (성공: {success_count}개 / 전체: {total}개)")
             )
             
         except Exception as e:
             logger.error(f"Error in BypassConvertWorker: {e}")
-            self.finished.emit(False, f"작업 중 오류 발생: {str(e)}")
+            self.finished.emit(False, self._t(f"An error occurred: {str(e)}", f"작업 중 오류 발생: {str(e)}"))
 
 
 class BypassTab(QWidget):
@@ -86,6 +91,41 @@ class BypassTab(QWidget):
         
         self.init_ui()
         self.setAcceptDrops(True)
+
+    @property
+    def language(self):
+        return get_app_language(self.config_manager)
+
+    def _t(self, english, korean, polish=None):
+        return choose(self.language, english, korean, polish)
+
+    def _error_text(self, message):
+        if self.language == "ko" or not isinstance(message, str):
+            return message
+        replacements = {
+            "원본 파일을 찾을 수 없습니다": "Source file not found",
+            "파일이 이미 다른 프로그램에서 사용 중입니다": "The file is open in another application",
+            "지원하지 않는 원본 파일 형식입니다": "Unsupported source file type",
+            "변환 실패 (알 수 없는 오류)": "Conversion failed (unknown error)",
+            "원본 파일 삭제 실패": "Could not delete the source file",
+            "설치되어 있지 않거나 COM 실행이 불가능합니다": "is not installed or COM automation is unavailable",
+            "변환 중 오류": "conversion error",
+            "압축 중 오류": "compression error",
+            "복제 오류": "copy error",
+            "성공": "Success",
+        }
+        translated = message
+        for korean, english in replacements.items():
+            translated = translated.replace(korean, english)
+        return translated
+
+    def refresh_language(self):
+        self.summary_label.setText(self._t(f"Files found: {len(self.scanned_files)}", f"검색된 대상 파일: {len(self.scanned_files)}개"))
+        if not self.scanned_files:
+            if self.src_entry.text().startswith(("드래그 앤 드롭", "Drag a folder")):
+                self.src_entry.setText(self._t("Drag a folder here or choose one with the button.", "드래그 앤 드롭 또는 우측 버튼으로 폴더를 선택하세요."))
+            if self.tgt_entry.text().startswith(("저장할 우회", "Choose the folder")):
+                self.tgt_entry.setText(self._t("Choose the folder where converted files are saved.", "저장할 우회 폴더를 선택하세요."))
         
     def init_ui(self):
         layout = QVBoxLayout()
@@ -289,7 +329,7 @@ class BypassTab(QWidget):
             file_path = os.path.normpath(url.toLocalFile())
             if os.path.isdir(file_path):
                 self.set_source_folder_path(file_path)
-                self.log_area.append(f"ℹ️ 드롭 감지: 소스 폴더가 지정되었습니다. ({file_path})")
+                self.log_area.append(self._t(f"ℹ️ Source folder selected by drop. ({file_path})", f"ℹ️ 드롭 감지: 소스 폴더가 지정되었습니다. ({file_path})"))
                 self.scan_source_folder()
                 break
 
@@ -299,14 +339,14 @@ class BypassTab(QWidget):
         
     def select_source_folder(self):
         initial = self.config_manager.get("last_bypass_source_directory", "")
-        folder = QFileDialog.getExistingDirectory(self, "소스 폴더 선택", initial)
+        folder = QFileDialog.getExistingDirectory(self, self._t("Select Source Folder", "소스 폴더 선택"), initial)
         if folder:
             self.set_source_folder_path(os.path.normpath(folder))
             self.scan_source_folder()
             
     def select_target_folder(self):
         initial = self.config_manager.get("last_bypass_target_directory", "")
-        folder = QFileDialog.getExistingDirectory(self, "대상 보관 폴더 선택", initial)
+        folder = QFileDialog.getExistingDirectory(self, self._t("Select Target Folder", "대상 보관 폴더 선택"), initial)
         if folder:
             self.set_target_folder_path(os.path.normpath(folder))
             
@@ -328,8 +368,8 @@ class BypassTab(QWidget):
 
     def scan_source_folder(self):
         src_dir = self.src_entry.text()
-        if not os.path.exists(src_dir) or src_dir.startswith("드래그 앤 드롭"):
-            QMessageBox.warning(self, "경고", "올바른 소스 폴더를 먼저 선택해 주세요.")
+        if not os.path.exists(src_dir) or src_dir.startswith(("드래그 앤 드롭", "Drag a folder")):
+            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Select a valid source folder first.", "올바른 소스 폴더를 먼저 선택해 주세요."))
             return
             
         self.scanned_files.clear()
@@ -338,7 +378,7 @@ class BypassTab(QWidget):
         self.progress_bar.setValue(0)
         self.workflow_widget.reset()
         
-        self.log_area.append("🔄 소스 폴더 내 변환 가능 파일을 검색 중입니다...")
+        self.log_area.append(self._t("🔄 Scanning the source folder for convertible files...", "🔄 소스 폴더 내 변환 가능 파일을 검색 중입니다..."))
         
         target_extensions = ('.xlsx', '.xls', '.xlsm', '.pptx', '.ppt', '.pptm', '.docx', '.doc', '.docm', '.pdf')
         
@@ -374,19 +414,19 @@ class BypassTab(QWidget):
                 self.file_table.setItem(idx, 0, QTableWidgetItem(filename))
                 self.file_table.setItem(idx, 1, QTableWidgetItem(size_kb))
                 self.file_table.setItem(idx, 2, QTableWidgetItem(tgt_ext))
-                self.file_table.setItem(idx, 3, QTableWidgetItem("대기 중"))
+                self.file_table.setItem(idx, 3, QTableWidgetItem(self._t("Waiting", "대기 중")))
                 
-            self.summary_label.setText(f"검색된 대상 파일: {len(self.scanned_files)}개")
-            self.log_area.append(f"✅ 스캔 완료: 총 {len(self.scanned_files)}개의 대상 파일을 발견했습니다.")
+            self.summary_label.setText(self._t(f"Files found: {len(self.scanned_files)}", f"검색된 대상 파일: {len(self.scanned_files)}개"))
+            self.log_area.append(self._t(f"✅ Scan complete: found {len(self.scanned_files)} files.", f"✅ 스캔 완료: 총 {len(self.scanned_files)}개의 대상 파일을 발견했습니다."))
             self.workflow_widget.set_active_step(1)
             
         except Exception as e:
-            self.log_area.append(f"❌ 스캔 실패: {str(e)}")
-            QMessageBox.critical(self, "오류", f"폴더 스캔 중 오류 발생: {str(e)}")
+            self.log_area.append(self._t(f"❌ Scan failed: {str(e)}", f"❌ 스캔 실패: {str(e)}"))
+            QMessageBox.critical(self, self._t("Error", "오류"), self._t(f"Folder scan failed: {str(e)}", f"폴더 스캔 중 오류 발생: {str(e)}"))
 
     def start_conversion(self):
         if not self.scanned_files:
-            QMessageBox.warning(self, "경고", "변환할 대상 파일이 없습니다. 스캔을 먼저 실행해 주세요.")
+            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("No files are ready. Scan the source folder first.", "변환할 대상 파일이 없습니다. 스캔을 먼저 실행해 주세요."))
             return
             
         # 설정값 실시간 캐시 동기화
@@ -400,11 +440,12 @@ class BypassTab(QWidget):
         try:
             run_config = self.build_run_config()
         except TaskValidationError as exc:
-            QMessageBox.warning(self, "설정 오류", exc.user_message)
+            problem = tr(exc.message_key, self.language, **exc.values) if exc.message_key else exc.user_message
+            QMessageBox.warning(self, self._t("Settings error", "설정 오류"), problem)
             return
 
         if run_config is None:
-            QMessageBox.warning(self, "경고", "변환할 대상 파일을 먼저 스캔해 주세요.")
+            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Scan the source folder first.", "변환할 대상 파일을 먼저 스캔해 주세요."))
             return
 
         preflight = check_run_plan(
@@ -413,7 +454,7 @@ class BypassTab(QWidget):
             check_office=True,
         )
         if preflight.has_blockers:
-            QMessageBox.critical(self, "사전 점검 실패", preflight.format(include_warnings=False))
+            QMessageBox.critical(self, self._t("Preflight check failed", "사전 점검 실패"), preflight.format(include_warnings=False, language=self.language))
             return
 
         tasks = [task.to_legacy_dict() for task in run_config.tasks]
@@ -424,11 +465,11 @@ class BypassTab(QWidget):
         self.stop_btn.setEnabled(True)
         self.progress_bar.setValue(0)
         
-        self.log_area.append("\n🚀 우회 변환 시작...")
+        self.log_area.append(self._t("\n🚀 Starting file conversion...", "\n🚀 우회 변환 시작..."))
         self.workflow_widget.set_active_step(1)
         
         # 워커 실행
-        self.worker = BypassConvertWorker(tasks, self.converter)
+        self.worker = BypassConvertWorker(tasks, self.converter, self.language)
         self.worker.progress.connect(self.update_progress)
         self.worker.file_completed.connect(self.on_file_completed)
         self.worker.finished.connect(self.on_finished)
@@ -438,7 +479,7 @@ class BypassTab(QWidget):
         if self.worker:
             self.worker.stop()
             self.stop_btn.setEnabled(False)
-            self.log_area.append("⚠️ 작업 중단 요청 중...")
+            self.log_area.append(self._t("⚠️ Requesting stop...", "⚠️ 작업 중단 요청 중..."))
             
     def stop_all(self):
         """MainWindow 종료 시 바인딩"""
@@ -461,13 +502,14 @@ class BypassTab(QWidget):
         for idx in range(self.file_table.rowCount()):
             if self.file_table.item(idx, 0).text() == filename:
                 if success:
-                    self.file_table.setItem(idx, 3, QTableWidgetItem("완료"))
+                    self.file_table.setItem(idx, 3, QTableWidgetItem(self._t("Completed", "완료")))
                     self.file_table.item(idx, 3).setForeground(Qt.GlobalColor.green)
-                    self.log_area.append(f"🟢 [성공] {filename} -> {tgt_name}")
+                    self.log_area.append(self._t(f"🟢 [Success] {filename} -> {tgt_name}", f"🟢 [성공] {filename} -> {tgt_name}"))
                 else:
-                    self.file_table.setItem(idx, 3, QTableWidgetItem(f"실패: {message}"))
+                    message = self._error_text(message)
+                    self.file_table.setItem(idx, 3, QTableWidgetItem(self._t(f"Failed: {message}", f"실패: {message}")))
                     self.file_table.item(idx, 3).setForeground(Qt.GlobalColor.red)
-                    self.log_area.append(f"🔴 [실패] {filename}: {message}")
+                    self.log_area.append(self._t(f"🔴 [Failed] {filename}: {message}", f"🔴 [실패] {filename}: {message}"))
                 break
                 
         self.workflow_widget.set_active_step(2)
@@ -481,20 +523,21 @@ class BypassTab(QWidget):
         if success:
             self.workflow_widget.complete_all()
             self.log_area.append(f"\n✅ {message}")
-            show_toast(self, "변환 완료!", "success")
-            QMessageBox.information(self, "완료", message)
+            show_toast(self, self._t("Conversion completed.", "변환 완료!"), "success")
+            QMessageBox.information(self, self._t("Completed", "완료"), message)
         else:
             self.workflow_widget.reset()
-            self.log_area.append(f"\n❌ 작업 중단: {message}")
-            show_toast(self, f"작업 실패: {message}", "error")
-            QMessageBox.critical(self, "오류", f"작업 에러: {message}")
+            message = self._error_text(message)
+            self.log_area.append(self._t(f"\n❌ Operation stopped: {message}", f"\n❌ 작업 중단: {message}"))
+            show_toast(self, self._t(f"Operation failed: {message}", f"작업 실패: {message}"), "error")
+            QMessageBox.critical(self, self._t("Error", "오류"), self._t(f"Operation error: {message}", f"작업 에러: {message}"))
             
         # 스캔 리스트 리프레시 (원본 파일이 지워졌을 수 있으므로)
         self.scan_source_folder()
 
     def build_run_config(self):
         src_dir = self.src_entry.text().strip()
-        if not src_dir or src_dir.startswith("드래그 앤 드롭"):
+        if not src_dir or src_dir.startswith(("드래그 앤 드롭", "Drag a folder")):
             return None
             
         if not os.path.exists(src_dir):
@@ -513,7 +556,7 @@ class BypassTab(QWidget):
         inplace_mode = self.radio_inplace.isChecked()
         tgt_dir = src_dir if inplace_mode else self.tgt_entry.text().strip()
         
-        if not inplace_mode and (not tgt_dir or tgt_dir.startswith("저장할 우회")):
+        if not inplace_mode and (not tgt_dir or tgt_dir.startswith(("저장할 우회", "Choose the folder"))):
             raise TaskValidationError(
                 "우회 변환 저장 폴더가 지정되지 않았습니다.",
                 message_key="bypass_target_folder_empty",

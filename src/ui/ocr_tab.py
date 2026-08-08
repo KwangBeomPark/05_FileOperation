@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from src.ui.workflow_widget import WorkflowWidget
 from src.ui.toast_notification import show_toast
 from src.ui.image_preview_dialog import ImagePreviewDialog
+from src.ui.i18n import choose, get_app_language
 
 from src.core.ocr_processor import OCRProcessor
 from src.core.file_manager import FileManager
@@ -21,12 +22,25 @@ class OCRWorker(QThread):
     ocr_completed = pyqtSignal(str, str, str, bool, str)  # original_path, new_path, promo_num, success, ocr_text
     finished = pyqtSignal(bool, str)      # success, message
     
-    def __init__(self, image_paths, ocr_processor, file_manager):
+    def __init__(self, image_paths, ocr_processor, file_manager, language="en"):
         super().__init__()
         self.image_paths = image_paths
         self.ocr_processor = ocr_processor
         self.file_manager = file_manager
         self.is_running = True
+        self.language = language
+
+    def _t(self, english, korean, polish=None):
+        return choose(self.language, english, korean, polish)
+
+    def _detail(self, value):
+        text = str(value)
+        if self.language != "ko":
+            text = text.replace("프로모션 번호를 찾을 수 없습니다", "Promotion number not found")
+            text = text.replace("OCR 텍스트 추출 실패", "OCR text extraction failed")
+            text = text.replace("Tesseract 실패", "Tesseract failed")
+            text = text.replace("Windows OCR 실패", "Windows OCR failed")
+        return text
         
     def stop(self):
         self.is_running = False
@@ -35,7 +49,7 @@ class OCRWorker(QThread):
         try:
             # 1. OCR 엔진 확인: Tesseract 우선, 없으면 Windows 내장 OCR fallback
             if not self.ocr_processor.check_ocr_available():
-                self.finished.emit(False, "사용 가능한 OCR 엔진이 없습니다. Tesseract를 설치하거나 Windows OCR 언어팩을 확인하세요.")
+                self.finished.emit(False, self._t("No OCR engine is available. Install Tesseract or check the Windows OCR language pack.", "사용 가능한 OCR 엔진이 없습니다. Tesseract를 설치하거나 Windows OCR 언어팩을 확인하세요."))
                 return
                 
             total_images = len(self.image_paths)
@@ -43,11 +57,11 @@ class OCRWorker(QThread):
             
             for idx, img_path in enumerate(self.image_paths):
                 if not self.is_running:
-                    self.finished.emit(False, "사용자에 의해 취소되었습니다.")
+                    self.finished.emit(False, self._t("Cancelled by the user.", "사용자에 의해 취소되었습니다."))
                     return
                 
                 filename = os.path.basename(img_path)
-                self.progress.emit(idx, total_images, f"OCR 분석 중: {filename}")
+                self.progress.emit(idx, total_images, self._t(f"Running OCR: {filename}", f"OCR 분석 중: {filename}"))
                 
                 try:
                     # OCR 판독
@@ -91,16 +105,16 @@ class OCRWorker(QThread):
                         success_count += 1
                         self.ocr_completed.emit(img_path, final_path, promo_num, True, ocr_text)
                     else:
-                        self.ocr_completed.emit(img_path, img_path, "", False, error_msg or "프로모션 번호를 찾지 못했습니다.")
+                        self.ocr_completed.emit(img_path, img_path, "", False, self._detail(error_msg or self._t("Promotion number not found.", "프로모션 번호를 찾지 못했습니다.")))
                         
                 except Exception as e:
                     logger.error(f"Failed to process image {img_path}: {e}")
                     self.ocr_completed.emit(img_path, img_path, "", False, str(e))
                     
-            self.progress.emit(total_images, total_images, f"OCR 완료 ({success_count}/{total_images} 성공)")
+            self.progress.emit(total_images, total_images, self._t(f"OCR completed ({success_count}/{total_images} successful)", f"OCR 완료 ({success_count}/{total_images} 성공)"))
             self.finished.emit(
                 success_count == total_images,
-                f"OCR 및 리네임 작업이 완료되었습니다. (성공: {success_count}개 / 전체: {total_images}개)"
+                self._t(f"OCR and renaming completed. (Successful: {success_count} / Total: {total_images})", f"OCR 및 리네임 작업이 완료되었습니다. (성공: {success_count}개 / 전체: {total_images}개)")
             )
             
         except Exception as e:
@@ -122,6 +136,16 @@ class OCRTab(QWidget):
         
         self.init_ui()
         self.setAcceptDrops(True)
+
+    @property
+    def language(self):
+        return get_app_language(self.config_manager)
+
+    def _t(self, english, korean, polish=None):
+        return choose(self.language, english, korean, polish)
+
+    def refresh_language(self):
+        self.update_summary_labels()
         
     def init_ui(self):
         layout = QVBoxLayout()
@@ -233,7 +257,7 @@ class OCRTab(QWidget):
     def select_images(self):
         initial_dir = self.config_manager.get("last_ocr_image_directory", "")
         files, _ = QFileDialog.getOpenFileNames(
-            self, "이미지 파일 다중 선택", initial_dir, "Image Files (*.jpg *.jpeg *.png *.bmp);;All Files (*)"
+            self, self._t("Select Image Files", "이미지 파일 다중 선택"), initial_dir, "Image Files (*.jpg *.jpeg *.png *.bmp);;All Files (*)"
         )
         for f in files:
             self.add_image_to_list(os.path.normpath(f))
@@ -267,7 +291,7 @@ class OCRTab(QWidget):
                 checked_paths.append(item.data(Qt.ItemDataRole.UserRole))
                 
         if not checked_paths:
-            QMessageBox.warning(self, "경고", "분석을 실행할 이미지 파일을 체크박스에서 먼저 선택해 주세요.")
+            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Select at least one image using its checkbox.", "분석을 실행할 이미지 파일을 체크박스에서 먼저 선택해 주세요."))
             return
             
         self.is_converting = True
@@ -277,13 +301,14 @@ class OCRTab(QWidget):
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("0%")
         
-        self.log_area.append("ℹ️ OCR 및 이름 변경 작업을 시작합니다...")
+        self.log_area.append(self._t("ℹ️ Starting OCR and renaming...", "ℹ️ OCR 및 이름 변경 작업을 시작합니다..."))
         self.workflow_widget.set_active_step(1)
         
         self.worker = OCRWorker(
             image_paths=checked_paths,
             ocr_processor=self.ocr_processor,
-            file_manager=self.file_manager
+            file_manager=self.file_manager,
+            language=self.language,
         )
         
         self.worker.progress.connect(self.update_progress)
@@ -295,7 +320,7 @@ class OCRTab(QWidget):
         if self.worker:
             self.worker.stop()
             self.stop_btn.setEnabled(False)
-            self.log_area.append("⚠️ 작업 중지 요청을 전송했습니다.")
+            self.log_area.append(self._t("⚠️ Stop requested.", "⚠️ 작업 중지 요청을 전송했습니다."))
             
     def stop_all(self):
         """MainWindow 종료 시 연동될 안전 취소 헬퍼"""
@@ -314,7 +339,7 @@ class OCRTab(QWidget):
                 
     def on_ocr_completed(self, original_path, new_path, promo_num, success, ocr_text):
         # 1. 캐시 및 리스트 데이터 갱신
-        self.ocr_results[new_path] = (success, promo_num, ocr_text, None if success else "판독 실패")
+        self.ocr_results[new_path] = (success, promo_num, ocr_text, None if success else self._t("Recognition failed", "판독 실패"))
         
         # 2. image_files의 원래 경로를 새로운 경로로 교체
         if original_path in self.image_files:
@@ -330,11 +355,11 @@ class OCRTab(QWidget):
             if item.data(Qt.ItemDataRole.UserRole) == original_path:
                 item.setData(Qt.ItemDataRole.UserRole, new_path)
                 if success:
-                    item.setText(f"{new_filename} [성공: {promo_num}]")
-                    self.log_area.append(f"🟢 [성공] {orig_filename} -> {new_filename}")
+                    item.setText(self._t(f"{new_filename} [Success: {promo_num}]", f"{new_filename} [성공: {promo_num}]"))
+                    self.log_area.append(self._t(f"🟢 [Success] {orig_filename} -> {new_filename}", f"🟢 [성공] {orig_filename} -> {new_filename}"))
                 else:
-                    item.setText(f"{orig_filename} [판독 실패]")
-                    self.log_area.append(f"🔴 [실패] {orig_filename}: {ocr_text}")
+                    item.setText(self._t(f"{orig_filename} [Recognition failed]", f"{orig_filename} [판독 실패]"))
+                    self.log_area.append(self._t(f"🔴 [Failed] {orig_filename}: {ocr_text}", f"🔴 [실패] {orig_filename}: {ocr_text}"))
                 break
                 
         self.update_summary_labels()
@@ -349,13 +374,13 @@ class OCRTab(QWidget):
         if success:
             self.workflow_widget.complete_all()
             self.log_area.append(f"\n✅ {message}")
-            show_toast(self, "OCR 작업 성공!", "success")
-            QMessageBox.information(self, "완료", message)
+            show_toast(self, self._t("OCR completed.", "OCR 작업 성공!"), "success")
+            QMessageBox.information(self, self._t("Completed", "완료"), message)
         else:
             self.workflow_widget.reset()
-            self.log_area.append(f"\n❌ 작업 중단: {message}")
-            show_toast(self, f"작업 실패: {message}", "error")
-            QMessageBox.critical(self, "오류", f"작업 중 오류 발생: {message}")
+            self.log_area.append(self._t(f"\n❌ Operation stopped: {message}", f"\n❌ 작업 중단: {message}"))
+            show_toast(self, self._t(f"Operation failed: {message}", f"작업 실패: {message}"), "error")
+            QMessageBox.critical(self, self._t("Error", "오류"), self._t(f"An error occurred: {message}", f"작업 중 오류 발생: {message}"))
             
     def preview_image(self, item):
         img_path = item.data(Qt.ItemDataRole.UserRole)
@@ -381,7 +406,7 @@ class OCRTab(QWidget):
         except RuntimeError:
             pass
             
-        self.image_summary_label.setText(f"불러온 이미지: {total}개 (선택됨: {checked}개)")
+        self.image_summary_label.setText(self._t(f"Images: {total} (selected: {checked})", f"불러온 이미지: {total}개 (선택됨: {checked}개)"))
 
     def build_run_config(self):
         checked_paths = []

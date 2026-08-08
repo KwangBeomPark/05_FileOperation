@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from src.core.task_contracts import BypassRunConfig, RunPlan, TaskStep
+from src.ui.i18n import choose, get_app_language
 
 
 class IssueLevel(str, Enum):
@@ -23,6 +24,7 @@ class PreflightIssue:
 @dataclass
 class PreflightReport:
     issues: list[PreflightIssue] = field(default_factory=list)
+    language: str = "ko"
 
     @property
     def blockers(self) -> list[PreflightIssue]:
@@ -42,13 +44,18 @@ class PreflightReport:
     def add_warning(self, message: str, detail: str = "", step: TaskStep | None = None) -> None:
         self.issues.append(PreflightIssue(IssueLevel.WARNING, message, detail, step))
 
-    def format(self, include_warnings: bool = True) -> str:
+    def format(self, include_warnings: bool = True, language: str | None = None) -> str:
+        selected_language = language or self.language
         selected = self.blockers + (self.warnings if include_warnings else [])
         if not selected:
-            return "사전 점검에서 차단 이슈가 발견되지 않았습니다."
+            return choose(selected_language, "No blocking preflight issues were found.", "사전 점검에서 차단 이슈가 발견되지 않았습니다.")
         lines = []
         for issue in selected:
-            prefix = "차단" if issue.level == IssueLevel.BLOCKER else "경고"
+            prefix = (
+                choose(selected_language, "Blocker", "차단")
+                if issue.level == IssueLevel.BLOCKER
+                else choose(selected_language, "Warning", "경고")
+            )
             step = f"[{issue.step.value}] " if issue.step else ""
             line = f"- {prefix}: {step}{issue.message}"
             if issue.detail:
@@ -187,36 +194,61 @@ def check_run_plan(
     check_browser: bool = False,
     check_office: bool = True,
 ) -> PreflightReport:
-    report = PreflightReport()
+    language = get_app_language(config_manager)
+    report = PreflightReport(language=language)
+    t = lambda english, korean: choose(language, english, korean)
+
+    def detail_text(value: str) -> str:
+        if language == "ko":
+            return value
+        replacements = {
+            "설정된 Tesseract 경로가 존재하지 않습니다": "The configured Tesseract path does not exist",
+            "Tesseract는 사용할 수 없지만 Windows 내장 OCR fallback 사용 가능": "Tesseract is unavailable, but Windows OCR can be used",
+            "Tesseract 실패": "Tesseract failed",
+            "Windows OCR 실패": "Windows OCR failed",
+            "Playwright node driver가 없습니다": "Playwright node driver is missing",
+            "Playwright CLI가 없습니다": "Playwright CLI is missing",
+            "pywin32 import 실패": "pywin32 import failed",
+            "auto_check_update 값이 올바르지 않습니다": "Invalid auto_check_update value",
+            "GitHub 저장소 설정이 비어 있어 기본 저장소(KwangBeomPark/FileOps-Hub)로 업데이트를 확인합니다.": "The GitHub repository is empty; the default repository will be used.",
+            "GitHub 저장소는 owner/repository 형식이어야 합니다.": "The GitHub repository must use owner/repository format.",
+            "GitHub 저장소 owner 또는 repository 이름이 비어 있습니다.": "The GitHub repository owner or name is empty.",
+            "GitHub updater 설정 형식 정상": "GitHub updater setting is valid",
+            "Windows 내장 OCR 사용 가능": "Windows OCR is available",
+        }
+        translated = value
+        for korean, english in replacements.items():
+            translated = translated.replace(korean, english)
+        return translated
 
     if TaskStep.OCR in run_plan.configs:
         ok, detail, using_fallback = check_ocr_engines(config_manager)
         if not ok:
-            report.add_blocker("사용 가능한 OCR 엔진이 없습니다.", detail, TaskStep.OCR)
+            report.add_blocker(t("No OCR engine is available.", "사용 가능한 OCR 엔진이 없습니다."), detail_text(detail), TaskStep.OCR)
         elif using_fallback:
-            report.add_warning("Tesseract 대신 Windows 내장 OCR로 진행합니다.", detail, TaskStep.OCR)
+            report.add_warning(t("Windows OCR will be used instead of Tesseract.", "Tesseract 대신 Windows 내장 OCR로 진행합니다."), detail_text(detail), TaskStep.OCR)
 
     if TaskStep.EML in run_plan.configs:
         ok, detail = check_playwright_driver(check_browser=check_browser)
         if not ok:
-            report.add_blocker("Playwright EML 렌더링 드라이버를 사용할 수 없습니다.", detail, TaskStep.EML)
+            report.add_blocker(t("The Playwright EML rendering driver is unavailable.", "Playwright EML 렌더링 드라이버를 사용할 수 없습니다."), detail_text(detail), TaskStep.EML)
         custom_chromium = config_manager.get("offline_chromium_path", "")
         if custom_chromium and not os.path.exists(custom_chromium):
-            report.add_warning("오프라인 Chromium 경로가 존재하지 않습니다.", custom_chromium, TaskStep.EML)
+            report.add_warning(t("The offline Chromium path does not exist.", "오프라인 Chromium 경로가 존재하지 않습니다."), custom_chromium, TaskStep.EML)
 
     bypass_config = run_plan.configs.get(TaskStep.BYPASS)
     if isinstance(bypass_config, BypassRunConfig):
         ok, detail = check_office_imports()
         if not ok:
-            report.add_blocker("Office COM 자동화 모듈(pywin32)을 사용할 수 없습니다.", detail, TaskStep.BYPASS)
+            report.add_blocker(t("The Office COM automation module (pywin32) is unavailable.", "Office COM 자동화 모듈(pywin32)을 사용할 수 없습니다."), detail_text(detail), TaskStep.BYPASS)
         apps = required_office_apps(bypass_config)
         if apps and check_office:
             office_ok, errors = check_office_apps(apps)
             if not office_ok:
-                report.add_blocker("필요한 Microsoft Office COM 앱을 실행할 수 없습니다.", "\n".join(errors), TaskStep.BYPASS)
+                report.add_blocker(t("The required Microsoft Office COM application could not be started.", "필요한 Microsoft Office COM 앱을 실행할 수 없습니다."), "\n".join(errors), TaskStep.BYPASS)
         elif apps:
             report.add_warning(
-                "Office 파일 변환은 대상 PC의 Excel/Word/PowerPoint COM 설치 상태에 의존합니다.",
+                t("Office conversion depends on Excel, Word, or PowerPoint being installed on this computer.", "Office 파일 변환은 대상 PC의 Excel/Word/PowerPoint COM 설치 상태에 의존합니다."),
                 ", ".join(apps),
                 TaskStep.BYPASS,
             )
@@ -224,20 +256,20 @@ def check_run_plan(
     if auto_email:
         missing = []
         for key, label in [
-            ("smtp_server", "SMTP 서버"),
-            ("sender_email", "발신자 이메일"),
-            ("receiver_email", "수신자 이메일"),
+            ("smtp_server", t("SMTP server", "SMTP 서버")),
+            ("sender_email", t("Sender email", "발신자 이메일")),
+            ("receiver_email", t("Recipient email", "수신자 이메일")),
         ]:
             if not str(config_manager.get(key, "")).strip():
                 missing.append(label)
         if missing:
             report.add_warning(
-                "이메일 자동 발송 설정이 일부 누락되어 작업 완료 후 로컬 보고서로 대체될 수 있습니다.",
+                t("Some automatic email settings are missing; the report may be saved locally instead.", "이메일 자동 발송 설정이 일부 누락되어 작업 완료 후 로컬 보고서로 대체될 수 있습니다."),
                 ", ".join(missing),
             )
 
     updater_ok, updater_detail = check_github_updater_settings(config_manager)
     if not updater_ok:
-        report.add_warning("GitHub updater 설정을 확인해 주세요.", updater_detail)
+        report.add_warning(t("Check the GitHub updater settings.", "GitHub updater 설정을 확인해 주세요."), detail_text(updater_detail))
 
     return report

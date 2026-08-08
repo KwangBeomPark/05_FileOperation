@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from src.ui.workflow_widget import WorkflowWidget
 from src.ui.toast_notification import show_toast
 from src.ui.image_preview_dialog import ImagePreviewDialog
+from src.ui.i18n import choose, get_app_language
 
 from src.core.pdf_converter import PDFConverter
 from src.core.file_manager import FileManager
@@ -21,13 +22,20 @@ class PDFConvertWorker(QThread):
     page_converted = pyqtSignal(int, str) # page_num, image_path
     finished = pyqtSignal(bool, str) # success, message
     
-    def __init__(self, pdf_paths, output_folder, pdf_converter, file_manager):
+    def __init__(self, pdf_paths, output_folder, pdf_converter, file_manager, language="en"):
         super().__init__()
         self.pdf_paths = pdf_paths
         self.output_folder = output_folder
         self.pdf_converter = pdf_converter
         self.file_manager = file_manager
         self.is_running = True
+        self.language = language
+
+    def _t(self, english, korean, polish=None):
+        return choose(self.language, english, korean, polish)
+
+    def refresh_language(self):
+        self.update_summary_labels()
         
     def stop(self):
         self.is_running = False
@@ -37,23 +45,23 @@ class PDFConvertWorker(QThread):
             total_files = len(self.pdf_paths)
             for file_idx, pdf_path in enumerate(self.pdf_paths):
                 if not self.is_running:
-                    self.finished.emit(False, "사용자에 의해 취소되었습니다.")
+                    self.finished.emit(False, self._t("Cancelled by the user.", "사용자에 의해 취소되었습니다."))
                     return
                 
-                self.progress.emit(file_idx, total_files, f"PDF 변환 중: {os.path.basename(pdf_path)}")
+                self.progress.emit(file_idx, total_files, self._t(f"Converting PDF: {os.path.basename(pdf_path)}", f"PDF 변환 중: {os.path.basename(pdf_path)}"))
                 
                 # PDF to Image 변환
                 image_paths = self.pdf_converter.convert(pdf_path, self.output_folder)
                 
                 for page_idx, img_path in enumerate(image_paths):
                     if not self.is_running:
-                        self.finished.emit(False, "사용자에 의해 취소되었습니다.")
+                        self.finished.emit(False, self._t("Cancelled by the user.", "사용자에 의해 취소되었습니다."))
                         return
                     
                     self.page_converted.emit(page_idx + 1, img_path)
                     
-            self.progress.emit(total_files, total_files, "모든 PDF 변환이 성공적으로 완료되었습니다.")
-            self.finished.emit(True, "변환이 성공적으로 완료되었습니다.")
+            self.progress.emit(total_files, total_files, self._t("All PDF files were converted successfully.", "모든 PDF 변환이 성공적으로 완료되었습니다."))
+            self.finished.emit(True, self._t("Conversion completed successfully.", "변환이 성공적으로 완료되었습니다."))
         except Exception as e:
             logger.error(f"Error in PDFConvertWorker: {e}")
             self.finished.emit(False, str(e))
@@ -74,6 +82,13 @@ class PDFTab(QWidget):
         
         self.init_ui()
         self.setAcceptDrops(True)
+
+    @property
+    def language(self):
+        return get_app_language(self.config_manager)
+
+    def _t(self, english, korean, polish=None):
+        return choose(self.language, english, korean, polish)
         
     def init_ui(self):
         layout = QVBoxLayout()
@@ -186,7 +201,7 @@ class PDFTab(QWidget):
     def select_pdfs(self):
         initial_dir = self.config_manager.get("last_pdf_directory", "")
         files, _ = QFileDialog.getOpenFileNames(
-            self, "PDF 파일 다중 선택", initial_dir, "PDF Files (*.pdf);;All Files (*)"
+            self, self._t("Select PDF Files", "PDF 파일 다중 선택"), initial_dir, "PDF Files (*.pdf);;All Files (*)"
         )
         for f in files:
             self.add_pdf_to_list(os.path.normpath(f))
@@ -199,7 +214,7 @@ class PDFTab(QWidget):
         
     def select_output_folder(self):
         current_folder = self.output_path_input.text().strip()
-        folder = QFileDialog.getExistingDirectory(self, "출력 저장 폴더 선택", current_folder)
+        folder = QFileDialog.getExistingDirectory(self, self._t("Select Output Folder", "출력 저장 폴더 선택"), current_folder)
         if folder:
             normalized = os.path.normpath(folder)
             self.output_path_input.setText(normalized)
@@ -207,12 +222,12 @@ class PDFTab(QWidget):
             
     def start_conversion(self):
         if not self.selected_pdf_paths:
-            QMessageBox.warning(self, "경고", "변환할 PDF 파일을 먼저 추가해 주세요.")
+            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Add at least one PDF file first.", "변환할 PDF 파일을 먼저 추가해 주세요."))
             return
             
         output_folder = self.output_path_input.text().strip()
         if not output_folder:
-            QMessageBox.warning(self, "경고", "출력 저장 폴더를 지정해 주세요.")
+            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Select an output folder.", "출력 저장 폴더를 지정해 주세요."))
             return
             
         os.makedirs(output_folder, exist_ok=True)
@@ -226,7 +241,7 @@ class PDFTab(QWidget):
         self.ocr_results.clear()
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("0%")
-        self.result_summary_label.setText("변환 준비 중")
+        self.result_summary_label.setText(self._t("Preparing conversion...", "변환 준비 중"))
         
         self.workflow_widget.set_active_step(2)
         
@@ -235,7 +250,8 @@ class PDFTab(QWidget):
             pdf_paths=self.selected_pdf_paths,
             output_folder=output_folder,
             pdf_converter=self.pdf_converter,
-            file_manager=self.file_manager
+            file_manager=self.file_manager,
+            language=self.language,
         )
         
         self.worker.progress.connect(self.update_progress)
@@ -268,7 +284,7 @@ class PDFTab(QWidget):
         
         # 이미지 리스트 아이템 추가
         filename = os.path.basename(image_path)
-        item_text = f"페이지 {page_num}: {filename}"
+        item_text = self._t(f"Page {page_num}: {filename}", f"페이지 {page_num}: {filename}")
             
         item = QListWidgetItem(item_text)
         item.setData(Qt.ItemDataRole.UserRole, image_path)
@@ -283,12 +299,12 @@ class PDFTab(QWidget):
         
         if success:
             self.workflow_widget.complete_all()
-            show_toast(self, "변환 성공!", "success")
-            QMessageBox.information(self, "완료", message)
+            show_toast(self, self._t("Conversion completed.", "변환 성공!"), "success")
+            QMessageBox.information(self, self._t("Completed", "완료"), message)
         else:
             self.workflow_widget.reset()
-            show_toast(self, f"변환 실패: {message}", "error")
-            QMessageBox.critical(self, "오류", f"작업에 실패했습니다: {message}")
+            show_toast(self, self._t(f"Conversion failed: {message}", f"변환 실패: {message}"), "error")
+            QMessageBox.critical(self, self._t("Error", "오류"), self._t(f"The operation failed: {message}", f"작업에 실패했습니다: {message}"))
             
     def preview_image(self, item):
         img_path = item.data(Qt.ItemDataRole.UserRole)
@@ -302,8 +318,8 @@ class PDFTab(QWidget):
             dialog.exec()
 
     def update_summary_labels(self):
-        self.pdf_summary_label.setText(f"선택된 PDF: {len(self.selected_pdf_paths)}개")
-        self.result_summary_label.setText(f"생성 이미지: {len(self.image_files)}개")
+        self.pdf_summary_label.setText(self._t(f"Selected PDFs: {len(self.selected_pdf_paths)}", f"선택된 PDF: {len(self.selected_pdf_paths)}개"))
+        self.result_summary_label.setText(self._t(f"Created images: {len(self.image_files)}", f"생성 이미지: {len(self.image_files)}개"))
 
     def build_run_config(self):
         if not self.selected_pdf_paths:

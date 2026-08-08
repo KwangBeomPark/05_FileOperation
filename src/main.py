@@ -21,12 +21,12 @@ from src.utils.logger import setup_logger
 
 def show_fatal_error(summary: str, details: str) -> None:
     """Report startup failures even when the Qt window could not be constructed."""
-    message = f"{summary}\n\n상세 정보는 로그 파일을 확인해 주세요.\n{details}"
+    message = f"{summary}\n\nCheck the log file for details.\n{details}"
     try:
-        QMessageBox.critical(None, "FileOps Hub 시작 오류", message)
+        QMessageBox.critical(None, "FileOps Hub Startup Error", message)
     except Exception:
         if sys.platform == "win32":
-            ctypes.windll.user32.MessageBoxW(None, message, "FileOps Hub 시작 오류", 0x10)
+            ctypes.windll.user32.MessageBoxW(None, message, "FileOps Hub Startup Error", 0x10)
 
 def handle_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
     if issubclass(exc_type, KeyboardInterrupt):
@@ -34,7 +34,7 @@ def handle_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
         return
     details = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
     logging.getLogger(__name__).critical("Unhandled application exception:\n%s", details)
-    show_fatal_error("예기치 않은 오류로 프로그램을 계속 실행할 수 없습니다.", str(exc_value))
+    show_fatal_error("The application cannot continue because of an unexpected error.", str(exc_value))
 
 def main() -> int:
     setup_logger()
@@ -71,7 +71,7 @@ def main() -> int:
     except Exception as exc:
         details = traceback.format_exc()
         logging.getLogger(__name__).critical("Application startup failed:\n%s", details)
-        show_fatal_error("프로그램을 시작하지 못했습니다.", str(exc))
+        show_fatal_error("The application could not be started.", str(exc))
         return 1
 
 

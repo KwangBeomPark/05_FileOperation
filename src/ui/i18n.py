@@ -438,6 +438,22 @@ STATIC_TEXT = {
     "대상 파일 스캔": {"en": "Scan Files", "ko": "대상 파일 스캔", "pl": "Skanuj pliki"},
     "우회 변환 시작": {"en": "Start File Conversion", "ko": "파일 변환 시작", "pl": "Rozpocznij konwersję plików"},
     "Detailed Activity Log": {"en": "Activity Log", "ko": "작업 로그", "pl": "Dziennik aktywności"},
+    "그룹명": {"en": "Group", "ko": "그룹명", "pl": "Grupa"},
+    "파일명": {"en": "File", "ko": "파일명", "pl": "Plik"},
+    "동기화 액션": {"en": "Action", "ko": "동기화 액션", "pl": "Akcja"},
+    "원본 폴더": {"en": "Source Folder", "ko": "원본 폴더", "pl": "Folder źródłowy"},
+    "대상 폴더": {"en": "Target Folder", "ko": "대상 폴더", "pl": "Folder docelowy"},
+    "비고": {"en": "Details", "ko": "비고", "pl": "Szczegóły"},
+    "태스크명": {"en": "Task", "ko": "태스크명", "pl": "Zadanie"},
+    "EML 소스 폴더": {"en": "EML Source Folder", "ko": "EML 소스 폴더", "pl": "Folder źródłowy EML"},
+    "이미지 저장 폴더": {"en": "Image Output Folder", "ko": "이미지 저장 폴더", "pl": "Folder obrazów"},
+    "진행 상태": {"en": "Status", "ko": "진행 상태", "pl": "Stan"},
+    "※ 폴더를 테이블 위로 드래그 앤 드롭하면 소스 경로가 입력된 채로 태스크를 즉시 추가할 수 있습니다.": {"en": "Drag a folder onto the table to add a task with its source path filled in.", "ko": "※ 폴더를 테이블 위로 드래그 앤 드롭하면 소스 경로가 입력된 채로 태스크를 즉시 추가할 수 있습니다.", "pl": "Przeciągnij folder na tabelę, aby dodać zadanie ze ścieżką źródłową."},
+    "출력 저장 폴더를 선택하세요": {"en": "Select an output folder", "ko": "출력 저장 폴더를 선택하세요", "pl": "Wybierz folder wyjściowy"},
+    "소스 폴더에 덮어쓰기/저장 (In-place)": {"en": "Save in the source folder (in place)", "ko": "소스 폴더에 덮어쓰기/저장 (In-place)", "pl": "Zapisz w folderze źródłowym"},
+    "특정 저장용 폴더에 우회 보관 (Target)": {"en": "Save in a separate target folder", "ko": "특정 저장용 폴더에 우회 보관 (Target)", "pl": "Zapisz w osobnym folderze docelowym"},
+    "변환 완료 후 원본 파일 삭제 (Delete Original)": {"en": "Delete source files after conversion", "ko": "변환 완료 후 원본 파일 삭제 (Delete Original)", "pl": "Usuń pliki źródłowe po konwersji"},
+    "파일 메타정보(생성/수정/액세스 날짜) 보존 (Preserve Meta)": {"en": "Preserve file creation, modification, and access times", "ko": "파일 메타정보(생성/수정/액세스 날짜) 보존 (Preserve Meta)", "pl": "Zachowaj daty utworzenia, modyfikacji i dostępu"},
 }
 
 
@@ -482,6 +498,16 @@ def tr(key: str, language: str = "en", **values: object) -> str:
     selected = normalize_language(language) or "en"
     template = MESSAGES.get(selected, MESSAGES["en"]).get(key, MESSAGES["en"].get(key, key))
     return template.format(**values)
+
+
+def choose(language: str, english: str, korean: str, polish: str | None = None) -> str:
+    """Choose a runtime UI string without leaking Korean into non-Korean modes."""
+    selected = normalize_language(language) or "en"
+    if selected == "ko":
+        return korean
+    if selected == "pl" and polish:
+        return polish
+    return english
 
 
 def localize_static_text(text: str, language: str) -> str:

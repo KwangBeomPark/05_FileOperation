@@ -72,7 +72,7 @@ class PreflightTests(unittest.TestCase):
 
         self.assertFalse(report.has_blockers)
         self.assertEqual(len(report.warnings), 1)
-        self.assertIn("SMTP 서버", report.warnings[0].detail)
+        self.assertIn("SMTP server", report.warnings[0].detail)
 
     def test_github_updater_invalid_repo_is_warning(self):
         plan = RunPlan({})
