@@ -128,25 +128,25 @@ def run_bounded_preflight(parent, run_plan, config_manager, *, auto_email: bool,
         worker.wait(1500)
         return dialog.report, dialog.error, dialog.was_cancelled
 
-    state = {"report": None, "error": "", "cancelled": False}
-    loop = QEventLoop(parent)
+    outcome = {"report": None, "error": "", "cancelled": False}
+    event_loop = QEventLoop(parent)
 
-    def completed(report):
-        state["report"] = report
-        loop.quit()
+    def on_completed(report):
+        outcome["report"] = report
+        event_loop.quit()
 
-    def failed(error):
-        state["error"] = error
-        loop.quit()
+    def on_failed(error):
+        outcome["error"] = error
+        event_loop.quit()
 
-    def cancelled():
-        state["cancelled"] = True
-        loop.quit()
+    def on_cancelled():
+        outcome["cancelled"] = True
+        event_loop.quit()
 
-    worker.completed.connect(completed)
-    worker.failed.connect(failed)
-    worker.cancelled.connect(cancelled)
+    worker.completed.connect(on_completed)
+    worker.failed.connect(on_failed)
+    worker.cancelled.connect(on_cancelled)
     worker.start()
-    loop.exec()
+    event_loop.exec()
     worker.wait(1500)
-    return state["report"], state["error"], state["cancelled"]
+    return outcome["report"], outcome["error"], outcome["cancelled"]

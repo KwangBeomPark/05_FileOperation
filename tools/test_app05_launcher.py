@@ -7,6 +7,8 @@ from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest.mock import patch
 
+from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSITORY
+
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER_PATH = ROOT / "tools" / "App05_FileOps.pyw"
@@ -59,8 +61,8 @@ class FakeProgress:
 
 class App05LauncherTests(unittest.TestCase):
     def test_default_release_repository_is_the_canonical_repository(self):
-        self.assertEqual(launcher.REPO_OWNER, "KwangBeomPark")
-        self.assertEqual(launcher.REPO_NAME, "05_FileOperation")
+        self.assertEqual(launcher.REPO_OWNER, DEFAULT_GITHUB_OWNER)
+        self.assertEqual(launcher.REPO_NAME, DEFAULT_GITHUB_REPOSITORY)
 
     def test_language_detection_supports_windows_ui_languages_and_english_fallback(self):
         self.assertEqual(launcher.detect_language(ui_language_id=0x0412), "ko")

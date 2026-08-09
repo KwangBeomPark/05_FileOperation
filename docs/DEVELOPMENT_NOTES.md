@@ -167,3 +167,21 @@ Protect source files in Convert Files: default to keeping originals, add a destr
 2. Add step heartbeats and a user-visible `Possibly stalled` state before considering any force-stop policy for real file operations.
 3. Keep retention cleanup separate until recovery manifests and report history have been used in real environments. Cleanup must remain manual, previewed, and default to no selection.
 4. An explicit SMTP authentication/test-message action remains separate from passive diagnostics because it sends external data.
+
+## 2026-08-09 — Maintenance pass 1: naming and extension boundaries
+
+### Implemented decisions
+
+- Keep this pass behavior-neutral: no workflow, storage schema, timeout, file-operation, or UI interaction changes.
+- Centralize the installed application's canonical GitHub repository and URL construction in `src/core/release_config.py`.
+- Keep the bootstrap launcher self-contained instead of importing the application package. Document that duplication and enforce constant parity with a regression test.
+- Replace ambiguous temporary names in probe dispatch, preflight checks, backup scanning, and the hidden Qt event-loop bridge with role-specific names.
+- Add boundary documentation for disposable probes, cooperative real jobs, backup provenance, and collision-safe restore behavior.
+
+### Audit status
+
+- **Fixed (P2):** repository defaults and release URL formatting were repeated across application modules and could drift during a future rename.
+- **Fixed (P3):** generic names such as `result`, `state`, `ctx`, and `req` obscured ownership in asynchronous and process-boundary code.
+- **Mitigated (P2):** the standalone launcher still repeats repository constants by design; parity is now executable documentation through tests.
+- **Open (P2):** diagnostic and preflight localization still contains inline multilingual strings and a legacy replacement table. Moving these into the shared i18n catalog should be a separate behavior-reviewed pass.
+- **Open (P2):** probe dispatch is intentionally a closed conditional allow-list. If the probe set grows substantially, introduce a typed registry while preserving the same security boundary.

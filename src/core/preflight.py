@@ -5,8 +5,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from threading import Event
 
+from src.core.release_config import DEFAULT_GITHUB_REPOSITORY_SLUG
 from src.core.task_contracts import BypassRunConfig, RunPlan, SourceDisposition, TaskStep
-from src.core.probe_runner import DEPENDENCY_TIMEOUT_SECONDS, OFFICE_TIMEOUT_SECONDS, run_probe
+from src.core.probe_runner import DEPENDENCY_TIMEOUT_SECONDS, OFFICE_TIMEOUT_SECONDS, ProbeResult, run_probe
 from src.ui.i18n import choose, get_app_language
 
 
@@ -178,7 +179,7 @@ def check_github_updater_settings(config_manager) -> tuple[bool, str]:
     if mode not in allowed_modes:
         return False, f"auto_check_update 값이 올바르지 않습니다: {mode}"
     if not repo:
-        return True, "GitHub 저장소 설정이 비어 있어 기본 저장소(KwangBeomPark/05_FileOperation)로 업데이트를 확인합니다."
+        return True, f"GitHub 저장소 설정이 비어 있어 기본 저장소({DEFAULT_GITHUB_REPOSITORY_SLUG})로 업데이트를 확인합니다."
     if repo.count("/") != 1:
         return False, "GitHub 저장소는 owner/repository 형식이어야 합니다."
 
@@ -200,7 +201,8 @@ def check_run_plan(
 ) -> PreflightReport:
     language = get_app_language(config_manager)
     report = PreflightReport(language=language)
-    t = lambda english, korean: choose(language, english, korean)
+    def localize(english: str, korean: str) -> str:
+        return choose(language, english, korean)
 
     def detail_text(value: str) -> str:
         if language == "ko":
@@ -214,7 +216,7 @@ def check_run_plan(
             "Playwright CLI가 없습니다": "Playwright CLI is missing",
             "pywin32 import 실패": "pywin32 import failed",
             "auto_check_update 값이 올바르지 않습니다": "Invalid auto_check_update value",
-            "GitHub 저장소 설정이 비어 있어 기본 저장소(KwangBeomPark/05_FileOperation)로 업데이트를 확인합니다.": "The GitHub repository is empty; the default repository will be used.",
+            f"GitHub 저장소 설정이 비어 있어 기본 저장소({DEFAULT_GITHUB_REPOSITORY_SLUG})로 업데이트를 확인합니다.": "The GitHub repository is empty; the default repository will be used.",
             "GitHub 저장소는 owner/repository 형식이어야 합니다.": "The GitHub repository must use owner/repository format.",
             "GitHub 저장소 owner 또는 repository 이름이 비어 있습니다.": "The GitHub repository owner or name is empty.",
             "GitHub updater 설정 형식 정상": "GitHub updater setting is valid",
@@ -225,74 +227,89 @@ def check_run_plan(
             translated = translated.replace(korean, english)
         return translated
 
-    def probe_failure(label: str, result) -> str:
-        if result.timed_out:
-            return t(
-                f"{label} timed out after {result.elapsed_seconds:.1f} seconds. Open Diagnostics for recovery guidance.",
-                f"{label} 검사가 {result.elapsed_seconds:.1f}초 후 시간 초과되었습니다. 진단 및 복구에서 해결 방법을 확인하세요.",
+    def probe_failure(label: str, probe_result: ProbeResult) -> str:
+        if probe_result.timed_out:
+            return localize(
+                f"{label} timed out after {probe_result.elapsed_seconds:.1f} seconds. Open Diagnostics for recovery guidance.",
+                f"{label} 검사가 {probe_result.elapsed_seconds:.1f}초 후 시간 초과되었습니다. 진단 및 복구에서 해결 방법을 확인하세요.",
             )
-        if result.cancelled:
-            return t(f"{label} was cancelled.", f"{label} 검사가 취소되었습니다.")
-        return t(f"{label} could not be checked: {result.error}", f"{label} 검사 실패: {result.error}")
+        if probe_result.cancelled:
+            return localize(f"{label} was cancelled.", f"{label} 검사가 취소되었습니다.")
+        return localize(
+            f"{label} could not be checked: {probe_result.error}",
+            f"{label} 검사 실패: {probe_result.error}",
+        )
 
     if TaskStep.OCR in run_plan.configs:
         if isolated:
-            result = run_probe(
+            ocr_probe = run_probe(
                 "ocr_engine",
                 {"tesseract_path": config_manager.get("tesseract_path", "")},
                 timeout_seconds=DEPENDENCY_TIMEOUT_SECONDS,
                 cancel_event=cancel_event,
             )
-            ok = bool(result.ok and result.value.get("ok"))
-            detail = str(result.value.get("detail", "")) if result.ok else probe_failure(t("OCR engine", "OCR 엔진"), result)
-            using_fallback = bool(result.ok and result.value.get("using_fallback"))
+            ok = bool(ocr_probe.ok and ocr_probe.value.get("ok"))
+            detail = (
+                str(ocr_probe.value.get("detail", ""))
+                if ocr_probe.ok
+                else probe_failure(localize("OCR engine", "OCR 엔진"), ocr_probe)
+            )
+            using_fallback = bool(ocr_probe.ok and ocr_probe.value.get("using_fallback"))
         else:
             ok, detail, using_fallback = check_ocr_engines(config_manager)
         if not ok:
-            report.add_blocker(t("No OCR engine is available.", "사용 가능한 OCR 엔진이 없습니다."), detail_text(detail), TaskStep.OCR)
+            report.add_blocker(localize("No OCR engine is available.", "사용 가능한 OCR 엔진이 없습니다."), detail_text(detail), TaskStep.OCR)
         elif using_fallback:
-            report.add_warning(t("Windows OCR will be used instead of Tesseract.", "Tesseract 대신 Windows 내장 OCR로 진행합니다."), detail_text(detail), TaskStep.OCR)
+            report.add_warning(localize("Windows OCR will be used instead of Tesseract.", "Tesseract 대신 Windows 내장 OCR로 진행합니다."), detail_text(detail), TaskStep.OCR)
 
     if TaskStep.EML in run_plan.configs:
         if isolated and check_browser:
-            result = run_probe(
+            browser_probe = run_probe(
                 "playwright_browser",
                 timeout_seconds=DEPENDENCY_TIMEOUT_SECONDS,
                 cancel_event=cancel_event,
             )
-            ok = bool(result.ok and result.value.get("ok"))
-            detail = str(result.value.get("detail", "")) if result.ok else probe_failure(t("EML browser", "EML 브라우저"), result)
+            ok = bool(browser_probe.ok and browser_probe.value.get("ok"))
+            detail = (
+                str(browser_probe.value.get("detail", ""))
+                if browser_probe.ok
+                else probe_failure(localize("EML browser", "EML 브라우저"), browser_probe)
+            )
         else:
             ok, detail = check_playwright_driver(check_browser=check_browser)
         if not ok:
-            report.add_blocker(t("The Playwright EML rendering driver is unavailable.", "Playwright EML 렌더링 드라이버를 사용할 수 없습니다."), detail_text(detail), TaskStep.EML)
+            report.add_blocker(localize("The Playwright EML rendering driver is unavailable.", "Playwright EML 렌더링 드라이버를 사용할 수 없습니다."), detail_text(detail), TaskStep.EML)
         custom_chromium = config_manager.get("offline_chromium_path", "")
         if custom_chromium and not os.path.exists(custom_chromium):
-            report.add_warning(t("The offline Chromium path does not exist.", "오프라인 Chromium 경로가 존재하지 않습니다."), custom_chromium, TaskStep.EML)
+            report.add_warning(localize("The offline Chromium path does not exist.", "오프라인 Chromium 경로가 존재하지 않습니다."), custom_chromium, TaskStep.EML)
 
     bypass_config = run_plan.configs.get(TaskStep.BYPASS)
     if isinstance(bypass_config, BypassRunConfig):
         ok, detail = check_office_imports()
         if not ok:
-            report.add_blocker(t("The Office COM automation module (pywin32) is unavailable.", "Office COM 자동화 모듈(pywin32)을 사용할 수 없습니다."), detail_text(detail), TaskStep.BYPASS)
+            report.add_blocker(localize("The Office COM automation module (pywin32) is unavailable.", "Office COM 자동화 모듈(pywin32)을 사용할 수 없습니다."), detail_text(detail), TaskStep.BYPASS)
         apps = required_office_apps(bypass_config)
         if apps and check_office:
             if isolated:
-                result = run_probe(
+                office_probe = run_probe(
                     "office_apps",
                     {"apps": apps},
                     timeout_seconds=OFFICE_TIMEOUT_SECONDS,
                     cancel_event=cancel_event,
                 )
-                office_ok = bool(result.ok and result.value.get("ok"))
-                errors = list(result.value.get("errors") or []) if result.ok else [probe_failure(t("Office automation", "Office 자동화"), result)]
+                office_ok = bool(office_probe.ok and office_probe.value.get("ok"))
+                errors = (
+                    list(office_probe.value.get("errors") or [])
+                    if office_probe.ok
+                    else [probe_failure(localize("Office automation", "Office 자동화"), office_probe)]
+                )
             else:
                 office_ok, errors = check_office_apps(apps)
             if not office_ok:
-                report.add_blocker(t("The required Microsoft Office COM application could not be started.", "필요한 Microsoft Office COM 앱을 실행할 수 없습니다."), "\n".join(errors), TaskStep.BYPASS)
+                report.add_blocker(localize("The required Microsoft Office COM application could not be started.", "필요한 Microsoft Office COM 앱을 실행할 수 없습니다."), "\n".join(errors), TaskStep.BYPASS)
         elif apps:
             report.add_warning(
-                t("Office conversion depends on Excel, Word, or PowerPoint being installed on this computer.", "Office 파일 변환은 대상 PC의 Excel/Word/PowerPoint COM 설치 상태에 의존합니다."),
+                localize("Office conversion depends on Excel, Word, or PowerPoint being installed on this computer.", "Office 파일 변환은 대상 PC의 Excel/Word/PowerPoint COM 설치 상태에 의존합니다."),
                 ", ".join(apps),
                 TaskStep.BYPASS,
             )
@@ -300,7 +317,7 @@ def check_run_plan(
             source_folders = sorted({os.path.dirname(task.src) for task in bypass_config.tasks})
             backup_folders = [os.path.join(folder, "Original Backup") for folder in source_folders]
             report.add_warning(
-                t(
+                localize(
                     "Convert Files will move source files to recoverable backup folders after verified conversion.",
                     "파일 변환은 출력 검증 후 원본을 복구 가능한 백업 폴더로 이동합니다.",
                 ),
@@ -311,20 +328,20 @@ def check_run_plan(
     if auto_email:
         missing = []
         for key, label in [
-            ("smtp_server", t("SMTP server", "SMTP 서버")),
-            ("sender_email", t("Sender email", "발신자 이메일")),
-            ("receiver_email", t("Recipient email", "수신자 이메일")),
+            ("smtp_server", localize("SMTP server", "SMTP 서버")),
+            ("sender_email", localize("Sender email", "발신자 이메일")),
+            ("receiver_email", localize("Recipient email", "수신자 이메일")),
         ]:
             if not str(config_manager.get(key, "")).strip():
                 missing.append(label)
         if missing:
             report.add_warning(
-                t("Some automatic email settings are missing; the report may be saved locally instead.", "이메일 자동 발송 설정이 일부 누락되어 작업 완료 후 로컬 보고서로 대체될 수 있습니다."),
+                localize("Some automatic email settings are missing; the report may be saved locally instead.", "이메일 자동 발송 설정이 일부 누락되어 작업 완료 후 로컬 보고서로 대체될 수 있습니다."),
                 ", ".join(missing),
             )
 
     updater_ok, updater_detail = check_github_updater_settings(config_manager)
     if not updater_ok:
-        report.add_warning(t("Check the GitHub updater settings.", "GitHub updater 설정을 확인해 주세요."), detail_text(updater_detail))
+        report.add_warning(localize("Check the GitHub updater settings.", "GitHub updater 설정을 확인해 주세요."), detail_text(updater_detail))
 
     return report

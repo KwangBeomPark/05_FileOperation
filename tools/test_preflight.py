@@ -1,8 +1,9 @@
 import unittest
 from unittest.mock import patch
 
-from src.core.preflight import IssueLevel, check_run_plan
+from src.core.preflight import IssueLevel, check_github_updater_settings, check_run_plan
 from src.core.probe_runner import ProbeResult
+from src.core.release_config import DEFAULT_GITHUB_REPOSITORY_SLUG
 from src.core.task_contracts import (
     BypassFileConfig,
     BypassRunConfig,
@@ -116,6 +117,12 @@ class PreflightTests(unittest.TestCase):
         self.assertFalse(report.has_blockers)
         self.assertEqual(len(report.warnings), 1)
         self.assertIn("owner/repository", report.warnings[0].detail)
+
+    def test_empty_github_repo_uses_the_documented_canonical_default(self):
+        valid, detail = check_github_updater_settings(FakeConfig())
+
+        self.assertTrue(valid)
+        self.assertIn(DEFAULT_GITHUB_REPOSITORY_SLUG, detail)
 
 
 if __name__ == "__main__":

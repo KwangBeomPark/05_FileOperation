@@ -4,6 +4,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from src.core.release_config import (
+    DEFAULT_GITHUB_OWNER,
+    DEFAULT_GITHUB_REPOSITORY,
+    latest_release_api_url,
+    releases_page_url,
+)
 from src.core.updater import AutoUpdater, MAX_INSTALLER_BYTES, is_trusted_download_url
 
 
@@ -48,8 +54,18 @@ class UpdaterTests(unittest.TestCase):
             config_manager.return_value.get.return_value = ""
             updater = AutoUpdater()
 
-        self.assertEqual(updater.repo_owner, "KwangBeomPark")
-        self.assertEqual(updater.repo_name, "05_FileOperation")
+        self.assertEqual(updater.repo_owner, DEFAULT_GITHUB_OWNER)
+        self.assertEqual(updater.repo_name, DEFAULT_GITHUB_REPOSITORY)
+
+    def test_release_url_helpers_keep_api_and_browser_routes_consistent(self):
+        self.assertEqual(
+            latest_release_api_url("owner", "repository"),
+            "https://api.github.com/repos/owner/repository/releases/latest",
+        )
+        self.assertEqual(
+            releases_page_url("owner", "repository", "v1.2.0"),
+            "https://github.com/owner/repository/releases/tag/v1.2.0",
+        )
 
     def test_version_comparison(self):
         updater = AutoUpdater(current_version="v1.0.0")

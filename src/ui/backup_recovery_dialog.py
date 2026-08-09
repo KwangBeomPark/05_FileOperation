@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.backup_recovery import BackupEntry, backup_directory, restore_backup_files
-from src.core.probe_runner import PATH_TIMEOUT_SECONDS, run_probe
+from src.core.probe_runner import PATH_TIMEOUT_SECONDS, ProbeResult, run_probe
 from src.ui.i18n import choose, get_app_language
 
 
@@ -37,13 +37,13 @@ class BackupScanWorker(QThread):
         self.cancel_event.set()
 
     def run(self):
-        result = run_probe(
+        probe_result = run_probe(
             "backup_list",
             {"source_folder": self.source_folder},
             timeout_seconds=PATH_TIMEOUT_SECONDS,
             cancel_event=self.cancel_event,
         )
-        self.result_ready.emit(result)
+        self.result_ready.emit(probe_result)
 
 
 class BackupRecoveryDialog(QDialog):
@@ -52,9 +52,9 @@ class BackupRecoveryDialog(QDialog):
         self.config_manager = config_manager
         self.language = get_app_language(config_manager)
         self.source_folder = source_folder if os.path.isdir(source_folder) else ""
-        self.entries = []
+        self.entries: list[BackupEntry] = []
         self.restored_any = False
-        self.scan_worker = None
+        self.scan_worker: BackupScanWorker | None = None
         self.scan_generation = 0
 
         self.setWindowTitle(self._t("Original Backup Recovery", "Original Backup 복구", "Odzyskiwanie Original Backup"))
@@ -183,34 +183,36 @@ class BackupRecoveryDialog(QDialog):
             )
         )
         self.scan_worker = BackupScanWorker(self.source_folder)
-        self.scan_worker.result_ready.connect(lambda result, token=generation: self._on_scan_result(token, result))
+        self.scan_worker.result_ready.connect(
+            lambda probe_result, token=generation: self._on_scan_result(token, probe_result)
+        )
         self.scan_worker.start()
 
-    def _on_scan_result(self, generation: int, result) -> None:
+    def _on_scan_result(self, generation: int, probe_result: ProbeResult) -> None:
         if generation != self.scan_generation:
             return
         self.refresh_button.setEnabled(True)
         self.open_button.setEnabled(bool(self.source_folder) and os.path.isdir(backup_directory(self.source_folder)))
-        if result.cancelled:
+        if probe_result.cancelled:
             self.status_label.setText(self._t("Backup scan was cancelled.", "백업 조회를 취소했습니다.", "Anulowano skanowanie kopii."))
             return
-        if not result.ok:
-            if result.timed_out:
+        if not probe_result.ok:
+            if probe_result.timed_out:
                 message = self._t(
-                    f"The backup folder did not respond within {result.elapsed_seconds:.1f} seconds. Check the network connection and try again.",
-                    f"백업 폴더가 {result.elapsed_seconds:.1f}초 안에 응답하지 않았습니다. 네트워크 연결을 확인하고 다시 시도하세요.",
-                    f"Folder kopii nie odpowiedział w ciągu {result.elapsed_seconds:.1f} s. Sprawdź sieć i spróbuj ponownie.",
+                    f"The backup folder did not respond within {probe_result.elapsed_seconds:.1f} seconds. Check the network connection and try again.",
+                    f"백업 폴더가 {probe_result.elapsed_seconds:.1f}초 안에 응답하지 않았습니다. 네트워크 연결을 확인하고 다시 시도하세요.",
+                    f"Folder kopii nie odpowiedział w ciągu {probe_result.elapsed_seconds:.1f} s. Sprawdź sieć i spróbuj ponownie.",
                 )
             else:
                 message = self._t(
-                    f"Could not read the backup folder: {result.error}",
-                    f"백업 폴더를 읽지 못했습니다: {result.error}",
-                    f"Nie można odczytać folderu kopii: {result.error}",
+                    f"Could not read the backup folder: {probe_result.error}",
+                    f"백업 폴더를 읽지 못했습니다: {probe_result.error}",
+                    f"Nie można odczytać folderu kopii: {probe_result.error}",
                 )
             self.status_label.setText(message)
             return
 
-        self.entries = [BackupEntry(**entry) for entry in result.value]
+        self.entries = [BackupEntry(**entry) for entry in probe_result.value]
         for row, entry in enumerate(self.entries):
             self.table.insertRow(row)
             name_item = QTableWidgetItem(entry.file_name)

@@ -10,6 +10,11 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
+from src.core.release_config import (
+    DEFAULT_GITHUB_OWNER,
+    DEFAULT_GITHUB_REPOSITORY,
+    latest_release_api_url,
+)
 from src.utils.config_manager import ConfigManager
 from src.utils.logger import get_logger
 from src.version import APP_VERSION_TAG
@@ -72,7 +77,12 @@ def installer_name_for_tag(tag_name: str) -> str | None:
 
 
 class AutoUpdater:
-    def __init__(self, current_version=APP_VERSION_TAG, repo_owner="KwangBeomPark", repo_name="05_FileOperation"):
+    def __init__(
+        self,
+        current_version: str = APP_VERSION_TAG,
+        repo_owner: str = DEFAULT_GITHUB_OWNER,
+        repo_name: str = DEFAULT_GITHUB_REPOSITORY,
+    ):
         self.current_version = current_version
         self.repo_owner = repo_owner
         self.repo_name = repo_name
@@ -86,26 +96,26 @@ class AutoUpdater:
                 self.repo_owner = owner.strip()
                 self.repo_name = name.strip()
 
-    def check_for_updates(self):
+    def check_for_updates(self) -> tuple[bool, str, str | None, str]:
         """Return update metadata without ever falling back to an arbitrary release asset."""
         self.last_error = ""
         self.latest_asset = None
-        url = f"https://api.github.com/repos/{self.repo_owner}/{self.repo_name}/releases/latest"
+        url = latest_release_api_url(self.repo_owner, self.repo_name)
         token = self.config_manager.get("github_token", "").strip()
         headers = {"User-Agent": "IntegratedDataTool-AutoUpdater"}
         if token:
             headers["Authorization"] = f"token {token}"
 
-        req = urllib.request.Request(url, headers=headers)
+        request = urllib.request.Request(url, headers=headers)
         try:
-            with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=5) as response:
-                data = json.loads(response.read().decode())
-                latest_tag = str(data.get("tag_name", "v0.0.0"))
+            with urllib.request.urlopen(request, context=ssl.create_default_context(), timeout=5) as response:
+                release_payload = json.loads(response.read().decode())
+                latest_tag = str(release_payload.get("tag_name", "v0.0.0"))
 
                 if self.is_newer_version(self.current_version, latest_tag):
-                    self.latest_asset = self._select_verified_installer(latest_tag, data.get("assets", []))
-                    body = data.get("body", "No release notes available.")
-                    return True, latest_tag, self.latest_asset.url if self.latest_asset else None, body
+                    self.latest_asset = self._select_verified_installer(latest_tag, release_payload.get("assets", []))
+                    release_notes = release_payload.get("body", "No release notes available.")
+                    return True, latest_tag, self.latest_asset.url if self.latest_asset else None, release_notes
                 return False, latest_tag, None, ""
         except Exception as exc:
             self.last_error = str(exc)
@@ -131,7 +141,7 @@ class AutoUpdater:
             return None
         return ReleaseAsset(expected_name, url, digest_match.group(1).lower())
 
-    def download_file(self, url, dest_path, expected_sha256, progress_callback=None):
+    def download_file(self, url, dest_path, expected_sha256, progress_callback=None) -> bool:
         """Download a verified installer to a temporary file, then atomically publish it."""
         if not is_trusted_download_url(url):
             raise ValueError(f"신뢰할 수 없는 다운로드 주소입니다: {url}")
@@ -150,10 +160,10 @@ class AutoUpdater:
             RedirectWithoutAuth(),
             urllib.request.HTTPSHandler(context=ssl.create_default_context()),
         )
-        req = urllib.request.Request(url, headers=headers)
+        request = urllib.request.Request(url, headers=headers)
 
         try:
-            with opener.open(req, timeout=15) as response:
+            with opener.open(request, timeout=15) as response:
                 if not is_trusted_download_url(response.geturl()):
                     raise ValueError(f"신뢰할 수 없는 최종 다운로드 주소입니다: {response.geturl()}")
                 total_size = int(response.info().get("Content-Length", 0))
@@ -185,7 +195,7 @@ class AutoUpdater:
             partial.unlink(missing_ok=True)
             raise
 
-    def is_newer_version(self, current, latest):
+    def is_newer_version(self, current: str, latest: str) -> bool:
         """Compare numeric release tags such as v1.2.3 without accepting arbitrary text."""
         def parse_version(value):
             raw_value = str(value).strip()

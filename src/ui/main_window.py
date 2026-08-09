@@ -29,6 +29,7 @@ from src.ui.bypass_tab import BypassTab
 from src.ui.task_tab import TaskTab
 from src.ui.settings_dialog import SettingsDialog
 from src.ui.i18n import choose, get_app_language, localize_widget_tree, tr
+from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSITORY, releases_page_url
 from src.core.updater import AutoUpdater
 from src.version import APP_VERSION_TAG
 from src.utils.config_manager import ConfigManager
@@ -648,9 +649,9 @@ class MainWindow(QMainWindow):
 
     def show_update_banner(self, latest_version, download_url, release_notes=""):
         self.update_download_url = download_url or ""
-        repo_owner = self.update_worker.updater.repo_owner if self.update_worker else "KwangBeomPark"
-        repo_name = self.update_worker.updater.repo_name if self.update_worker else "05_FileOperation"
-        self.update_release_url = f"https://github.com/{repo_owner}/{repo_name}/releases/tag/{latest_version}"
+        repo_owner = self.update_worker.updater.repo_owner if self.update_worker else DEFAULT_GITHUB_OWNER
+        repo_name = self.update_worker.updater.repo_name if self.update_worker else DEFAULT_GITHUB_REPOSITORY
+        self.update_release_url = releases_page_url(repo_owner, repo_name, latest_version)
 
         self.update_banner_title.setText(f"{tr('update_available', self.language)}: {latest_version}")
         body = tr("update_banner_body", self.language, current_version=self.current_version)
@@ -682,9 +683,9 @@ class MainWindow(QMainWindow):
 
         target_url = self.update_release_url
         if not target_url:
-            repo_owner = self.update_worker.updater.repo_owner if self.update_worker else "KwangBeomPark"
-            repo_name = self.update_worker.updater.repo_name if self.update_worker else "05_FileOperation"
-            target_url = f"https://github.com/{repo_owner}/{repo_name}/releases"
+            repo_owner = self.update_worker.updater.repo_owner if self.update_worker else DEFAULT_GITHUB_OWNER
+            repo_name = self.update_worker.updater.repo_name if self.update_worker else DEFAULT_GITHUB_REPOSITORY
+            target_url = releases_page_url(repo_owner, repo_name)
         webbrowser.open(target_url)
 
     def start_update_download(self, download_url):

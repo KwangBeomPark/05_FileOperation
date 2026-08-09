@@ -19,6 +19,8 @@ OFFICE_TIMEOUT_SECONDS = 20.0
 
 @dataclass(frozen=True)
 class ProbeResult:
+    """Serializable outcome returned by an isolated dependency probe."""
+
     ok: bool
     value: Any = None
     error: str = ""
@@ -28,11 +30,13 @@ class ProbeResult:
 
 
 class _ConfigView:
+    """Minimal read-only configuration interface used inside probe workers."""
+
     def __init__(self, values: dict[str, Any]):
-        self.values = values
+        self._values = values
 
     def get(self, key: str, default=None):
-        return self.values.get(key, default)
+        return self._values.get(key, default)
 
 
 def _path_access(payload: dict[str, Any]) -> dict[str, Any]:
@@ -67,6 +71,7 @@ def _path_access(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run_registered_probe(probe_name: str, payload: dict[str, Any]) -> Any:
+    """Dispatch only explicitly registered, non-destructive probe names."""
     if probe_name == "path_access":
         return _path_access(payload)
     if probe_name == "office_apps":
@@ -96,25 +101,28 @@ def _run_registered_probe(probe_name: str, payload: dict[str, Any]) -> Any:
 
         return [asdict(entry) for entry in list_backup_entries(str(payload.get("source_folder", "")))]
     if probe_name == "test_sleep":
+        # Test-only probe used to verify timeout and cancellation semantics.
         time.sleep(float(payload.get("seconds", 0)))
         return {"slept": True}
     raise ValueError(f"Unsupported probe: {probe_name}")
 
 
-def _worker_entry(probe_name: str, payload: dict[str, Any], sender) -> None:
+def _worker_entry(probe_name: str, payload: dict[str, Any], result_sender) -> None:
+    """Execute one probe and send a small serializable response to the parent."""
     try:
         value = _run_registered_probe(probe_name, payload)
-        sender.send({"ok": True, "value": value})
+        result_sender.send({"ok": True, "value": value})
     except BaseException as exc:
         try:
-            sender.send({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            result_sender.send({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
         except Exception:
             pass
     finally:
-        sender.close()
+        result_sender.close()
 
 
 def _terminate_process_tree(process) -> None:
+    """Best-effort termination for disposable probe workers and their children."""
     if process is None or process.pid is None:
         return
     if sys.platform == "win32" and process.is_alive():
@@ -147,25 +155,28 @@ def run_probe(
 ) -> ProbeResult:
     """Run one allow-listed, non-destructive probe in a disposable process."""
     started = time.monotonic()
-    ctx = context or multiprocessing.get_context("spawn")
-    receiver, sender = ctx.Pipe(duplex=False)
-    process = ctx.Process(target=_worker_entry, args=(probe_name, dict(payload or {}), sender))
+    process_context = context or multiprocessing.get_context("spawn")
+    result_receiver, result_sender = process_context.Pipe(duplex=False)
+    process = process_context.Process(
+        target=_worker_entry,
+        args=(probe_name, dict(payload or {}), result_sender),
+    )
     process.daemon = False
     try:
         process.start()
-        sender.close()
+        result_sender.close()
         while True:
             elapsed = time.monotonic() - started
             if cancel_event is not None and cancel_event.is_set():
                 _terminate_process_tree(process)
                 return ProbeResult(False, error="Probe cancelled.", cancelled=True, elapsed_seconds=elapsed)
-            if receiver.poll(0.05):
-                message = receiver.recv()
+            if result_receiver.poll(0.05):
+                worker_response = result_receiver.recv()
                 process.join(timeout=1)
                 return ProbeResult(
-                    bool(message.get("ok")),
-                    value=message.get("value"),
-                    error=str(message.get("error", "")),
+                    bool(worker_response.get("ok")),
+                    value=worker_response.get("value"),
+                    error=str(worker_response.get("error", "")),
                     elapsed_seconds=time.monotonic() - started,
                 )
             if elapsed >= timeout_seconds:
@@ -186,4 +197,5 @@ def run_probe(
         _terminate_process_tree(process)
         return ProbeResult(False, error=f"Could not start probe: {exc}", elapsed_seconds=time.monotonic() - started)
     finally:
-        receiver.close()
+        result_receiver.close()
+        result_sender.close()

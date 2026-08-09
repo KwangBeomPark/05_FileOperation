@@ -29,6 +29,8 @@ APP_EXE = "IntegratedDataTool.exe"
 INSTALL_DIR = "IntegratedDataTool"
 REPO_OWNER = "KwangBeomPark"
 REPO_NAME = "05_FileOperation"
+# Kept local so this launcher remains standalone. tests/test_app05_launcher.py
+# verifies parity with src/core/release_config.py.
 LATEST_RELEASE_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 TRUSTED_HOSTS = {
     "github.com",
