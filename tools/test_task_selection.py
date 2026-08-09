@@ -1,4 +1,6 @@
 import os
+import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -9,6 +11,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QWidget
 
 from src.core.task_contracts import (
     BypassRunConfig,
+    RunPlan,
     RunReport,
     SourceDisposition,
     StepResult,
@@ -23,8 +26,9 @@ from src.ui.task_tab import TaskTab
 
 
 class FakeConfig:
-    def __init__(self, values=None):
+    def __init__(self, values=None, app_dir=None):
         self.values = {"ui_language": "en", **(values or {})}
+        self.app_dir = app_dir
 
     def get(self, key, default=None):
         return self.values.get(key, default)
@@ -132,6 +136,45 @@ class TaskSelectionTests(unittest.TestCase):
         self.assertIn("Completed · 2/2", history_text)
         task_tab.schedule_timer.stop()
         window.deleteLater()
+
+    def test_run_journal_saves_report_and_marks_a_stalled_run(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = FakeConfig(app_dir=temp_dir)
+            task_tab = TaskTab(config)
+            plan = RunPlan({
+                TaskStep.SYNC: SyncRunConfig([SyncGroupConfig("daily", ["source", "target"])])
+            })
+            task_tab.is_running = True
+            task_tab._begin_run_journal(plan, scheduled=True)
+            task_tab.last_activity_monotonic = time.monotonic() - task_tab.STALL_WARNING_SECONDS - 1
+
+            task_tab._check_run_health()
+
+            running_entry = task_tab.run_journal.list_runs()[0]
+            self.assertTrue(running_entry["possibly_stalled"])
+            self.assertIn("Possibly stalled", task_tab.run_health_label.text())
+
+            report = RunReport(
+                {
+                    TaskStep.SYNC: StepResult(
+                        step=TaskStep.SYNC,
+                        status=StepStatus.COMPLETED,
+                        success_count=1,
+                        total_count=1,
+                    )
+                },
+                "# report",
+                "done",
+                True,
+            )
+            task_tab.capture_run_report(report)
+
+            completed_entry = task_tab.run_journal.list_runs()[0]
+            self.assertEqual(completed_entry["status"], "completed")
+            self.assertTrue(os.path.isfile(completed_entry["report_path"]))
+            task_tab.schedule_timer.stop()
+            task_tab.run_health_timer.stop()
+            task_tab.deleteLater()
 
     def test_changing_source_backup_action_revokes_scheduled_consent(self):
         config = FakeConfig({

@@ -271,7 +271,18 @@ class TaskRunner:
             ))
             manager = SyncManager(folders=group.folders, move_to_deleted=group.move_to_deleted)
             actions = manager.analyze_sync()
-            success_files, fail_files, errors = manager.execute_sync(actions)
+            success_files, fail_files, errors = manager.execute_sync(
+                actions,
+                progress_callback=lambda current, total, filename: callbacks.step_progress(
+                    current,
+                    total,
+                    self._text(
+                        f"Synchronizing file: {filename}",
+                        f"파일 동기화 중: {filename}",
+                        f"Synchronizowanie pliku: {filename}",
+                    ),
+                ),
+            )
 
             if not errors:
                 success_count += 1
@@ -369,7 +380,19 @@ class TaskRunner:
             callbacks.log(self._text(f" -> Converting PDF: {filename}...", f" -> PDF 변환 중: {filename}...", f" -> Konwersja PDF: {filename}..."))
             callbacks.step_progress(idx, len(config.pdf_paths), self._text(f"Converting PDF: {filename}", f"PDF 변환 진행 중: {filename}", f"Konwersja PDF: {filename}"))
             try:
-                image_paths = self.pdf_converter.convert(pdf_path, config.output_folder)
+                image_paths = self.pdf_converter.convert(
+                    pdf_path,
+                    config.output_folder,
+                    progress_callback=lambda current, total, _message, filename=filename: callbacks.step_progress(
+                        current,
+                        total,
+                        self._text(
+                            f"Converting PDF: {filename} ({current}/{total})",
+                            f"PDF 변환 중: {filename} ({current}/{total})",
+                            f"Konwersja PDF: {filename} ({current}/{total})",
+                        ),
+                    ),
+                )
                 success_count += 1
                 msg = self._text(f"✓ PDF [{filename}] completed -> {len(image_paths)} images created", f"✓ PDF [{filename}] 완료 -> 이미지 {len(image_paths)}개 생성", f"✓ PDF [{filename}] zakończony -> utworzono {len(image_paths)} obrazów")
             except Exception as file_err:

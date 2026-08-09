@@ -12,6 +12,7 @@ from src.core.task_contracts import EmlRunConfig, EmlTaskConfig, TaskValidationE
 from src.ui.eml_task_dialog import EMLTaskDialog
 from src.ui.toast_notification import show_toast
 from src.ui.i18n import choose, get_app_language, tr
+from src.ui.workflow_widget import WorkflowWidget
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -32,9 +33,6 @@ class EMLWorker(QThread):
 
     def _t(self, english, korean, polish=None):
         return choose(self.language, english, korean, polish)
-
-    def _msg(self, key, **values):
-        return tr(key, self.language, **values)
 
     def _msg(self, key, **values):
         return tr(key, self.language, **values)
@@ -153,6 +151,7 @@ class EMLTab(QWidget):
         self.eml_converter = EMLConverter(self.config_manager)
         
         self.is_converting = False
+        self._ui_locked = False
         self.worker = None
         self.tasks = []
         
@@ -166,10 +165,24 @@ class EMLTab(QWidget):
 
     def _t(self, english, korean, polish=None):
         return choose(self.language, english, korean, polish)
+
+    def _msg(self, key, **values):
+        return tr(key, self.language, **values)
+
+    def refresh_language(self):
+        self.workflow_widget.set_step_texts([
+            self._t("1. Add Tasks", "1. 작업 등록", "1. Dodaj zadania"),
+            self._t("2. Run Conversion", "2. 변환 실행", "2. Uruchom konwersję"),
+            self._t("3. Review Results", "3. 결과 확인", "3. Sprawdź wyniki"),
+        ])
+        self._refresh_action_state()
         
     def init_ui(self):
         layout = QVBoxLayout()
         self.setLayout(layout)
+
+        self.workflow_widget = WorkflowWidget(steps=["1. Add Tasks", "2. Run Conversion", "3. Review Results"])
+        layout.addWidget(self.workflow_widget)
         
         # 1. EML 배치 태스크 관리 테이블 그룹
         tasks_group = QGroupBox("EML 변환 배치 태스크 관리")
@@ -189,6 +202,7 @@ class EMLTab(QWidget):
         self.table_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table_widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_widget.doubleClicked.connect(self.edit_selected_task)
+        self.table_widget.itemSelectionChanged.connect(self._refresh_action_state)
         
         # 안내 문구 (드래그 앤 드롭 지원 안내)
         help_label = QLabel("※ 폴더를 테이블 위로 드래그 앤 드롭하면 소스 경로가 입력된 채로 태스크를 즉시 추가할 수 있습니다.")
@@ -246,6 +260,7 @@ class EMLTab(QWidget):
         self.log_area.setStyleSheet("font-family: Consolas, monospace; font-size: 9pt; background-color: #1e1e1e; color: #e2e8f0; border: 1px solid #3e3e3e;")
         log_layout.addWidget(self.log_area)
         layout.addWidget(log_group)
+        self._refresh_action_state()
         
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -308,6 +323,23 @@ class EMLTab(QWidget):
             status_item = QTableWidgetItem(self._msg("common_waiting"))
             status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table_widget.setItem(idx, 3, status_item)
+        self._refresh_action_state()
+
+    def _refresh_action_state(self):
+        has_tasks = bool(self.tasks)
+        has_selection = self.table_widget.currentRow() >= 0
+        available = not self.is_converting and not self._ui_locked
+        self.add_btn.setEnabled(available)
+        self.edit_btn.setEnabled(available and has_selection)
+        self.delete_btn.setEnabled(available and has_selection)
+        self.start_btn.setEnabled(available and has_tasks)
+        if has_tasks:
+            self.start_btn.setToolTip(self._t("Ready to convert the registered tasks.", "등록된 작업을 변환할 준비가 되었습니다.", "Gotowe do konwersji zarejestrowanych zadań."))
+            if not self.is_converting:
+                self.workflow_widget.set_active_step(1)
+        else:
+            self.start_btn.setToolTip(self._t("Step 1: add at least one EML task.", "1단계: EML 작업을 하나 이상 등록하세요.", "Krok 1: dodaj co najmniej jedno zadanie EML."))
+            self.workflow_widget.reset()
             
     def get_task_names(self):
         return [t["name"] for t in self.tasks]
@@ -372,6 +404,7 @@ class EMLTab(QWidget):
         
         self.is_converting = True
         self.set_ui_locked(True)
+        self.workflow_widget.set_active_step(1)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("0%")
         self.status_label.setText(self._msg("eml_preparing", width=width))
@@ -450,6 +483,7 @@ class EMLTab(QWidget):
         self.status_label.setText(message)
         
         if success:
+            self.workflow_widget.complete_all()
             show_toast(self, self._msg("eml_completed_toast"), "success")
             QMessageBox.information(self, self._msg("common_completed"), message)
         else:
@@ -458,15 +492,13 @@ class EMLTab(QWidget):
             QMessageBox.warning(self, self._msg("common_notice"), message)
             
     def set_ui_locked(self, locked):
-        self.add_btn.setEnabled(not locked)
-        self.edit_btn.setEnabled(not locked)
-        self.delete_btn.setEnabled(not locked)
-        self.start_btn.setEnabled(not locked)
+        self._ui_locked = locked
         self.stop_btn.setEnabled(locked)
         if locked:
             self.table_widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         else:
             self.table_widget.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        self._refresh_action_state()
             
     def log(self, message):
         self.log_area.append(message)

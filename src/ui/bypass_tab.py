@@ -99,6 +99,7 @@ class BypassTab(QWidget):
         self.scanned_files = []      # 스캔된 원본 파일 리스트
         self.worker = None
         self.is_running = False
+        self._ui_locked = False
         
         self.init_ui()
         self.setAcceptDrops(True)
@@ -378,6 +379,8 @@ class BypassTab(QWidget):
         self.check_backup_orig.setChecked(disposition == SourceDisposition.BACKUP.value)
         self.check_backup_orig.toggled.connect(self._save_source_disposition)
         self.check_preserve_meta.setChecked(self.config_manager.get("bypass_preserve_meta", True))
+        for combo in (self.excel_combo, self.ppt_combo, self.word_combo, self.pdf_combo):
+            combo.currentTextChanged.connect(self._invalidate_scan)
         
         # 레이아웃 배치
         v_combos = QVBoxLayout()
@@ -433,7 +436,7 @@ class BypassTab(QWidget):
         btn_layout = QHBoxLayout()
         self.scan_btn = QPushButton("대상 파일 스캔")
         self.scan_btn.clicked.connect(self.scan_source_folder)
-        self.start_btn = QPushButton("우회 변환 시작")
+        self.start_btn = QPushButton("파일 변환 시작")
         self.start_btn.setProperty("variant", "success")
         self.start_btn.clicked.connect(self.start_conversion)
         self.stop_btn = QPushButton("중지")
@@ -476,6 +479,7 @@ class BypassTab(QWidget):
             self.set_target_folder_path(last_tgt)
             self.radio_custom.setChecked(True)
             self.tgt_layout_widget.setVisible(True)
+        self._refresh_action_state()
 
     def _save_source_disposition(self, backup_enabled):
         disposition = SourceDisposition.BACKUP if backup_enabled else SourceDisposition.KEEP
@@ -517,6 +521,7 @@ class BypassTab(QWidget):
     def toggle_target_mode(self):
         is_custom = self.radio_custom.isChecked()
         self.tgt_layout_widget.setVisible(is_custom)
+        self._refresh_action_state()
         
     def select_source_folder(self):
         initial = self.config_manager.get("last_bypass_source_directory", "")
@@ -532,12 +537,15 @@ class BypassTab(QWidget):
             self.set_target_folder_path(os.path.normpath(folder))
             
     def set_source_folder_path(self, path):
+        if self.src_entry.text() != path:
+            self._invalidate_scan()
         self.src_entry.setText(path)
         self.src_entry.setStyleSheet(
             "background-color: #1e1e1e; color: #cbd5e1; border: 1px solid #334155; "
             "padding: 8px; border-radius: 4px; font-weight: bold;"
         )
         self.config_manager.set("last_bypass_source_directory", path)
+        self._refresh_action_state()
         
     def set_target_folder_path(self, path):
         self.tgt_entry.setText(path)
@@ -546,6 +554,47 @@ class BypassTab(QWidget):
             "padding: 8px; border-radius: 4px; font-weight: bold;"
         )
         self.config_manager.set("last_bypass_target_directory", path)
+        self._refresh_action_state()
+
+    def _source_is_ready(self):
+        return os.path.isdir(self.src_entry.text().strip())
+
+    def _target_is_ready(self):
+        return self.radio_inplace.isChecked() or os.path.isdir(self.tgt_entry.text().strip())
+
+    def _invalidate_scan(self, *_args):
+        self.scanned_files.clear()
+        if hasattr(self, "file_table"):
+            self.file_table.setRowCount(0)
+            self.summary_label.setText(self._t("Files found: 0", "검색된 대상 파일: 0개", "Znalezione pliki: 0"))
+            self._refresh_action_state()
+
+    def _refresh_action_state(self):
+        source_ready = self._source_is_ready()
+        target_ready = self._target_is_ready()
+        available = not self.is_running and not self._ui_locked
+        self.scan_btn.setEnabled(available and source_ready)
+        self.start_btn.setEnabled(available and source_ready and target_ready and bool(self.scanned_files))
+        if not source_ready:
+            scan_reason = self._t("Step 1: select a valid source folder.", "1단계: 올바른 원본 폴더를 선택하세요.", "Krok 1: wybierz prawidłowy folder źródłowy.")
+            start_reason = scan_reason
+            self.workflow_widget.reset()
+        elif not target_ready:
+            scan_reason = self._t("Source is ready to scan.", "원본 폴더를 스캔할 수 있습니다.", "Folder źródłowy jest gotowy do skanowania.")
+            start_reason = self._t("Step 1: select the custom output folder.", "1단계: 별도 저장 폴더를 선택하세요.", "Krok 1: wybierz niestandardowy folder wyjściowy.")
+            self.workflow_widget.set_active_step(0)
+        elif not self.scanned_files:
+            scan_reason = self._t("Ready to scan.", "스캔할 준비가 되었습니다.", "Gotowe do skanowania.")
+            start_reason = self._t("Step 1: scan and review the source files first.", "1단계: 원본 파일을 먼저 스캔하고 확인하세요.", "Krok 1: najpierw przeskanuj i sprawdź pliki źródłowe.")
+            if available:
+                self.workflow_widget.set_active_step(0)
+        else:
+            scan_reason = self._t("Refresh the file scan.", "파일 목록을 다시 스캔합니다.", "Odśwież skan plików.")
+            start_reason = self._t("Scan complete. Ready to convert.", "스캔 완료. 변환을 실행할 수 있습니다.", "Skan zakończony. Można konwertować.")
+            if available:
+                self.workflow_widget.set_active_step(1)
+        self.scan_btn.setToolTip(scan_reason)
+        self.start_btn.setToolTip(start_reason)
 
     def scan_source_folder(self):
         src_dir = self.src_entry.text()
@@ -601,6 +650,7 @@ class BypassTab(QWidget):
             self.summary_label.setText(self._t(f"Files found: {file_count}", f"검색된 대상 파일: {file_count}개", f"Znalezione pliki: {file_count}"))
             self.log_area.append(self._msg("bypass_scan_complete", count=len(self.scanned_files)))
             self.workflow_widget.set_active_step(1)
+            self._refresh_action_state()
             
         except Exception as e:
             self.log_area.append(self._msg("bypass_scan_failed_log", detail=str(e)))
@@ -661,8 +711,7 @@ class BypassTab(QWidget):
         tasks = [task.to_legacy_dict() for task in run_config.tasks]
             
         self.is_running = True
-        self.scan_btn.setEnabled(False)
-        self.start_btn.setEnabled(False)
+        self._refresh_action_state()
         self.stop_btn.setEnabled(True)
         self.progress_bar.setValue(0)
         
@@ -718,12 +767,9 @@ class BypassTab(QWidget):
 
     def on_finished(self, success, message):
         self.is_running = False
-        self.scan_btn.setEnabled(True)
-        self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         
         if success:
-            self.workflow_widget.complete_all()
             self.log_area.append(f"\n✅ {message}")
             show_toast(self, self._msg("bypass_completed"), "success")
             QMessageBox.information(self, self._msg("common_completed"), message)
@@ -736,6 +782,8 @@ class BypassTab(QWidget):
             
         # 스캔 리스트 리프레시 (원본 파일이 백업 폴더로 이동했을 수 있으므로)
         self.scan_source_folder()
+        if success:
+            self.workflow_widget.complete_all()
 
     def build_run_config(self):
         src_dir = self.src_entry.text().strip()
@@ -744,14 +792,14 @@ class BypassTab(QWidget):
             
         if not os.path.exists(src_dir):
             raise TaskValidationError(
-                f"우회 변환 원본 폴더가 존재하지 않습니다: {src_dir}",
+                f"파일 변환 원본 폴더가 존재하지 않습니다: {src_dir}",
                 message_key="bypass_source_folder_missing",
                 values={"path": src_dir},
             )
             
         if not self.scanned_files:
             raise TaskValidationError(
-                "우회 변환은 먼저 '대상 파일 스캔'을 실행한 뒤 통합 작업을 시작해 주세요.",
+                "파일 변환은 먼저 '대상 파일 스캔'을 실행한 뒤 통합 작업을 시작해 주세요.",
                 message_key="bypass_scan_required",
             )
             
@@ -760,13 +808,13 @@ class BypassTab(QWidget):
         
         if not inplace_mode and (not tgt_dir or tgt_dir.startswith(("저장할 우회", "Choose the folder"))):
             raise TaskValidationError(
-                "우회 변환 저장 폴더가 지정되지 않았습니다.",
+                "파일 변환 저장 폴더가 지정되지 않았습니다.",
                 message_key="bypass_target_folder_empty",
             )
             
         if not inplace_mode and not os.path.exists(tgt_dir):
             raise TaskValidationError(
-                f"우회 변환 저장 폴더가 존재하지 않습니다: {tgt_dir}",
+                f"파일 변환 저장 폴더가 존재하지 않습니다: {tgt_dir}",
                 message_key="bypass_target_folder_missing",
                 values={"path": tgt_dir},
             )
@@ -780,7 +828,7 @@ class BypassTab(QWidget):
             src_file = os.path.join(src_dir, filename)
             if not os.path.exists(src_file):
                 raise TaskValidationError(
-                    f"우회 변환 원본 파일이 존재하지 않습니다: {src_file}",
+                    f"파일 변환 원본 파일이 존재하지 않습니다: {src_file}",
                     message_key="bypass_source_file_missing",
                     values={"path": src_file},
                 )
@@ -831,6 +879,7 @@ class BypassTab(QWidget):
         return config.to_legacy_dict() if config else None
         
     def set_ui_locked(self, locked):
+        self._ui_locked = locked
         for btn in self.findChildren(QPushButton):
             if btn not in (self.stop_btn,):
                 btn.setEnabled(not locked)
@@ -843,3 +892,4 @@ class BypassTab(QWidget):
         self.pdf_combo.setEnabled(not locked)
         self.check_backup_orig.setEnabled(not locked)
         self.check_preserve_meta.setEnabled(not locked)
+        self._refresh_action_state()

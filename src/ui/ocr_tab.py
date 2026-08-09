@@ -138,6 +138,7 @@ class OCRTab(QWidget):
         self.image_files = []
         self.ocr_results = {}
         self.is_converting = False
+        self._ui_locked = False
         self.worker = None
         
         self.init_ui()
@@ -239,6 +240,7 @@ class OCRTab(QWidget):
         
         main_h_layout.addWidget(right_panel, 1)
         layout.addLayout(main_h_layout)
+        self._refresh_action_state()
         
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -264,7 +266,6 @@ class OCRTab(QWidget):
             self.image_list_widget.addItem(item)
             self.config_manager.set("last_ocr_image_directory", os.path.dirname(file_path))
             self.update_summary_labels()
-            self.workflow_widget.set_active_step(1)
             
 
             
@@ -329,6 +330,24 @@ class OCRTab(QWidget):
         self.worker.ocr_completed.connect(self.on_ocr_completed)
         self.worker.finished.connect(self.on_ocr_finished)
         self.worker.start()
+
+    def _selected_image_count(self):
+        return sum(
+            self.image_list_widget.item(index).checkState() == Qt.CheckState.Checked
+            for index in range(self.image_list_widget.count())
+        )
+
+    def _refresh_action_state(self):
+        selected_count = self._selected_image_count()
+        can_start = selected_count > 0 and not self.is_converting and not self._ui_locked
+        self.start_btn.setEnabled(can_start)
+        if selected_count:
+            self.start_btn.setToolTip(self._t("Ready to run OCR.", "OCR을 실행할 준비가 되었습니다.", "Gotowe do uruchomienia OCR."))
+            if not self.is_converting:
+                self.workflow_widget.set_active_step(1)
+        else:
+            self.start_btn.setToolTip(self._t("Step 1: add and select at least one image.", "1단계: 이미지를 추가하고 하나 이상 선택하세요.", "Krok 1: dodaj i zaznacz co najmniej jeden obraz."))
+            self.workflow_widget.reset()
         
     def stop_ocr(self):
         if self.worker:
@@ -427,6 +446,7 @@ class OCRTab(QWidget):
                 f"Obrazy: {total} (wybrane: {checked})",
             )
         )
+        self._refresh_action_state()
 
     def build_run_config(self):
         checked_paths = []
@@ -460,7 +480,9 @@ class OCRTab(QWidget):
         return config.to_legacy_dict() if config else None
         
     def set_ui_locked(self, locked):
+        self._ui_locked = locked
         for btn in self.findChildren(QPushButton):
             if btn not in (self.stop_btn,):
                 btn.setEnabled(not locked)
         self.image_list_widget.setEnabled(not locked)
+        self._refresh_action_state()

@@ -6,12 +6,18 @@
 PyQt tabs -> typed RunConfig -> RunPlan -> preflight -> TaskRunner -> core converters
                     |                         |
                     +-> validation errors      +-> RunReport -> UI worker signals
+                                                       |
+                                                       +-> RunJournal -> reports/*.json + *.txt
 ```
 
 - Each tab converts only its visible state into a typed `build_run_config()` result.
 - `TaskTab` combines active configs into a `RunPlan`, then runs common dependency checks before work starts.
 - `TaskRunner` is PyQt-free and owns sequential execution, cancellation state, and reporting.
 - `TaskWorker` is the only Qt adapter for the integrated runner.
+- `RunJournal` atomically stores compact metadata and one readable report for every started manual or scheduled run. The settings JSON keeps only the existing latest-per-feature summary.
+- `manual_content.py` is the single localized source for Getting Started and per-feature guidance. `ManualDialog` opens the same content from the Help menu, `F1`, or the current-tab help entry point.
+- Feature tabs own their prerequisite state. They disable only dependent actions while preserving typed validation for direct and scheduled execution.
+- UI progress and status signals also update the journal heartbeat. Five minutes without a signal is shown as `Possibly stalled`; it does not force-kill a real file or Office operation.
 - Direct tab actions reuse the same preflight contract where external dependencies can cause destructive work, notably Office conversion.
 - `probe_runner` accepts only named allow-listed probes and runs them in disposable spawned processes with fixed time budgets. This termination boundary never wraps real conversion or synchronization work.
 
@@ -20,7 +26,7 @@ PyQt tabs -> typed RunConfig -> RunPlan -> preflight -> TaskRunner -> core conve
 - OCR uses Tesseract first and Windows OCR as a fallback.
 - EML rendering requires the Playwright driver and Chromium runtime.
 - Office conversion requires the specific Excel, Word, or PowerPoint COM application for the selected source files.
-- SMTP is optional; report delivery falls back to a local report file.
+- SMTP is optional. Reports are always saved locally before optional email delivery.
 
 ## Recovery Boundaries
 

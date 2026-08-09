@@ -35,12 +35,16 @@ class FakeSyncManagerSuccess:
     def analyze_sync(self):
         return [{"filename": "a.txt"}]
 
-    def execute_sync(self, _actions):
+    def execute_sync(self, _actions, progress_callback=None):
+        if progress_callback:
+            progress_callback(1, 1, "syncing a.txt")
         return 1, 0, []
 
 
 class FakeSyncManagerPartial(FakeSyncManagerSuccess):
-    def execute_sync(self, _actions):
+    def execute_sync(self, _actions, progress_callback=None):
+        if progress_callback:
+            progress_callback(1, 1, "syncing a.txt")
         return 0, 1, ["copy failed"]
 
 
@@ -61,7 +65,9 @@ class FakePDFConverter:
     def __init__(self, _config):
         pass
 
-    def convert(self, source, output_folder):
+    def convert(self, source, output_folder, progress_callback=None):
+        if progress_callback:
+            progress_callback(1, 1, "converting page 1")
         output = os.path.join(output_folder, os.path.basename(source) + ".jpg")
         with open(output, "wb") as file:
             file.write(b"pdf-image")

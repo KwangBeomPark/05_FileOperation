@@ -129,10 +129,10 @@ class EMLConverter:
                 e.stdout,
                 e.stderr,
             )
-            raise Exception("Playwright 브라우저 드라이버 자동 설치에 실패했습니다. 네트워크 연결 상태를 확인해 주세요.") from e
+            raise Exception("메일 이미지 변환용 브라우저 구성 요소를 자동으로 준비하지 못했습니다. 네트워크 연결 상태를 확인해 주세요.") from e
         except Exception as e:
             logger.error(f"Failed to auto-install Playwright chromium browser: {e}")
-            raise Exception("Playwright 브라우저 드라이버 자동 설치에 실패했습니다. 네트워크 연결 상태를 확인해 주세요.") from e
+            raise Exception("메일 이미지 변환용 브라우저 구성 요소를 자동으로 준비하지 못했습니다. 네트워크 연결 상태를 확인해 주세요.") from e
 
     def _get_playwright_install_command(self):
         try:
@@ -194,7 +194,7 @@ class EMLConverter:
                 except Exception as browser_err:
                     if "Executable doesn't exist" in str(browser_err) or "playwright install" in str(browser_err):
                         if self.playwright_install_failed:
-                            raise Exception("Playwright 브라우저 드라이버가 없고 이전 설치 시도가 실패했습니다. 인터넷 또는 오프라인 크로미움 설정을 확인하세요.") from browser_err
+                            raise Exception("메일 이미지 변환용 브라우저 구성 요소가 없고 이전 준비 시도도 실패했습니다. 인터넷 연결 또는 오프라인 브라우저 설정을 확인하세요.") from browser_err
                         
                         logger.warning("Chromium executable not found. Attempting automatic installation...")
                         try:

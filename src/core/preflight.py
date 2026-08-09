@@ -280,7 +280,15 @@ def check_run_plan(
         else:
             ok, detail = check_playwright_driver(check_browser=check_browser)
         if not ok:
-            report.add_blocker(localize("The Playwright EML rendering driver is unavailable.", "Playwright EML 렌더링 드라이버를 사용할 수 없습니다.", "Sterownik renderowania EML Playwright jest niedostępny."), detail_text(detail), TaskStep.EML)
+            report.add_blocker(
+                localize(
+                    "The browser component for EML image conversion is unavailable.",
+                    "EML 이미지 변환용 브라우저 구성 요소를 사용할 수 없습니다.",
+                    "Składnik przeglądarki do konwersji obrazów EML jest niedostępny.",
+                ),
+                detail_text(detail),
+                TaskStep.EML,
+            )
         custom_chromium = config_manager.get("offline_chromium_path", "")
         if custom_chromium and not os.path.exists(custom_chromium):
             report.add_warning(localize("The offline Chromium path does not exist.", "오프라인 Chromium 경로가 존재하지 않습니다.", "Ścieżka do Chromium w trybie offline nie istnieje."), custom_chromium, TaskStep.EML)

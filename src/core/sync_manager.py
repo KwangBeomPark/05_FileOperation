@@ -306,7 +306,7 @@ class SyncManager:
         
         Args:
             actions (list): analyze_sync()로 도출된 액션 리스트
-            progress_callback (callable): 진행률 피드백 콜백 (current_count, total_count, message)
+            progress_callback (callable): 진행률 피드백 콜백 (current_count, total_count, filename)
             
         Returns:
             tuple: (success_count, fail_count, list_of_errors)
@@ -337,7 +337,7 @@ class SyncManager:
             
             # 콜백 알림
             if progress_callback:
-                progress_callback(idx, total, f"[{idx+1}/{total}] {filename} {action_type} 처리 중...")
+                progress_callback(idx, total, filename)
 
             try:
                 # 1) 경로 보안성 검증
@@ -398,7 +398,4 @@ class SyncManager:
                 logger.error(err_msg)
                 errors.append(err_msg)
 
-        if progress_callback:
-            progress_callback(total, total, f"동기화 완료: 성공 {success_count}건, 실패 {fail_count}건")
-            
         return success_count, fail_count, errors

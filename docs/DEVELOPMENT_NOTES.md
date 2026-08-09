@@ -229,3 +229,47 @@ Protect source files in Convert Files: default to keeping originals, add a destr
 - **Verified:** all three catalogs have identical keys and placeholders; English and Polish catalogs contain no Hangul; production source contains no two-language-only translation calls; literal runtime message keys are validated against the catalog.
 - **Verified:** 125 automated tests pass, and the actual Polish Windows main window renders correctly at 1400×900 after integration.
 - **Open (P3):** several already-complete three-language dialog strings remain inline. They are covered by the no-missing-language check; moving them is optional catalog housekeeping rather than a user-visible localization defect.
+
+## 2026-08-09 — Phase 7: unattended-run journal and health visibility
+
+### Implemented decisions
+
+- Save every started manual and scheduled run under `%LOCALAPPDATA%/IntegratedDataTool/reports` as compact JSON metadata plus a readable text report, both written atomically.
+- Keep `task_step_last_results` for the existing per-feature dashboard and keep full history out of the settings JSON.
+- Recover metadata left in `running` state by an earlier process as `interrupted` on the next application start.
+- Reuse worker status, log, and per-file progress signals as a persistent heartbeat. Show `Possibly stalled` after five minutes without progress, but never hard-kill a real synchronization, Office, OCR, PDF, or EML operation.
+- Add a report-backed Run History dialog with status filters, report opening, and reports-folder access.
+- Pass file-level synchronization and PDF page progress into the integrated runner so the current work is visible and refreshes the heartbeat.
+
+### Audit status
+
+- **Fixed (P1):** detailed reports were saved mainly as an email-failure fallback, so successful unattended runs could leave no durable report.
+- **Fixed (P1):** real workers could remain busy with no user-visible indication of the last activity or a possible stall.
+- **Fixed (P2):** users could see only the latest result per feature and could not browse earlier runs or open their reports.
+- **Mitigated (P2):** a blocked OS or Office call is detected only by absent progress signals. The UI deliberately says `Possibly stalled` because a large file may still be processing.
+- **Verified:** journal recovery, atomic report storage, path validation, history filtering, heartbeat state, catalog parity, and integrated runner progress are covered by automated tests.
+- **Open (P2):** disconnected SMB/SharePoint paths, Windows sleep/resume, Office first-run dialogs, midnight boundaries, and long tray-resident runs still require real-environment scenario testing.
+
+### Follow-up observations
+
+1. Keep report retention manual and previewed; do not add automatic deletion until real usage establishes a safe policy.
+2. Add GitHub Actions for compile, unit, localization, and release-layout checks after the local phase is stable.
+3. Consider a configurable stall threshold only if real files regularly exceed five minutes without emitting safe progress.
+
+## 2026-08-09 — Phase 8: guided workflows and localized manual
+
+### Implemented decisions
+
+- Added one English/Korean/Polish manual catalog covering Getting Started, Run Tasks, Sync Folders, Convert EML, Convert PDF, Read Images, Convert Files, and Settings.
+- Added Help menu entries, `F1`, and a current-tab help button. All entry points open the same localized content so screen tips and the full manual do not drift apart.
+- Added prerequisite-aware action gating and localized tooltips to Run Tasks, Sync Folders, Convert EML, Convert PDF, Read Images, and Convert Files.
+- Added workflow steps to Sync Folders and Convert EML while retaining the existing step indicators in PDF, OCR, and Convert Files. Settings remains intentionally unnumbered because its sections are independent.
+- Invalidated stale Sync previews after group/folder edits and stale Convert Files scans after source or target-format changes.
+- Added manual catalog/dialog regression coverage and completed offscreen layout review at 1200 × 760/800.
+- Verified 142 automated tests, package dependency integrity, PyInstaller packaging, embedded icon/version metadata, and the localized main/manual layouts.
+
+### Follow-up observations
+
+1. Review the Korean manual with an actual operator before release. Wording changes belong in `src/ui/manual_content.py` so every help entry point stays synchronized.
+2. Empty result areas could later gain concise clickable prompts such as `Add PDF` or `Add task`, after the guided workflow is tested with real data.
+3. Estimated remaining time should wait until enough real run history exists to avoid misleading users.

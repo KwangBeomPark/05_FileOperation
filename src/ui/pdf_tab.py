@@ -78,6 +78,7 @@ class PDFTab(QWidget):
         self.image_files = []
         self.ocr_results = {}  # 미리보기 다이얼로그 호환성용 빈 딕셔너리
         self.is_converting = False
+        self._ui_locked = False
         self.worker = None
         
         self.init_ui()
@@ -152,6 +153,7 @@ class PDFTab(QWidget):
         if not default_out:
             default_out = os.path.join(os.path.expanduser("~"), "Documents", "PDF_Output")
         self.output_path_input.setText(default_out)
+        self.output_path_input.textChanged.connect(self._refresh_action_state)
         
         main_h_layout.addWidget(left_panel, 1)
         
@@ -180,6 +182,7 @@ class PDFTab(QWidget):
         control_layout.addWidget(self.start_btn)
         control_layout.addWidget(self.stop_btn)
         right_layout.addLayout(control_layout)
+        self._refresh_action_state()
         
         # 진행 바
         self.progress_bar = QProgressBar()
@@ -207,7 +210,7 @@ class PDFTab(QWidget):
             self.pdf_list_widget.addItem(item)
             self.config_manager.set("last_pdf_directory", os.path.dirname(file_path))
             self.update_summary_labels()
-            self.workflow_widget.set_active_step(1)
+            self._refresh_action_state()
             
     def select_pdfs(self):
         initial_dir = self.config_manager.get("last_pdf_directory", "")
@@ -222,6 +225,7 @@ class PDFTab(QWidget):
         self.pdf_list_widget.clear()
         self.workflow_widget.reset()
         self.update_summary_labels()
+        self._refresh_action_state()
         
     def select_output_folder(self):
         current_folder = self.output_path_input.text().strip()
@@ -230,6 +234,23 @@ class PDFTab(QWidget):
             normalized = os.path.normpath(folder)
             self.output_path_input.setText(normalized)
             self.config_manager.set("output_folder", normalized)
+
+    def _refresh_action_state(self):
+        has_pdfs = bool(self.selected_pdf_paths)
+        has_output = bool(self.output_path_input.text().strip())
+        can_start = has_pdfs and has_output and not self.is_converting and not self._ui_locked
+        self.start_btn.setEnabled(can_start)
+        if not has_pdfs:
+            reason = self._t("Step 1: add at least one PDF file.", "1단계: PDF 파일을 먼저 추가하세요.", "Krok 1: dodaj co najmniej jeden plik PDF.")
+            self.workflow_widget.reset()
+        elif not has_output:
+            reason = self._t("Step 2: select an output folder.", "2단계: 출력 폴더를 선택하세요.", "Krok 2: wybierz folder wyjściowy.")
+            self.workflow_widget.set_active_step(1)
+        else:
+            reason = self._t("Ready to convert.", "변환할 준비가 되었습니다.", "Gotowe do konwersji.")
+            if not self.is_converting:
+                self.workflow_widget.set_active_step(1)
+        self.start_btn.setToolTip(reason)
             
     def start_conversion(self):
         if not self.selected_pdf_paths:
@@ -304,7 +325,6 @@ class PDFTab(QWidget):
             
     def on_conversion_finished(self, success, message):
         self.is_converting = False
-        self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.update_summary_labels()
         
@@ -316,6 +336,7 @@ class PDFTab(QWidget):
             self.workflow_widget.reset()
             show_toast(self, self._msg("pdf_conversion_failed", detail=message), "error")
             QMessageBox.critical(self, self._msg("common_error"), self._msg("pdf_operation_failed", detail=message))
+        self._refresh_action_state()
             
     def preview_image(self, item):
         img_path = item.data(Qt.ItemDataRole.UserRole)
@@ -361,7 +382,9 @@ class PDFTab(QWidget):
         return config.to_legacy_dict() if config else None
         
     def set_ui_locked(self, locked):
+        self._ui_locked = locked
         for btn in self.findChildren(QPushButton):
             if btn not in (self.stop_btn,):
                 btn.setEnabled(not locked)
         self.pdf_list_widget.setEnabled(not locked)
+        self._refresh_action_state()

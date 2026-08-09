@@ -13,12 +13,14 @@ from PyQt6.QtGui import QFont, QColor
 from src.core.email_sender import send_email
 from src.core.diagnostics import DiagnosticItem, DiagnosticStatus
 from src.core.preflight import check_run_plan
+from src.core.run_journal import RunJournal
 from src.core.schedule import evaluate_daily_schedule, parse_timestamp
 from src.core.task_contracts import BypassRunConfig, RunPlan, SourceDisposition, StepStatus, TaskStep, TaskValidationError
 from src.core.task_history import merge_run_report_history, normalize_step_history
 from src.ui.i18n import get_app_language, tr
 from src.ui.diagnostics_dialog import DiagnosticsDialog
 from src.ui.preflight_dialog import run_bounded_preflight
+from src.ui.run_history_dialog import RunHistoryDialog
 from src.ui.task_worker import TaskWorker
 from src.utils.logger import get_logger
 
@@ -27,6 +29,7 @@ logger = get_logger()
 class TaskTab(QWidget):
     SCHEDULE_RETRY_MINUTES = 10
     SCHEDULE_MAX_START_ATTEMPTS = 3
+    STALL_WARNING_SECONDS = 300
     COL_RUN = 0
     COL_FEATURE = 1
     COL_READINESS = 2
@@ -49,12 +52,30 @@ class TaskTab(QWidget):
         self.is_scheduled_run = False
         self.is_preflighting = False
         self.start_failure_reason = ""
+        self.current_run_id = ""
+        self.current_report_path = ""
+        self.current_run_finalized = False
+        self.current_step = None
+        self.last_activity_monotonic = 0.0
+        self.stall_warning_shown = False
+        self.run_journal = None
+        app_dir = getattr(config_manager, "app_dir", None)
+        if app_dir:
+            try:
+                self.run_journal = RunJournal(app_dir)
+                self.run_journal.recover_interrupted_runs()
+            except Exception:
+                logger.exception("Could not initialize the run journal")
         self.init_ui()
 
         self.schedule_timer = QTimer(self)
         self.schedule_timer.setInterval(30_000)
         self.schedule_timer.timeout.connect(self._on_schedule_tick)
         self.schedule_timer.start()
+        self.run_health_timer = QTimer(self)
+        self.run_health_timer.setInterval(15_000)
+        self.run_health_timer.timeout.connect(self._check_run_health)
+        self.run_health_timer.start()
         QTimer.singleShot(0, self._on_schedule_tick)
         QTimer.singleShot(0, self.refresh_readiness)
         
@@ -160,6 +181,11 @@ class TaskTab(QWidget):
         self.selection_hint.setWordWrap(True)
         self.selection_hint.setStyleSheet("color: #94a3b8; padding: 2px 4px;")
         hint_layout.addWidget(self.selection_hint, 1)
+        self.history_btn = QPushButton()
+        self.history_btn.setMinimumHeight(30)
+        self.history_btn.clicked.connect(self.open_run_history)
+        self.history_btn.setEnabled(self.run_journal is not None)
+        hint_layout.addWidget(self.history_btn)
         self.readiness_btn = QPushButton()
         self.readiness_btn.setMinimumHeight(30)
         self.readiness_btn.clicked.connect(self.refresh_readiness)
@@ -298,6 +324,10 @@ class TaskTab(QWidget):
         self.detail_label = QLabel()
         self.detail_label.setStyleSheet("font-size: 11px; color: #a0a0a0;")
         progress_layout.addWidget(self.detail_label)
+
+        self.run_health_label = QLabel()
+        self.run_health_label.setStyleSheet("font-size: 10px; color: #64748b;")
+        progress_layout.addWidget(self.run_health_label)
         
         layout.addLayout(progress_layout)
         
@@ -366,6 +396,7 @@ class TaskTab(QWidget):
                 readiness_key = "not_checked" if self.step_checks[step].isChecked() else "not_selected"
                 self._set_readiness_item(step, readiness_key)
         self._update_backup_consent_visibility()
+        self._refresh_start_button_state()
 
     def _update_backup_consent_visibility(self):
         bypass_check = getattr(self, "step_checks", {}).get(TaskStep.BYPASS)
@@ -391,6 +422,7 @@ class TaskTab(QWidget):
         self.check_allow_source_backup.setToolTip(tr("task_schedule_allow_source_backup_help", language))
         self.start_btn.setText(tr("task_start", language))
         self.stop_btn.setText(tr("task_stop", language))
+        self.history_btn.setText(tr("run_history_button", language))
         self.readiness_btn.setText(tr("task_check_readiness", language))
         self.diagnostics_btn.setText(tr("diagnostics_open", language))
         self.selection_hint.setText(tr("task_selection_hint", language))
@@ -417,6 +449,8 @@ class TaskTab(QWidget):
             self._set_status_item(status_item, status_key)
         self.progress_bar.setFormat(tr("task_progress_format", language))
         self.detail_label.setText(tr("task_waiting", language))
+        if not self.is_running:
+            self.run_health_label.setText(tr("run_health_idle", language))
         self.log_label.setText(tr("task_log_title", language))
         self.refresh_history_display()
         self.refresh_schedule_summary()
@@ -440,6 +474,26 @@ class TaskTab(QWidget):
             "not_selected": "#64748b",
         }
         item.setForeground(QColor(colors.get(readiness_key, "#94a3b8")))
+        self._refresh_start_button_state()
+
+    def _refresh_start_button_state(self):
+        if not hasattr(self, "start_btn") or self.is_running:
+            return
+        selected = self.selected_steps() if hasattr(self, "step_checks") else []
+        readiness = []
+        for step in selected:
+            row = self.step_keys[step.value]
+            item = self.status_table.item(row, self.COL_READINESS)
+            readiness.append(item.data(Qt.ItemDataRole.UserRole) if item else "not_checked")
+        ready = bool(selected) and all(value in {"ready", "warning"} for value in readiness)
+        self.start_btn.setEnabled(ready)
+        if not selected:
+            tooltip_key = "task_start_prereq_none"
+        elif not ready:
+            tooltip_key = "task_start_prereq_readiness"
+        else:
+            tooltip_key = "task_start_ready"
+        self.start_btn.setToolTip(tr(tooltip_key, self.language))
 
     def refresh_history_display(self):
         history = normalize_step_history(self.config_manager.get("task_step_last_results", {}))
@@ -471,6 +525,98 @@ class TaskTab(QWidget):
         )
         self._update_config({"task_step_last_results": history})
         self.refresh_history_display()
+        self._finish_run_journal(report)
+
+    def open_run_history(self):
+        if not self.run_journal:
+            return
+        dialog = RunHistoryDialog(self.run_journal, self.language, self)
+        dialog.exec()
+
+    def _begin_run_journal(self, run_plan, scheduled):
+        self.current_run_id = ""
+        if not self.run_journal:
+            return
+        try:
+            self.current_run_id = self.run_journal.start_run(
+                run_plan.active_steps,
+                scheduled=scheduled,
+                language=self.language,
+            )
+        except Exception:
+            logger.exception("Could not start the run journal")
+
+    def _record_activity(self, *, current_step=None, detail=None, current=None, total=None):
+        if not self.is_running:
+            return
+        self.last_activity_monotonic = time.monotonic()
+        self.stall_warning_shown = False
+        self._show_active_health()
+        if not self.run_journal or not self.current_run_id:
+            return
+        try:
+            self.run_journal.touch(
+                self.current_run_id,
+                current_step=current_step,
+                detail=detail,
+                current=current,
+                total=total,
+            )
+        except Exception:
+            logger.exception("Could not update the run journal heartbeat")
+
+    def _show_active_health(self):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.run_health_label.setText(tr("run_health_active", self.language, timestamp=timestamp))
+        self.run_health_label.setStyleSheet("font-size: 10px; color: #4ade80;")
+
+    def _check_run_health(self):
+        if not self.is_running or not self.last_activity_monotonic:
+            return
+        elapsed = time.monotonic() - self.last_activity_monotonic
+        if elapsed < self.STALL_WARNING_SECONDS:
+            return
+        minutes = max(1, int(elapsed // 60))
+        self.run_health_label.setText(
+            tr("run_health_stalled", self.language, minutes=minutes)
+        )
+        self.run_health_label.setStyleSheet(
+            "font-size: 10px; color: #fbbf24; font-weight: bold;"
+        )
+        if not self.stall_warning_shown:
+            self.stall_warning_shown = True
+            self.log(tr("run_health_stalled", self.language, minutes=minutes))
+            if self.run_journal and self.current_run_id:
+                try:
+                    self.run_journal.mark_possibly_stalled(self.current_run_id)
+                except Exception:
+                    logger.exception("Could not mark the run as possibly stalled")
+
+    def _finish_run_journal(self, report):
+        if self.current_run_finalized or not self.run_journal or not self.current_run_id:
+            return
+        try:
+            self.current_report_path = self.run_journal.finish_run(self.current_run_id, report)
+            self.current_run_finalized = True
+            self.log(tr("run_report_saved", self.language, path=self.current_report_path))
+        except Exception as exc:
+            logger.exception("Could not save the completed run report")
+            self.log(tr("run_report_save_failed", self.language, detail=str(exc)))
+
+    def _finish_failed_journal(self, message, report_body):
+        if self.current_run_finalized or not self.run_journal or not self.current_run_id:
+            return
+        try:
+            self.current_report_path = self.run_journal.finish_failed(
+                self.current_run_id,
+                str(message),
+                str(report_body or ""),
+            )
+            self.current_run_finalized = True
+            self.log(tr("run_report_saved", self.language, path=self.current_report_path))
+        except Exception as exc:
+            logger.exception("Could not save the failed run report")
+            self.log(tr("run_report_save_failed", self.language, detail=str(exc)))
 
     def refresh_readiness(self):
         if self.is_running:
@@ -983,6 +1129,13 @@ class TaskTab(QWidget):
                 
         self.progress_bar.setValue(0)
         self.detail_label.setText(tr("task_status_running", self.language))
+        self.current_step = None
+        self.last_activity_monotonic = time.monotonic()
+        self.stall_warning_shown = False
+        self.current_report_path = ""
+        self.current_run_finalized = False
+        self._begin_run_journal(run_plan, scheduled)
+        self._show_active_health()
         self.log_area.clear()
         
         # 다른 탭들 UI 잠금 걸기
@@ -991,9 +1144,9 @@ class TaskTab(QWidget):
             
         # 3. TaskWorker (QThread) 생성 및 실행
         self.worker = TaskWorker(self.config_manager, run_plan)
-        self.worker.log_signal.connect(self.log)
+        self.worker.log_signal.connect(self.handle_worker_log)
         self.worker.step_progress.connect(self.update_step_progress)
-        self.worker.total_progress.connect(self.progress_bar.setValue)
+        self.worker.total_progress.connect(self.update_total_progress)
         self.worker.status_changed.connect(self.update_status_cell)
         self.worker.report_ready.connect(self.capture_run_report)
         self.worker.finished.connect(self.on_tasks_finished)
@@ -1020,6 +1173,15 @@ class TaskTab(QWidget):
 
     def update_step_progress(self, current, total, detail_msg):
         self.detail_label.setText(detail_msg)
+        self._record_activity(current=current, total=total, detail=detail_msg)
+
+    def update_total_progress(self, percent):
+        self.progress_bar.setValue(percent)
+        self._record_activity()
+
+    def handle_worker_log(self, message):
+        self.log(message)
+        self._record_activity()
         
     def update_status_cell(self, key, status):
         if key in self.step_keys:
@@ -1036,6 +1198,8 @@ class TaskTab(QWidget):
             }
             status_key = status_keys.get(status, "failed")
             self._set_status_item(cell, status_key)
+            self.current_step = TaskStep(key)
+            self._record_activity(current_step=self.current_step)
             if status_key == "running":
                 cell.setForeground(QColor("#38bdf8"))
             elif status_key == "completed":
@@ -1049,6 +1213,7 @@ class TaskTab(QWidget):
 
     def on_tasks_finished(self, success, message, report_body):
         scheduled_run = self.is_scheduled_run
+        self._finish_failed_journal(message, report_body)
         self.is_running = False
         self.is_scheduled_run = False
         self.start_btn.setEnabled(True)
@@ -1061,6 +1226,7 @@ class TaskTab(QWidget):
         self.diagnostics_btn.setEnabled(True)
         for check in self.step_checks.values():
             check.setEnabled(True)
+        self._refresh_start_button_state()
 
         if not success and not report_body:
             for step in self.selected_steps():
@@ -1075,6 +1241,8 @@ class TaskTab(QWidget):
             main_win.set_all_tabs_locked(False)
             
         self.detail_label.setText(message)
+        self.run_health_label.setText(tr("run_health_idle", self.language))
+        self.run_health_label.setStyleSheet("font-size: 10px; color: #64748b;")
 
         if scheduled_run:
             finished_at = datetime.now().isoformat(timespec="seconds")
@@ -1118,6 +1286,7 @@ class TaskTab(QWidget):
                     )
 
         QTimer.singleShot(0, self.refresh_readiness)
+        self.current_run_id = ""
 
     def send_report_email(self, report_body):
         """결과 리포트 이메일 전송 및 실패 시 로컬 Fallback"""
@@ -1133,7 +1302,8 @@ class TaskTab(QWidget):
         
         if not smtp_server or not sender_email or not receiver_email:
             self.log(self._text("✗ Email was skipped because SMTP settings are incomplete.", "✗ SMTP 설정이 누락되어 이메일 발송을 건너뜁니다.", "✗ Pominięto e-mail z powodu niepełnych ustawień SMTP."))
-            self.save_fallback_report(report_body)
+            if not self.current_report_path:
+                self.save_fallback_report(report_body)
             return
             
         try:
@@ -1165,8 +1335,8 @@ class TaskTab(QWidget):
             self.log(self._text("✓ Email sent successfully.", "✓ 이메일을 전송했습니다.", "✓ E-mail wysłany pomyślnie."))
         else:
             self.log(self._text("✗ Email failed", "✗ 이메일 전송 실패", "✗ Nie udało się wysłać e-maila") + f": {self._runtime_error_text(send_msg)}")
-            # 로컬 Fallback 저장
-            self.save_fallback_report(full_body)
+            if not self.current_report_path:
+                self.save_fallback_report(full_body)
             
     def save_fallback_report(self, content):
         """이메일 발송 실패 또는 무설정 시 로컬 Fallback 텍스트 파일 저장 (Atomic Write)"""

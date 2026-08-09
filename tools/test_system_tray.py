@@ -9,6 +9,7 @@ from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
 from src.ui.main_window import MainWindow
+from src.ui.i18n import tr
 
 
 class SystemTrayTests(unittest.TestCase):
@@ -55,6 +56,17 @@ class SystemTrayTests(unittest.TestCase):
 
         self.assertTrue(event.isAccepted())
         self.assertFalse(self.window.tray_icon.isVisible())
+
+    def test_manual_entry_points_follow_the_current_tab_and_language(self):
+        self.assertEqual(
+            self.window.screen_help_btn.text(),
+            tr("help_current_screen", self.window.language),
+        )
+        self.window.tab_widget.setCurrentWidget(self.window.sync_tab)
+        self.assertEqual(self.window._current_manual_topic(), "sync")
+        help_actions = [action.text() for action in self.window.help_menu.actions()]
+        self.assertIn(tr("help_getting_started", self.window.language), help_actions)
+        self.assertIn(tr("help_user_manual", self.window.language), help_actions)
 
 
 if __name__ == "__main__":

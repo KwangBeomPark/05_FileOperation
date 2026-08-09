@@ -12,6 +12,7 @@ from src.core.sync_manager import SyncManager
 from src.core.task_contracts import SyncGroupConfig, SyncRunConfig, TaskValidationError
 from src.ui.i18n import choose, get_app_language, tr
 from src.ui.toast_notification import show_toast
+from src.ui.workflow_widget import WorkflowWidget
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -101,7 +102,7 @@ class SyncWorker(QThread):
                     group_name = group["name"]
 
                     def callback(
-                        current, total, msg,
+                        current, total, filename,
                         group_index=group_index,
                         group_name=group_name
                     ):
@@ -109,7 +110,11 @@ class SyncWorker(QThread):
                         self.progress.emit(
                             group_index,
                             len(self.sync_groups),
-                            f"[{group_name}] {msg}"
+                            self._t(
+                                f"[{group_name}] Synchronizing file: {filename}",
+                                f"[{group_name}] 파일 동기화 중: {filename}",
+                                f"[{group_name}] Synchronizowanie pliku: {filename}",
+                            )
                         )
                         
                     s_count, f_count, errs = self.current_manager.execute_sync(actions, progress_callback=callback)
@@ -140,6 +145,9 @@ class SyncTab(QWidget):
         self.sync_groups = [] # [{"name": str, "folders": list}]
         self.current_group_idx = -1
         self.is_running = False
+        self._ui_locked = False
+        self._analysis_is_current = False
+        self._analysis_has_actions = False
         self.worker = None
         
         self.init_ui()
@@ -183,6 +191,14 @@ class SyncTab(QWidget):
         return stored_name
 
     def refresh_language(self):
+        self.workflow_widget.set_step_texts([
+            self._t("1. Configure Folders", "1. 폴더 구성", "1. Skonfiguruj foldery"),
+            self._t("2. Preview Changes", "2. 변경 미리보기", "2. Podejrzyj zmiany"),
+            self._t("3. Synchronize", "3. 동기화 실행", "3. Synchronizuj"),
+            self._t("4. Review Results", "4. 결과 확인", "4. Sprawdź wyniki"),
+        ])
+        self.analyze_btn.setText(self._t("Preview Sync", "동기화 미리보기", "Podgląd synchronizacji"))
+        self.sync_btn.setText(self._t("Synchronize All", "전체 동기화", "Synchronizuj wszystko"))
         for index, group in enumerate(self.sync_groups):
             self.group_combo.setItemText(index, self._display_group_name(group.get("name", "")))
         self.refresh_folder_list()
@@ -197,10 +213,16 @@ class SyncTab(QWidget):
             item = self.table_widget.item(row, 2)
             if item:
                 item.setText(self._sync_text(item.text()))
+        self._refresh_action_state()
         
     def init_ui(self):
         layout = QVBoxLayout()
         self.setLayout(layout)
+
+        self.workflow_widget = WorkflowWidget(
+            steps=["1. Configure Folders", "2. Preview Changes", "3. Synchronize", "4. Review Results"]
+        )
+        layout.addWidget(self.workflow_widget)
         
         # 1. 동기화 그룹 설정 영역
         group_groupbox = QGroupBox("Sync Groups (동기화 그룹 관리)")
@@ -299,13 +321,65 @@ class SyncTab(QWidget):
         
         table_layout.addWidget(self.table_widget)
         layout.addWidget(table_group, 3)
+        self._refresh_action_state()
 
     def set_ui_enabled(self, enabled):
         """실행 중 UI 잠금을 위한 유틸리티"""
+        self._ui_locked = not enabled
         self.group_combo.setEnabled(enabled)
         for btn in self.findChildren(QPushButton):
             if btn not in (self.stop_btn,):
                 btn.setEnabled(enabled)
+        self._refresh_action_state()
+
+    def _valid_groups(self):
+        return [group for group in self.sync_groups if len(group.get("folders", [])) >= 2]
+
+    def _invalidate_analysis(self, folders_changed=False):
+        self._analysis_is_current = False
+        self._analysis_has_actions = False
+        self.table_widget.setRowCount(0)
+        if folders_changed:
+            self.plan_summary_label.setText(
+                self._t("Not analyzed (folders changed)", "분석 전 (폴더 변경됨)", "Nie przeanalizowano (zmieniono foldery)")
+            )
+        self._refresh_action_state()
+
+    def _refresh_action_state(self):
+        configured = bool(self._valid_groups())
+        available = not self.is_running and not self._ui_locked
+        self.analyze_btn.setEnabled(available and configured)
+        self.sync_btn.setEnabled(
+            available and configured and self._analysis_is_current and self._analysis_has_actions
+        )
+        if not configured:
+            analyze_reason = self._t(
+                "Step 1: add at least two folders to one group.",
+                "1단계: 한 그룹에 폴더를 두 개 이상 등록하세요.",
+                "Krok 1: dodaj co najmniej dwa foldery do jednej grupy.",
+            )
+            sync_reason = analyze_reason
+            self.workflow_widget.reset()
+        elif not self._analysis_is_current:
+            analyze_reason = self._t("Ready to preview changes.", "변경 내용을 미리 볼 준비가 되었습니다.", "Gotowe do podglądu zmian.")
+            sync_reason = self._t(
+                "Step 2: preview the current changes first.",
+                "2단계: 현재 변경 내용을 먼저 미리보세요.",
+                "Krok 2: najpierw wyświetl podgląd bieżących zmian.",
+            )
+            if available:
+                self.workflow_widget.set_active_step(1)
+        elif not self._analysis_has_actions:
+            analyze_reason = self._t("Run the preview again.", "미리보기를 다시 실행할 수 있습니다.", "Możesz ponownie uruchomić podgląd.")
+            sync_reason = self._t("No changes need synchronization.", "동기화할 변경 사항이 없습니다.", "Brak zmian wymagających synchronizacji.")
+            self.workflow_widget.set_active_step(3)
+        else:
+            analyze_reason = self._t("Refresh the preview.", "미리보기를 새로 확인합니다.", "Odśwież podgląd.")
+            sync_reason = self._t("Preview complete. Ready to synchronize.", "미리보기 완료. 동기화를 실행할 수 있습니다.", "Podgląd zakończony. Można synchronizować.")
+            if available:
+                self.workflow_widget.set_active_step(2)
+        self.analyze_btn.setToolTip(analyze_reason)
+        self.sync_btn.setToolTip(sync_reason)
 
     # --- 데이터 & 설정 마이그레이션 ---
     def load_saved_data(self):
@@ -352,6 +426,7 @@ class SyncTab(QWidget):
         self.current_group_idx = idx
         self.refresh_folder_list()
         self.save_data()
+        self._refresh_action_state()
         
     def add_group(self):
         text, ok = QInputDialog.getText(self, self._msg("sync_add_group_title"), self._msg("sync_add_group_prompt"))
@@ -367,6 +442,7 @@ class SyncTab(QWidget):
             self.group_combo.addItem(text)
             self.group_combo.setCurrentIndex(len(self.sync_groups) - 1)
             self.save_data()
+            self._invalidate_analysis()
             
     def rename_group(self):
         if self.current_group_idx < 0:
@@ -385,6 +461,7 @@ class SyncTab(QWidget):
             self.sync_groups[self.current_group_idx]["name"] = text
             self.group_combo.setItemText(self.current_group_idx, text)
             self.save_data()
+            self._invalidate_analysis()
             
     def delete_group(self):
         if self.current_group_idx < 0:
@@ -405,6 +482,7 @@ class SyncTab(QWidget):
                 
             self.save_data()
             self.group_combo.setCurrentIndex(0) # 첫번째로 이동
+            self._invalidate_analysis()
 
     # --- 폴더 관리 로직 ---
     def dragEnterEvent(self, event):
@@ -437,8 +515,7 @@ class SyncTab(QWidget):
             folders.append(normalized)
             self.save_data()
             self.refresh_folder_list()
-            self.table_widget.setRowCount(0) # 플랜 초기화
-            self.plan_summary_label.setText(self._t("Not analyzed (folders changed)", "분석 전 (폴더 변경됨)", "Nie przeanalizowano (zmieniono foldery)"))
+            self._invalidate_analysis(folders_changed=True)
             
     def add_folder(self):
         folder = QFileDialog.getExistingDirectory(self, self._msg("sync_add_folder_title"))
@@ -461,8 +538,7 @@ class SyncTab(QWidget):
                 
         self.save_data()
         self.refresh_folder_list()
-        self.table_widget.setRowCount(0)
-        self.plan_summary_label.setText(self._t("Not analyzed (folders changed)", "분석 전 (폴더 변경됨)", "Nie przeanalizowano (zmieniono foldery)"))
+        self._invalidate_analysis(folders_changed=True)
         
     def clear_folders(self):
         if self.current_group_idx < 0:
@@ -471,18 +547,19 @@ class SyncTab(QWidget):
         self.sync_groups[self.current_group_idx]["folders"] = []
         self.save_data()
         self.refresh_folder_list()
-        self.table_widget.setRowCount(0)
-        self.plan_summary_label.setText(self._t("Not analyzed", "분석 전", "Nie przeanalizowano"))
+        self._invalidate_analysis(folders_changed=True)
 
     # --- 분석 및 실행 로직 ---
     def start_dry_run(self):
         # 폴더가 2개 이상인 그룹이 하나라도 있는지 확인
-        valid_groups = [g for g in self.sync_groups if len(g.get("folders", [])) >= 2]
+        valid_groups = self._valid_groups()
         if not valid_groups:
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No group contains at least two folders.\nAdd folders before analyzing.", "최소 2개 이상의 폴더가 등록된 그룹이 하나도 없습니다.\n폴더를 추가해주세요.", "Żadna grupa nie zawiera co najmniej dwóch folderów.\nDodaj foldery przed analizą."))
             return
             
         self.is_running = True
+        self._analysis_is_current = False
+        self._analysis_has_actions = False
         self.set_ui_enabled(False)
         self.stop_btn.setEnabled(True)
         self.table_widget.setRowCount(0)
@@ -497,6 +574,8 @@ class SyncTab(QWidget):
         
     def on_dry_run_finished(self, actions):
         self.is_running = False
+        self._analysis_is_current = True
+        self._analysis_has_actions = bool(actions)
         self.set_ui_enabled(True)
         self.stop_btn.setEnabled(False)
         
@@ -549,9 +628,16 @@ class SyncTab(QWidget):
             QMessageBox.information(self, self._t("Information", "정보", "Informacja"), self._t("All group folders are already synchronized.", "모든 그룹의 파일들이 이미 최신 동기화 상태입니다.", "Wszystkie foldery grup są już zsynchronizowane."))
             
     def start_sync_execution(self):
-        valid_groups = [g for g in self.sync_groups if len(g.get("folders", [])) >= 2]
+        valid_groups = self._valid_groups()
         if not valid_groups:
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No group contains at least two folders.", "최소 2개 이상의 폴더가 등록된 그룹이 하나도 없습니다.", "Żadna grupa nie zawiera co najmniej dwóch folderów."))
+            return
+        if not self._analysis_is_current or not self._analysis_has_actions:
+            QMessageBox.information(
+                self,
+                self._t("Preview required", "미리보기 필요", "Wymagany podgląd"),
+                self._t("Preview the current changes before synchronizing.", "동기화 전에 현재 변경 내용을 먼저 미리보세요.", "Przed synchronizacją wyświetl podgląd bieżących zmian."),
+            )
             return
             
         reply = QMessageBox.question(
@@ -600,6 +686,8 @@ class SyncTab(QWidget):
 
     def on_sync_finished(self, success, success_count, fail_count, errors):
         self.is_running = False
+        self._analysis_is_current = False
+        self._analysis_has_actions = False
         self.set_ui_enabled(True)
         self.stop_btn.setEnabled(False)
         self.table_widget.setRowCount(0) # 작업이 끝났으므로 비움
@@ -609,6 +697,7 @@ class SyncTab(QWidget):
                 self.plan_summary_label.setText(self._msg("sync_completed_summary", success=success_count))
                 show_toast(self, self._msg("sync_completed_toast"), "success")
                 QMessageBox.information(self, self._msg("common_completed"), self._msg("sync_completed_dialog", success=success_count))
+                self.workflow_widget.complete_all()
             else:
                 self.plan_summary_label.setText(self._msg("sync_partial_summary", success=success_count, failed=fail_count))
                 show_toast(self, self._msg("sync_partial_toast", success=success_count, failed=fail_count), "warning")

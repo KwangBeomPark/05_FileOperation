@@ -28,6 +28,7 @@ from src.ui.sync_tab import SyncTab
 from src.ui.bypass_tab import BypassTab
 from src.ui.task_tab import TaskTab
 from src.ui.settings_dialog import SettingsDialog
+from src.ui.manual_dialog import ManualDialog
 from src.ui.i18n import choose, get_app_language, localize_widget_tree, tr
 from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSITORY, releases_page_url
 from src.core.updater import AutoUpdater
@@ -425,6 +426,10 @@ class MainWindow(QMainWindow):
         # 탭 위젯 생성
         self.tab_widget = QTabWidget()
         self.tab_widget.setDocumentMode(True)
+        self.screen_help_btn = QPushButton()
+        self.screen_help_btn.setProperty("variant", "secondary")
+        self.screen_help_btn.clicked.connect(self.open_current_tab_manual)
+        self.tab_widget.setCornerWidget(self.screen_help_btn, Qt.Corner.TopRightCorner)
         central_layout.addWidget(self.tab_widget)
         
         # 각 탭 초기화 및 추가
@@ -455,12 +460,32 @@ class MainWindow(QMainWindow):
             if hasattr(tab, "refresh_language"):
                 tab.refresh_language()
         self._set_tab_labels()
+        self.screen_help_btn.setText(tr("help_current_screen", self.language))
+        self.screen_help_btn.setToolTip(tr("help_current_screen", self.language))
         self.status_bar.showMessage(tr("ready", self.language))
 
     def _set_tab_labels(self):
         tab_labels = ("tab_tasks", "tab_sync", "tab_eml", "tab_pdf", "tab_ocr", "tab_bypass")
         for index, key in enumerate(tab_labels):
             self.tab_widget.setTabText(index, tr(key, self.language))
+
+    def _current_manual_topic(self):
+        topic_by_widget = {
+            self.task_tab: "tasks",
+            self.sync_tab: "sync",
+            self.eml_tab: "eml",
+            self.pdf_tab: "pdf",
+            self.ocr_tab: "ocr",
+            self.bypass_tab: "bypass",
+        }
+        return topic_by_widget.get(self.tab_widget.currentWidget(), "getting_started")
+
+    def open_manual(self, topic_id="getting_started"):
+        dialog = ManualDialog(self.language, topic_id, self)
+        dialog.exec()
+
+    def open_current_tab_manual(self):
+        self.open_manual(self._current_manual_topic())
 
     def setup_system_tray(self):
         """Keep scheduled work alive after the main window is closed."""
@@ -604,6 +629,21 @@ class MainWindow(QMainWindow):
         self.file_menu.addAction(exit_action)
         
         self.help_menu = menu_bar.addMenu(tr("help_menu", self.language))
+
+        getting_started_action = QAction(tr("help_getting_started", self.language), self)
+        getting_started_action.triggered.connect(lambda: self.open_manual("getting_started"))
+        self.help_menu.addAction(getting_started_action)
+
+        current_screen_action = QAction(tr("help_current_screen", self.language), self)
+        current_screen_action.triggered.connect(self.open_current_tab_manual)
+        self.help_menu.addAction(current_screen_action)
+
+        manual_action = QAction(tr("help_user_manual", self.language), self)
+        manual_action.setShortcut("F1")
+        manual_action.triggered.connect(lambda: self.open_manual(self._current_manual_topic()))
+        self.help_menu.addAction(manual_action)
+
+        self.help_menu.addSeparator()
         
         check_update_action = QAction(tr("check_updates", self.language), self)
         check_update_action.triggered.connect(lambda: self.trigger_update_check(silent=False))
@@ -789,6 +829,8 @@ class MainWindow(QMainWindow):
             if hasattr(tab, "refresh_language"):
                 tab.refresh_language()
         self._set_tab_labels()
+        self.screen_help_btn.setText(tr("help_current_screen", self.language))
+        self.screen_help_btn.setToolTip(tr("help_current_screen", self.language))
         self.update_banner_title.setText(tr("update_available", self.language))
         self.update_download_btn.setText(tr("download", self.language))
         self.update_release_btn.setText(tr("view_release", self.language))
@@ -826,7 +868,7 @@ class MainWindow(QMainWindow):
         if self.sync_tab.is_running:
             active_tasks.append(choose(self.language, "Folder synchronization", "폴더 동기화", "Synchronizacja folderów"))
         if self.bypass_tab.is_running:
-            active_tasks.append(choose(self.language, "File conversion", "포맷 우회 변환", "Konwersja plików"))
+            active_tasks.append(choose(self.language, "File conversion", "파일 변환", "Konwersja plików"))
             
         if active_tasks:
             task_list = ", ".join(active_tasks)
