@@ -747,9 +747,9 @@ class MainWindow(QMainWindow):
                     try:
                         # 방어 검증: 파일 존재 여부 및 확장자 검증
                         if not os.path.exists(result):
-                            raise FileNotFoundError(choose(self.language, "The downloaded installer was not found.", "다운로드된 설치 파일을 찾을 수 없습니다."))
+                            raise FileNotFoundError(choose(self.language, "The downloaded installer was not found.", "다운로드된 설치 파일을 찾을 수 없습니다.", "Nie znaleziono pobranego instalatora."))
                         if not result.lower().endswith('.exe'):
-                            raise PermissionError(choose(self.language, "Only executable installer files (.exe) can be launched.", "실행 가능한 설치 파일(.exe)만 바로 실행할 수 있습니다."))
+                            raise PermissionError(choose(self.language, "Only executable installer files (.exe) can be launched.", "실행 가능한 설치 파일(.exe)만 바로 실행할 수 있습니다.", "Można uruchamiać tylko pliki instalatora wykonywalnego (.exe)."))
                             
                         # 설치 파일 실행
                         os.startfile(result)
@@ -816,24 +816,24 @@ class MainWindow(QMainWindow):
 
         active_tasks = []
         if self.task_tab.is_running:
-            active_tasks.append(choose(self.language, "Run Tasks", "통합 일괄 실행"))
+            active_tasks.append(choose(self.language, "Run Tasks", "통합 일괄 실행", "Uruchamianie zadań"))
         if self.pdf_tab.is_converting:
-            active_tasks.append(choose(self.language, "PDF conversion", "PDF 이미지 변환"))
+            active_tasks.append(choose(self.language, "PDF conversion", "PDF 이미지 변환", "Konwersja PDF"))
         if self.ocr_tab.is_converting:
-            active_tasks.append(choose(self.language, "Image OCR and rename", "이미지 OCR 이름 변경"))
+            active_tasks.append(choose(self.language, "Image OCR and rename", "이미지 OCR 이름 변경", "OCR obrazów i zmiana nazw"))
         if self.eml_tab.is_converting:
-            active_tasks.append(choose(self.language, "EML conversion", "EML 변환"))
+            active_tasks.append(choose(self.language, "EML conversion", "EML 변환", "Konwersja EML"))
         if self.sync_tab.is_running:
-            active_tasks.append(choose(self.language, "Folder synchronization", "폴더 동기화"))
+            active_tasks.append(choose(self.language, "Folder synchronization", "폴더 동기화", "Synchronizacja folderów"))
         if self.bypass_tab.is_running:
-            active_tasks.append(choose(self.language, "File conversion", "포맷 우회 변환"))
+            active_tasks.append(choose(self.language, "File conversion", "포맷 우회 변환", "Konwersja plików"))
             
         if active_tasks:
             task_list = ", ".join(active_tasks)
             reply = QMessageBox.question(
                 self, 
-                choose(self.language, "Tasks are running", "작업 진행 중"),
-                choose(self.language, f"The following tasks are running: [{task_list}]. Force the application to exit?\n(Forcing exit may damage data.)", f"현재 [{task_list}] 작업이 실행 중입니다. 프로그램을 강제 종료하시겠습니까?\n(강제 종료 시 데이터 손상이 발생할 수 있습니다.)"),
+                choose(self.language, "Tasks are running", "작업 진행 중", "Zadania są uruchomione"),
+                choose(self.language, f"The following tasks are running: [{task_list}]. Force the application to exit?\n(Forcing exit may damage data.)", f"현재 [{task_list}] 작업이 실행 중입니다. 프로그램을 강제 종료하시겠습니까?\n(강제 종료 시 데이터 손상이 발생할 수 있습니다.)", f"Następujące zadania są uruchomione: [{task_list}]. Wymusić zamknięcie aplikacji?\n(Wymuszone zamknięcie może uszkodzić dane.)"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
                 QMessageBox.StandardButton.No
             )

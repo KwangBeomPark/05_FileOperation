@@ -124,6 +124,17 @@ class PreflightTests(unittest.TestCase):
         self.assertTrue(valid)
         self.assertIn(DEFAULT_GITHUB_REPOSITORY_SLUG, detail)
 
+    def test_polish_preflight_formats_user_facing_issue_text(self):
+        plan = RunPlan({TaskStep.OCR: OcrRunConfig(["image.png"])})
+        config = FakeConfig({"ui_language": "pl"})
+        with patch("src.core.preflight.check_ocr_engines", return_value=(False, "missing", False)):
+            report = check_run_plan(plan, config)
+
+        rendered = report.format(language="pl")
+        self.assertIn("Blokada", rendered)
+        self.assertIn("Brak dostępnego silnika OCR", rendered)
+        self.assertNotRegex(rendered, r"[가-힣]")
+
 
 if __name__ == "__main__":
     unittest.main()

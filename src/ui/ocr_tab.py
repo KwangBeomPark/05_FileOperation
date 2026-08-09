@@ -145,6 +145,11 @@ class OCRTab(QWidget):
         return choose(self.language, english, korean, polish)
 
     def refresh_language(self):
+        self.workflow_widget.set_step_texts([
+            self._t("1. Load Images", "1. 이미지 불러오기", "1. Wczytaj obrazy"),
+            self._t("2. Run OCR & Rename", "2. OCR 및 이름 변경", "2. Uruchom OCR i zmień nazwy"),
+            self._t("3. Complete", "3. 완료", "3. Zakończ"),
+        ])
         self.update_summary_labels()
         
     def init_ui(self):
@@ -291,7 +296,7 @@ class OCRTab(QWidget):
                 checked_paths.append(item.data(Qt.ItemDataRole.UserRole))
                 
         if not checked_paths:
-            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Select at least one image using its checkbox.", "분석을 실행할 이미지 파일을 체크박스에서 먼저 선택해 주세요."))
+            QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("Select at least one image using its checkbox.", "분석을 실행할 이미지 파일을 체크박스에서 먼저 선택해 주세요.", "Zaznacz co najmniej jeden obraz za pomocą pola wyboru."))
             return
             
         self.is_converting = True
@@ -406,7 +411,13 @@ class OCRTab(QWidget):
         except RuntimeError:
             pass
             
-        self.image_summary_label.setText(self._t(f"Images: {total} (selected: {checked})", f"불러온 이미지: {total}개 (선택됨: {checked}개)"))
+        self.image_summary_label.setText(
+            self._t(
+                f"Images: {total} (selected: {checked})",
+                f"불러온 이미지: {total}개 (선택됨: {checked}개)",
+                f"Obrazy: {total} (wybrane: {checked})",
+            )
+        )
 
     def build_run_config(self):
         checked_paths = []

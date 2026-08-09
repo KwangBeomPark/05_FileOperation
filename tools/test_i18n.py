@@ -1,9 +1,26 @@
 import unittest
+from string import Formatter
 
-from src.ui.i18n import detect_system_language, localize_static_text, normalize_language, tr
+from src.ui.i18n import MESSAGES, STATIC_TEXT, detect_system_language, localize_static_text, normalize_language, tr
 
 
 class LocalizationTests(unittest.TestCase):
+    def test_catalog_languages_have_identical_keys_and_placeholders(self):
+        self.assertEqual(set(MESSAGES["en"]), set(MESSAGES["ko"]))
+        self.assertEqual(set(MESSAGES["en"]), set(MESSAGES["pl"]))
+        formatter = Formatter()
+        for key in MESSAGES["en"]:
+            placeholders = {
+                language: {field for _, field, _, _ in formatter.parse(MESSAGES[language][key]) if field}
+                for language in ("en", "ko", "pl")
+            }
+            self.assertEqual(placeholders["en"], placeholders["ko"], key)
+            self.assertEqual(placeholders["en"], placeholders["pl"], key)
+
+    def test_static_text_has_all_supported_languages(self):
+        for source, translations in STATIC_TEXT.items():
+            self.assertEqual(set(translations), {"en", "ko", "pl"}, source)
+
     def test_supported_windows_and_locale_languages(self):
         self.assertEqual(detect_system_language(ui_language_id=0x0409), "en")
         self.assertEqual(detect_system_language(ui_language_id=0x0412), "ko")
@@ -23,6 +40,8 @@ class LocalizationTests(unittest.TestCase):
         self.assertEqual(localize_static_text("PDF Input Files", "ko"), "PDF 입력 파일")
         self.assertEqual(localize_static_text("PDF Input Files", "pl"), "Pliki PDF")
         self.assertEqual(localize_static_text("중지", "en"), "Stop")
+        self.assertEqual(localize_static_text("목록 비우기", "pl"), "Wyczyść listę")
+        self.assertEqual(localize_static_text("OCR 및 이름 변경 시작", "pl"), "Rozpocznij OCR i zmianę nazw")
 
     def test_tray_messages_are_localized(self):
         self.assertEqual(tr("tray_open", "ko"), "FileOps Hub 열기")

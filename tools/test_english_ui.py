@@ -19,9 +19,11 @@ from PyQt6.QtWidgets import (
 
 from src.ui.bypass_tab import BypassTab
 from src.ui.eml_tab import EMLTab
+from src.ui.eml_task_dialog import EMLTaskDialog
 from src.ui.i18n import localize_widget_tree
 from src.ui.ocr_tab import OCRTab
 from src.ui.pdf_tab import PDFTab
+from src.ui.settings_dialog import SettingsDialog
 from src.ui.sync_tab import SyncTab
 from src.ui.task_tab import TaskTab
 from src.utils.config_manager import ConfigManager
@@ -63,7 +65,7 @@ def visible_widget_texts(widget):
     return [value for value in values if value]
 
 
-class EnglishUiTests(unittest.TestCase):
+class LocalizedUiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -105,6 +107,86 @@ class EnglishUiTests(unittest.TestCase):
             for tab in tabs:
                 tab.deleteLater()
             self.app.processEvents()
+
+    def test_polish_dynamic_labels_and_empty_state_warnings(self):
+        captured = []
+
+        def record(_parent, title, message, *_args, **_kwargs):
+            captured.extend([title, message])
+
+        tabs = [SyncTab(FakeConfig("pl")), EMLTab(FakeConfig("pl")), PDFTab(FakeConfig("pl")), OCRTab(FakeConfig("pl")), BypassTab(FakeConfig("pl"))]
+        try:
+            for tab in tabs:
+                localize_widget_tree(tab, "pl")
+                if hasattr(tab, "refresh_language"):
+                    tab.refresh_language()
+
+            sync_tab, eml_tab, pdf_tab, ocr_tab, bypass_tab = tabs
+            self.assertEqual(sync_tab.group_combo.currentText(), "Domyślna grupa synchronizacji")
+            self.assertEqual(sync_tab.sync_groups[0]["name"], "Default Sync Group")
+            self.assertEqual(sync_tab.plan_summary_label.text(), "Nie przeanalizowano")
+            self.assertEqual(pdf_tab.workflow_widget.step_labels[0].text(), "1. Wybierz PDF")
+            self.assertEqual(pdf_tab.pdf_summary_label.text(), "Wybrane PDF: 0")
+            self.assertEqual(ocr_tab.workflow_widget.step_labels[1].text(), "2. Uruchom OCR i zmień nazwy")
+            self.assertEqual(ocr_tab.image_summary_label.text(), "Obrazy: 0 (wybrane: 0)")
+            self.assertEqual(bypass_tab.workflow_widget.step_labels[0].text(), "1. Skanuj pliki")
+            self.assertEqual(
+                [bypass_tab.file_table.horizontalHeaderItem(index).text() for index in range(4)],
+                ["Nazwa pliku", "Rozmiar oryginału", "Format docelowy", "Stan"],
+            )
+
+            with patch("PyQt6.QtWidgets.QMessageBox.warning", side_effect=record):
+                sync_tab.start_dry_run()
+                eml_tab.start_conversion()
+                pdf_tab.start_conversion()
+                ocr_tab.start_ocr()
+                bypass_tab.scan_source_folder()
+            self.assertTrue(captured)
+            self.assertTrue(all("Ostrzeżenie" == captured[index] for index in range(0, len(captured), 2)))
+            self.assertTrue(any("co najmniej dwóch folderów" in text for text in captured))
+            self.assertTrue(any("plik PDF" in text for text in captured))
+            self.assertTrue(any("prawidłowy folder źródłowy" in text for text in captured))
+        finally:
+            for tab in tabs:
+                tab.deleteLater()
+            self.app.processEvents()
+
+    def test_polish_eml_task_dialog_is_localized(self):
+        dialog = EMLTaskDialog(language="pl")
+        try:
+            texts = visible_widget_texts(dialog)
+            self.assertIn("Nazwa zadania:", texts)
+            self.assertIn("Folder źródłowy:", texts)
+            self.assertIn("Anuluj", texts)
+            self.assertNotIn("Choose Folder", texts)
+        finally:
+            dialog.deleteLater()
+            self.app.processEvents()
+
+    def test_polish_settings_dialog_is_localized(self):
+        dialog = SettingsDialog(FakeConfig("pl"))
+        try:
+            texts = visible_widget_texts(dialog)
+            self.assertIn("Serwer SMTP:", texts)
+            self.assertIn("Adres nadawcy:", texts)
+            self.assertIn("Przykład: 465 lub 587", texts)
+            self.assertNotIn("Sender Password:", texts)
+        finally:
+            dialog.deleteLater()
+            self.app.processEvents()
+
+    def test_workflow_retranslation_preserves_completion_state(self):
+        from src.ui.workflow_widget import WorkflowWidget
+
+        widget = WorkflowWidget(["One", "Two", "Three"])
+        try:
+            widget.set_active_step(1)
+            widget.set_step_texts(["Jeden", "Dwa", "Trzy"])
+            self.assertEqual(widget.step_labels[0].text(), "✓ Jeden")
+            self.assertEqual(widget.step_labels[1].text(), "Dwa")
+            self.assertEqual(widget.step_statuses, ["complete", "active", "pending"])
+        finally:
+            widget.deleteLater()
 
     def test_switching_from_korean_to_english_retranslates_live_tabs(self):
         tabs = []

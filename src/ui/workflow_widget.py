@@ -14,6 +14,7 @@ class WorkflowWidget(QWidget):
             "4. Rename Files",
             "5. Organize Files"
         ]
+        self.step_statuses = ['pending'] * len(self.steps)
         self.step_labels = []
         self.arrow_labels = []
         self.init_ui()
@@ -84,6 +85,7 @@ class WorkflowWidget(QWidget):
     
     def update_step(self, step_index, status):
         if 0 <= step_index < len(self.step_labels):
+            self.step_statuses[step_index] = status
             label = self.step_labels[step_index]
             label.setStyleSheet(self._get_style(status))
             
@@ -92,6 +94,14 @@ class WorkflowWidget(QWidget):
                 label.setText(f"✓ {original_text}")
             else:
                 label.setText(self.steps[step_index])
+
+    def set_step_texts(self, steps):
+        """Replace translated step labels without resetting workflow progress."""
+        if len(steps) != len(self.step_labels):
+            raise ValueError("The number of workflow steps cannot change after initialization.")
+        self.steps = list(steps)
+        for index, status in enumerate(self.step_statuses):
+            self.update_step(index, status)
     
     def set_active_step(self, step_index):
         for i in range(len(self.step_labels)):

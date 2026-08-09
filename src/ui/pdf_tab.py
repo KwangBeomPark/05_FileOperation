@@ -34,9 +34,6 @@ class PDFConvertWorker(QThread):
     def _t(self, english, korean, polish=None):
         return choose(self.language, english, korean, polish)
 
-    def refresh_language(self):
-        self.update_summary_labels()
-        
     def stop(self):
         self.is_running = False
         
@@ -89,6 +86,14 @@ class PDFTab(QWidget):
 
     def _t(self, english, korean, polish=None):
         return choose(self.language, english, korean, polish)
+
+    def refresh_language(self):
+        self.workflow_widget.set_step_texts([
+            self._t("1. Select PDF", "1. PDF 선택", "1. Wybierz PDF"),
+            self._t("2. Convert Images", "2. 이미지 변환", "2. Konwertuj obrazy"),
+            self._t("3. Complete", "3. 완료", "3. Zakończ"),
+        ])
+        self.update_summary_labels()
         
     def init_ui(self):
         layout = QVBoxLayout()
@@ -222,12 +227,12 @@ class PDFTab(QWidget):
             
     def start_conversion(self):
         if not self.selected_pdf_paths:
-            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Add at least one PDF file first.", "변환할 PDF 파일을 먼저 추가해 주세요."))
+            QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("Add at least one PDF file first.", "변환할 PDF 파일을 먼저 추가해 주세요.", "Najpierw dodaj co najmniej jeden plik PDF."))
             return
             
         output_folder = self.output_path_input.text().strip()
         if not output_folder:
-            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Select an output folder.", "출력 저장 폴더를 지정해 주세요."))
+            QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("Select an output folder.", "출력 저장 폴더를 지정해 주세요.", "Wybierz folder wyjściowy."))
             return
             
         os.makedirs(output_folder, exist_ok=True)
@@ -318,8 +323,10 @@ class PDFTab(QWidget):
             dialog.exec()
 
     def update_summary_labels(self):
-        self.pdf_summary_label.setText(self._t(f"Selected PDFs: {len(self.selected_pdf_paths)}", f"선택된 PDF: {len(self.selected_pdf_paths)}개"))
-        self.result_summary_label.setText(self._t(f"Created images: {len(self.image_files)}", f"생성 이미지: {len(self.image_files)}개"))
+        pdf_count = len(self.selected_pdf_paths)
+        image_count = len(self.image_files)
+        self.pdf_summary_label.setText(self._t(f"Selected PDFs: {pdf_count}", f"선택된 PDF: {pdf_count}개", f"Wybrane PDF: {pdf_count}"))
+        self.result_summary_label.setText(self._t(f"Created images: {image_count}", f"생성 이미지: {image_count}개", f"Utworzone obrazy: {image_count}"))
 
     def build_run_config(self):
         if not self.selected_pdf_paths:

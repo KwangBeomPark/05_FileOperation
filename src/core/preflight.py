@@ -51,13 +51,13 @@ class PreflightReport:
         selected_language = language or self.language
         selected = self.blockers + (self.warnings if include_warnings else [])
         if not selected:
-            return choose(selected_language, "No blocking preflight issues were found.", "사전 점검에서 차단 이슈가 발견되지 않았습니다.")
+            return choose(selected_language, "No blocking preflight issues were found.", "사전 점검에서 차단 이슈가 발견되지 않았습니다.", "Kontrola wstępna nie wykryła problemów blokujących.")
         lines = []
         for issue in selected:
             prefix = (
-                choose(selected_language, "Blocker", "차단")
+                choose(selected_language, "Blocker", "차단", "Blokada")
                 if issue.level == IssueLevel.BLOCKER
-                else choose(selected_language, "Warning", "경고")
+                else choose(selected_language, "Warning", "경고", "Ostrzeżenie")
             )
             step = f"[{issue.step.value}] " if issue.step else ""
             line = f"- {prefix}: {step}{issue.message}"
@@ -201,8 +201,8 @@ def check_run_plan(
 ) -> PreflightReport:
     language = get_app_language(config_manager)
     report = PreflightReport(language=language)
-    def localize(english: str, korean: str) -> str:
-        return choose(language, english, korean)
+    def localize(english: str, korean: str, polish: str | None = None) -> str:
+        return choose(language, english, korean, polish)
 
     def detail_text(value: str) -> str:
         if language == "ko":
@@ -232,12 +232,14 @@ def check_run_plan(
             return localize(
                 f"{label} timed out after {probe_result.elapsed_seconds:.1f} seconds. Open Diagnostics for recovery guidance.",
                 f"{label} 검사가 {probe_result.elapsed_seconds:.1f}초 후 시간 초과되었습니다. 진단 및 복구에서 해결 방법을 확인하세요.",
+                f"Przekroczono limit czasu kontroli {label} ({probe_result.elapsed_seconds:.1f} s). Otwórz Diagnostykę, aby uzyskać wskazówki naprawcze.",
             )
         if probe_result.cancelled:
-            return localize(f"{label} was cancelled.", f"{label} 검사가 취소되었습니다.")
+            return localize(f"{label} was cancelled.", f"{label} 검사가 취소되었습니다.", f"Kontrola {label} została anulowana.")
         return localize(
             f"{label} could not be checked: {probe_result.error}",
             f"{label} 검사 실패: {probe_result.error}",
+            f"Nie udało się sprawdzić {label}: {probe_result.error}",
         )
 
     if TaskStep.OCR in run_plan.configs:
@@ -252,15 +254,15 @@ def check_run_plan(
             detail = (
                 str(ocr_probe.value.get("detail", ""))
                 if ocr_probe.ok
-                else probe_failure(localize("OCR engine", "OCR 엔진"), ocr_probe)
+                else probe_failure(localize("OCR engine", "OCR 엔진", "silnika OCR"), ocr_probe)
             )
             using_fallback = bool(ocr_probe.ok and ocr_probe.value.get("using_fallback"))
         else:
             ok, detail, using_fallback = check_ocr_engines(config_manager)
         if not ok:
-            report.add_blocker(localize("No OCR engine is available.", "사용 가능한 OCR 엔진이 없습니다."), detail_text(detail), TaskStep.OCR)
+            report.add_blocker(localize("No OCR engine is available.", "사용 가능한 OCR 엔진이 없습니다.", "Brak dostępnego silnika OCR."), detail_text(detail), TaskStep.OCR)
         elif using_fallback:
-            report.add_warning(localize("Windows OCR will be used instead of Tesseract.", "Tesseract 대신 Windows 내장 OCR로 진행합니다."), detail_text(detail), TaskStep.OCR)
+            report.add_warning(localize("Windows OCR will be used instead of Tesseract.", "Tesseract 대신 Windows 내장 OCR로 진행합니다.", "Zamiast Tesseract zostanie użyty mechanizm OCR systemu Windows."), detail_text(detail), TaskStep.OCR)
 
     if TaskStep.EML in run_plan.configs:
         if isolated and check_browser:
@@ -273,21 +275,21 @@ def check_run_plan(
             detail = (
                 str(browser_probe.value.get("detail", ""))
                 if browser_probe.ok
-                else probe_failure(localize("EML browser", "EML 브라우저"), browser_probe)
+                else probe_failure(localize("EML browser", "EML 브라우저", "przeglądarki EML"), browser_probe)
             )
         else:
             ok, detail = check_playwright_driver(check_browser=check_browser)
         if not ok:
-            report.add_blocker(localize("The Playwright EML rendering driver is unavailable.", "Playwright EML 렌더링 드라이버를 사용할 수 없습니다."), detail_text(detail), TaskStep.EML)
+            report.add_blocker(localize("The Playwright EML rendering driver is unavailable.", "Playwright EML 렌더링 드라이버를 사용할 수 없습니다.", "Sterownik renderowania EML Playwright jest niedostępny."), detail_text(detail), TaskStep.EML)
         custom_chromium = config_manager.get("offline_chromium_path", "")
         if custom_chromium and not os.path.exists(custom_chromium):
-            report.add_warning(localize("The offline Chromium path does not exist.", "오프라인 Chromium 경로가 존재하지 않습니다."), custom_chromium, TaskStep.EML)
+            report.add_warning(localize("The offline Chromium path does not exist.", "오프라인 Chromium 경로가 존재하지 않습니다.", "Ścieżka do Chromium w trybie offline nie istnieje."), custom_chromium, TaskStep.EML)
 
     bypass_config = run_plan.configs.get(TaskStep.BYPASS)
     if isinstance(bypass_config, BypassRunConfig):
         ok, detail = check_office_imports()
         if not ok:
-            report.add_blocker(localize("The Office COM automation module (pywin32) is unavailable.", "Office COM 자동화 모듈(pywin32)을 사용할 수 없습니다."), detail_text(detail), TaskStep.BYPASS)
+            report.add_blocker(localize("The Office COM automation module (pywin32) is unavailable.", "Office COM 자동화 모듈(pywin32)을 사용할 수 없습니다.", "Moduł automatyzacji Office COM (pywin32) jest niedostępny."), detail_text(detail), TaskStep.BYPASS)
         apps = required_office_apps(bypass_config)
         if apps and check_office:
             if isolated:
@@ -301,15 +303,15 @@ def check_run_plan(
                 errors = (
                     list(office_probe.value.get("errors") or [])
                     if office_probe.ok
-                    else [probe_failure(localize("Office automation", "Office 자동화"), office_probe)]
+                    else [probe_failure(localize("Office automation", "Office 자동화", "automatyzacji Office"), office_probe)]
                 )
             else:
                 office_ok, errors = check_office_apps(apps)
             if not office_ok:
-                report.add_blocker(localize("The required Microsoft Office COM application could not be started.", "필요한 Microsoft Office COM 앱을 실행할 수 없습니다."), "\n".join(errors), TaskStep.BYPASS)
+                report.add_blocker(localize("The required Microsoft Office COM application could not be started.", "필요한 Microsoft Office COM 앱을 실행할 수 없습니다.", "Nie udało się uruchomić wymaganej aplikacji Microsoft Office COM."), "\n".join(errors), TaskStep.BYPASS)
         elif apps:
             report.add_warning(
-                localize("Office conversion depends on Excel, Word, or PowerPoint being installed on this computer.", "Office 파일 변환은 대상 PC의 Excel/Word/PowerPoint COM 설치 상태에 의존합니다."),
+                localize("Office conversion depends on Excel, Word, or PowerPoint being installed on this computer.", "Office 파일 변환은 대상 PC의 Excel/Word/PowerPoint COM 설치 상태에 의존합니다.", "Konwersja plików Office wymaga zainstalowanego programu Excel, Word lub PowerPoint na tym komputerze."),
                 ", ".join(apps),
                 TaskStep.BYPASS,
             )
@@ -320,6 +322,7 @@ def check_run_plan(
                 localize(
                     "Convert Files will move source files to recoverable backup folders after verified conversion.",
                     "파일 변환은 출력 검증 후 원본을 복구 가능한 백업 폴더로 이동합니다.",
+                    "Po zweryfikowanej konwersji pliki źródłowe zostaną przeniesione do folderów kopii zapasowej z możliwością odzyskania.",
                 ),
                 "\n".join(backup_folders),
                 TaskStep.BYPASS,
@@ -328,20 +331,20 @@ def check_run_plan(
     if auto_email:
         missing = []
         for key, label in [
-            ("smtp_server", localize("SMTP server", "SMTP 서버")),
-            ("sender_email", localize("Sender email", "발신자 이메일")),
-            ("receiver_email", localize("Recipient email", "수신자 이메일")),
+            ("smtp_server", localize("SMTP server", "SMTP 서버", "serwer SMTP")),
+            ("sender_email", localize("Sender email", "발신자 이메일", "adres nadawcy")),
+            ("receiver_email", localize("Recipient email", "수신자 이메일", "adres odbiorcy")),
         ]:
             if not str(config_manager.get(key, "")).strip():
                 missing.append(label)
         if missing:
             report.add_warning(
-                localize("Some automatic email settings are missing; the report may be saved locally instead.", "이메일 자동 발송 설정이 일부 누락되어 작업 완료 후 로컬 보고서로 대체될 수 있습니다."),
+                localize("Some automatic email settings are missing; the report may be saved locally instead.", "이메일 자동 발송 설정이 일부 누락되어 작업 완료 후 로컬 보고서로 대체될 수 있습니다.", "Brakuje części ustawień automatycznej poczty; raport może zostać zapisany lokalnie."),
                 ", ".join(missing),
             )
 
     updater_ok, updater_detail = check_github_updater_settings(config_manager)
     if not updater_ok:
-        report.add_warning(localize("Check the GitHub updater settings.", "GitHub updater 설정을 확인해 주세요."), detail_text(updater_detail))
+        report.add_warning(localize("Check the GitHub updater settings.", "GitHub updater 설정을 확인해 주세요.", "Sprawdź ustawienia aktualizacji z GitHub."), detail_text(updater_detail))
 
     return report

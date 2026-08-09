@@ -185,3 +185,28 @@ Protect source files in Convert Files: default to keeping originals, add a destr
 - **Mitigated (P2):** the standalone launcher still repeats repository constants by design; parity is now executable documentation through tests.
 - **Open (P2):** diagnostic and preflight localization still contains inline multilingual strings and a legacy replacement table. Moving these into the shared i18n catalog should be a separate behavior-reviewed pass.
 - **Open (P2):** probe dispatch is intentionally a closed conditional allow-list. If the probe set grows substantially, introduce a typed registry while preserving the same security boundary.
+
+## 2026-08-09 — Maintenance pass 2: localization boundaries and language QA
+
+### Implemented decisions
+
+- Keep saved synchronization group names independent from the display language. Recognized legacy default names are translated only in the combo box; custom names remain user data.
+- Let workflow step labels be retranslated without resetting pending, active, or completed state.
+- Complete the Polish startup text for Sync, PDF, OCR, Convert Files, EML task setup, Settings, and preflight issue summaries, including Polish diacritics.
+- Keep file paths, extensions, product names, and user-provided task/group names unchanged during localization.
+- Enforce identical catalog keys and format placeholders across English, Korean, and Polish with regression tests.
+
+### Audit status
+
+- **Fixed (P1):** changing the display language could rewrite and save the legacy default synchronization group name.
+- **Fixed (P2):** Polish workflow steps, live counts, Convert Files headers, default sync group, and common empty-state warnings fell back to English.
+- **Fixed (P2):** Polish preflight blockers and warnings used English headings and primary messages.
+- **Fixed (P3):** four Polish static labels omitted required diacritics.
+- **Verified:** 122 automated tests pass, and actual Windows rendering at 1400×900 shows correct Korean/Polish glyphs with no clipping in the reviewed main tabs and Polish Settings dialog.
+- **Open (P2):** detailed per-file progress, completion, and failure messages in legacy feature workers still use the documented English fallback when a dedicated Polish string is absent. Consolidate those inline strings into the shared catalog in a separate behavior-reviewed pass.
+
+### Follow-up observations
+
+1. Move remaining worker/toast/message-box strings into `MESSAGES` so translation completeness can be measured by key coverage instead of AST heuristics.
+2. Add screenshot snapshots for stable empty states at one normal and one high-DPI scale; keep real file operations outside visual tests.
+3. Add a translator-facing glossary for recurring terms such as source, output, backup, dry run, and preflight before expanding beyond the current three languages.

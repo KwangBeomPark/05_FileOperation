@@ -16,6 +16,12 @@ from src.utils.logger import get_logger
 
 logger = get_logger()
 
+DEFAULT_SYNC_GROUP_NAMES = {
+    "Default Sync Group",
+    "기본 동기화 그룹",
+    "Domyślna grupa synchronizacji",
+}
+
 class SyncWorker(QThread):
     progress = pyqtSignal(int, int, str) # current, total, status_msg
     finished = pyqtSignal(bool, int, int, list) # success, success_count, fail_count, errors
@@ -44,7 +50,7 @@ class SyncWorker(QThread):
             move_to_deleted = self.config_manager.get("sync_move_to_deleted", True)
             
             if self.is_dry_run:
-                self.progress.emit(0, len(self.sync_groups), self._t("Analyzing all synchronization folders and files...", "동기화 대상 폴더 및 파일 전체 분석 중..."))
+                self.progress.emit(0, len(self.sync_groups), self._t("Analyzing all synchronization folders and files...", "동기화 대상 폴더 및 파일 전체 분석 중...", "Analizowanie wszystkich folderów i plików synchronizacji..."))
                 for i, group in enumerate(self.sync_groups):
                     if self.is_cancelled:
                         break
@@ -52,7 +58,7 @@ class SyncWorker(QThread):
                     if len(folders) < 2:
                         continue # 최소 2개 미만 폴더 그룹은 동기화할 수 없으므로 건너뜀
                         
-                    self.progress.emit(i, len(self.sync_groups), self._t(f"Analyzing: {group['name']}...", f"분석 중: {group['name']} ..."))
+                    self.progress.emit(i, len(self.sync_groups), self._t(f"Analyzing: {group['name']}...", f"분석 중: {group['name']} ...", f"Analizowanie: {group['name']}..."))
                     self.current_manager = SyncManager(folders=folders, move_to_deleted=move_to_deleted)
                     actions = self.current_manager.analyze_sync()
                     
@@ -62,7 +68,7 @@ class SyncWorker(QThread):
                     
                     all_actions.extend(actions)
                     
-                self.progress.emit(len(self.sync_groups), len(self.sync_groups), self._t("Analysis completed.", "전체 분석 완료."))
+                self.progress.emit(len(self.sync_groups), len(self.sync_groups), self._t("Analysis completed.", "전체 분석 완료.", "Analiza zakończona."))
                 self.dry_run_finished.emit(all_actions)
             else:
                 total_success = 0
@@ -72,7 +78,7 @@ class SyncWorker(QThread):
                 # 전체 일괄 동기화 (분석과 실행을 연달아 수행)
                 for i, group in enumerate(self.sync_groups):
                     if self.is_cancelled:
-                        all_errors.append(self._t("The operation was stopped by the user.", "사용자에 의해 전체 작업이 중단되었습니다."))
+                        all_errors.append(self._t("The operation was stopped by the user.", "사용자에 의해 전체 작업이 중단되었습니다.", "Operacja została zatrzymana przez użytkownika."))
                         break
                         
                     folders = group.get("folders", [])
@@ -80,7 +86,7 @@ class SyncWorker(QThread):
                         logger.info(f"Skipping group '{group['name']}' (less than 2 folders).")
                         continue
                         
-                    self.progress.emit(i, len(self.sync_groups), self._t(f"[{group['name']}] Preparing analysis and synchronization...", f"[{group['name']}] 분석 및 동기화 준비 중..."))
+                    self.progress.emit(i, len(self.sync_groups), self._t(f"[{group['name']}] Preparing analysis and synchronization...", f"[{group['name']}] 분석 및 동기화 준비 중...", f"[{group['name']}] Przygotowywanie analizy i synchronizacji..."))
                     
                     self.current_manager = SyncManager(folders=folders, move_to_deleted=move_to_deleted)
                     actions = self.current_manager.analyze_sync()
@@ -114,7 +120,7 @@ class SyncWorker(QThread):
                         
                 # 마지막 진행도 100%
                 if not self.is_cancelled:
-                    self.progress.emit(len(self.sync_groups), len(self.sync_groups), self._t("All synchronization groups completed.", "전체 동기화 완료."))
+                    self.progress.emit(len(self.sync_groups), len(self.sync_groups), self._t("All synchronization groups completed.", "전체 동기화 완료.", "Zakończono wszystkie grupy synchronizacji."))
                     
                 self.finished.emit(
                     not self.is_cancelled and total_fail == 0,
@@ -151,40 +157,38 @@ class SyncTab(QWidget):
         if self.language == "ko" or not isinstance(value, str):
             return value
         replacements = {
-            "신규 복사": "New copy",
-            "최신 업데이트": "Update to latest",
-            "구버전 정리": "Archive older version",
-            "동시 수정 충돌": "Concurrent modification conflict",
-            "충돌 보존 백업": "Preserve conflict backup",
-            "충돌 백업 후 최신 업데이트": "Back up conflict, then update",
-            "to_be_deleted이동": "Move to 'to be deleted'",
-            "복사": "Copy",
-            "사용자에 의해 작업이 중단되었습니다.": "The operation was stopped by the user.",
-            "동기화 완료": "Synchronization completed",
-            "처리 중": "Processing",
+            "신규 복사": self._t("New copy", "신규 복사", "Nowa kopia"),
+            "최신 업데이트": self._t("Update to latest", "최신 업데이트", "Aktualizacja do najnowszej wersji"),
+            "구버전 정리": self._t("Archive older version", "구버전 정리", "Archiwizacja starszej wersji"),
+            "동시 수정 충돌": self._t("Concurrent modification conflict", "동시 수정 충돌", "Konflikt równoczesnych zmian"),
+            "충돌 보존 백업": self._t("Preserve conflict backup", "충돌 보존 백업", "Kopia zapasowa konfliktu"),
+            "충돌 백업 후 최신 업데이트": self._t("Back up conflict, then update", "충돌 백업 후 최신 업데이트", "Kopia konfliktu, następnie aktualizacja"),
+            "to_be_deleted이동": self._t("Move to 'to be deleted'", "to_be_deleted이동", "Przenieś do 'to be deleted'"),
+            "복사": self._t("Copy", "복사", "Kopiowanie"),
+            "사용자에 의해 작업이 중단되었습니다.": self._t("The operation was stopped by the user.", "사용자에 의해 작업이 중단되었습니다.", "Operacja została zatrzymana przez użytkownika."),
+            "동기화 완료": self._t("Synchronization completed", "동기화 완료", "Synchronizacja zakończona"),
+            "처리 중": self._t("Processing", "처리 중", "Przetwarzanie"),
         }
         translated = value
         for korean, english in replacements.items():
             translated = translated.replace(korean, english)
         return translated
 
+    def _display_group_name(self, stored_name):
+        if stored_name in DEFAULT_SYNC_GROUP_NAMES:
+            return self._t("Default Sync Group", "기본 동기화 그룹", "Domyślna grupa synchronizacji")
+        return stored_name
+
     def refresh_language(self):
-        renamed_default = False
-        if self.language != "ko":
-            for index, group in enumerate(self.sync_groups):
-                if group.get("name") == "기본 동기화 그룹":
-                    group["name"] = "Default Sync Group"
-                    self.group_combo.setItemText(index, "Default Sync Group")
-                    renamed_default = True
-        if renamed_default:
-            self.save_data()
+        for index, group in enumerate(self.sync_groups):
+            self.group_combo.setItemText(index, self._display_group_name(group.get("name", "")))
         self.refresh_folder_list()
         if not self.is_running:
             count = self.table_widget.rowCount()
             self.plan_summary_label.setText(
-                self._t(f"Analysis ready: {count} actions", f"분석 결과: {count}건")
+                self._t(f"Analysis ready: {count} actions", f"분석 결과: {count}건", f"Analiza gotowa: {count} operacji")
                 if count
-                else self._t("Not analyzed", "분석 전")
+                else self._t("Not analyzed", "분석 전", "Nie przeanalizowano")
             )
         for row in range(self.table_widget.rowCount()):
             item = self.table_widget.item(row, 2)
@@ -310,24 +314,19 @@ class SyncTab(QWidget):
             self.sync_groups = saved_groups
         elif old_folders is not None:
             # 하위 호환성 마이그레이션
-            self.sync_groups = [{"name": self._t("Default Sync Group", "기본 동기화 그룹"), "folders": old_folders}]
+            self.sync_groups = [{"name": "Default Sync Group", "folders": old_folders}]
             self.config_manager.set("sync_groups", self.sync_groups)
         else:
-            self.sync_groups = [{"name": self._t("Default Sync Group", "기본 동기화 그룹"), "folders": []}]
+            self.sync_groups = [{"name": "Default Sync Group", "folders": []}]
             
         if not self.sync_groups: # 만약 비어있다면 최소 1개 보장
-            self.sync_groups = [{"name": self._t("Default Sync Group", "기본 동기화 그룹"), "folders": []}]
-
-        if self.language != "ko":
-            for group in self.sync_groups:
-                if group.get("name") == "기본 동기화 그룹":
-                    group["name"] = "Default Sync Group"
+            self.sync_groups = [{"name": "Default Sync Group", "folders": []}]
             
         # 콤보박스 채우기
         self.group_combo.blockSignals(True)
         self.group_combo.clear()
         for group in self.sync_groups:
-            self.group_combo.addItem(group["name"])
+            self.group_combo.addItem(self._display_group_name(group["name"]))
         self.group_combo.blockSignals(False)
         
         # 마지막 선택 인덱스 복원
@@ -397,9 +396,9 @@ class SyncTab(QWidget):
             
             if not self.sync_groups:
                 # 마지막 그룹이 지워지면 기본 그룹 1개 강제 생성
-                default_name = self._t("Default Sync Group", "기본 동기화 그룹")
+                default_name = "Default Sync Group"
                 self.sync_groups.append({"name": default_name, "folders": []})
-                self.group_combo.addItem(default_name)
+                self.group_combo.addItem(self._display_group_name(default_name))
                 
             self.save_data()
             self.group_combo.setCurrentIndex(0) # 첫번째로 이동
@@ -421,7 +420,8 @@ class SyncTab(QWidget):
             folders = self.sync_groups[self.current_group_idx].get("folders", [])
             for folder in folders:
                 self.folder_list_widget.addItem(folder)
-            self.folder_summary_label.setText(self._t(f"Folders: {len(folders)}", f"등록 폴더: {len(folders)}개"))
+            folder_count = len(folders)
+            self.folder_summary_label.setText(self._t(f"Folders: {folder_count}", f"등록 폴더: {folder_count}개", f"Foldery: {folder_count}"))
             
     def add_folder_to_current_group(self, folder_path):
         if self.current_group_idx < 0:
@@ -435,7 +435,7 @@ class SyncTab(QWidget):
             self.save_data()
             self.refresh_folder_list()
             self.table_widget.setRowCount(0) # 플랜 초기화
-            self.plan_summary_label.setText(self._t("Not analyzed (folders changed)", "분석 전 (폴더 변경됨)"))
+            self.plan_summary_label.setText(self._t("Not analyzed (folders changed)", "분석 전 (폴더 변경됨)", "Nie przeanalizowano (zmieniono foldery)"))
             
     def add_folder(self):
         folder = QFileDialog.getExistingDirectory(self, self._t("Add Folder to Synchronize", "동기화 대상 폴더 추가"))
@@ -459,7 +459,7 @@ class SyncTab(QWidget):
         self.save_data()
         self.refresh_folder_list()
         self.table_widget.setRowCount(0)
-        self.plan_summary_label.setText(self._t("Not analyzed (folders changed)", "분석 전 (폴더 변경됨)"))
+        self.plan_summary_label.setText(self._t("Not analyzed (folders changed)", "분석 전 (폴더 변경됨)", "Nie przeanalizowano (zmieniono foldery)"))
         
     def clear_folders(self):
         if self.current_group_idx < 0:
@@ -469,14 +469,14 @@ class SyncTab(QWidget):
         self.save_data()
         self.refresh_folder_list()
         self.table_widget.setRowCount(0)
-        self.plan_summary_label.setText(self._t("Not analyzed", "분석 전"))
+        self.plan_summary_label.setText(self._t("Not analyzed", "분석 전", "Nie przeanalizowano"))
 
     # --- 분석 및 실행 로직 ---
     def start_dry_run(self):
         # 폴더가 2개 이상인 그룹이 하나라도 있는지 확인
         valid_groups = [g for g in self.sync_groups if len(g.get("folders", [])) >= 2]
         if not valid_groups:
-            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("No group contains at least two folders.\nAdd folders before analyzing.", "최소 2개 이상의 폴더가 등록된 그룹이 하나도 없습니다.\n폴더를 추가해주세요."))
+            QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No group contains at least two folders.\nAdd folders before analyzing.", "최소 2개 이상의 폴더가 등록된 그룹이 하나도 없습니다.\n폴더를 추가해주세요.", "Żadna grupa nie zawiera co najmniej dwóch folderów.\nDodaj foldery przed analizą."))
             return
             
         self.is_running = True
@@ -485,7 +485,7 @@ class SyncTab(QWidget):
         self.table_widget.setRowCount(0)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("0%")
-        self.plan_summary_label.setText(self._t("Analyzing all groups...", "전체 그룹 분석 중..."))
+        self.plan_summary_label.setText(self._t("Analyzing all groups...", "전체 그룹 분석 중...", "Analizowanie wszystkich grup..."))
         
         self.worker = SyncWorker(self.sync_groups, self.config_manager, is_dry_run=True)
         self.worker.progress.connect(self.update_progress)
@@ -537,17 +537,18 @@ class SyncTab(QWidget):
             self.table_widget.setItem(row_idx, 5, details_item)
             
         if actions:
-            self.plan_summary_label.setText(self._t(f"Analysis result: {len(actions)} actions planned", f"분석 결과: 전체 실행 예정 {len(actions)}건"))
-            show_toast(self, self._t(f"Analysis complete: {len(actions)} actions planned", f"분석 완료! 총 {len(actions)}건 예정"), "info")
+            action_count = len(actions)
+            self.plan_summary_label.setText(self._t(f"Analysis result: {action_count} actions planned", f"분석 결과: 전체 실행 예정 {action_count}건", f"Wynik analizy: zaplanowano {action_count} operacji"))
+            show_toast(self, self._t(f"Analysis complete: {action_count} actions planned", f"분석 완료! 총 {action_count}건 예정", f"Analiza zakończona: zaplanowano {action_count} operacji"), "info")
         else:
-            self.plan_summary_label.setText(self._t("Analysis result: nothing to do", "분석 결과: 실행할 작업 없음"))
-            show_toast(self, self._t("Analysis complete: folders are already synchronized.", "분석 완료: 동기화할 내역이 없습니다."), "success")
-            QMessageBox.information(self, self._t("Information", "정보"), self._t("All group folders are already synchronized.", "모든 그룹의 파일들이 이미 최신 동기화 상태입니다."))
+            self.plan_summary_label.setText(self._t("Analysis result: nothing to do", "분석 결과: 실행할 작업 없음", "Wynik analizy: brak operacji"))
+            show_toast(self, self._t("Analysis complete: folders are already synchronized.", "분석 완료: 동기화할 내역이 없습니다.", "Analiza zakończona: foldery są już zsynchronizowane."), "success")
+            QMessageBox.information(self, self._t("Information", "정보", "Informacja"), self._t("All group folders are already synchronized.", "모든 그룹의 파일들이 이미 최신 동기화 상태입니다.", "Wszystkie foldery grup są już zsynchronizowane."))
             
     def start_sync_execution(self):
         valid_groups = [g for g in self.sync_groups if len(g.get("folders", [])) >= 2]
         if not valid_groups:
-            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("No group contains at least two folders.", "최소 2개 이상의 폴더가 등록된 그룹이 하나도 없습니다."))
+            QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No group contains at least two folders.", "최소 2개 이상의 폴더가 등록된 그룹이 하나도 없습니다.", "Żadna grupa nie zawiera co najmniej dwóch folderów."))
             return
             
         reply = QMessageBox.question(

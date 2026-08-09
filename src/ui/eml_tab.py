@@ -364,7 +364,7 @@ class EMLTab(QWidget):
             
     def start_conversion(self):
         if not self.tasks:
-            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("No batch tasks are configured. Add a task first.", "등록된 배치 태스크가 없습니다. 태스크를 추가해 주세요."))
+            QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No batch tasks are configured. Add a task first.", "등록된 배치 태스크가 없습니다. 태스크를 추가해 주세요.", "Nie skonfigurowano zadań wsadowych. Najpierw dodaj zadanie."))
             return
             
         width = int(self.config_manager.get("eml_output_width", 1024))

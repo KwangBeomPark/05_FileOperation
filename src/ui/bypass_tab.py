@@ -231,7 +231,19 @@ class BypassTab(QWidget):
         return answer == QMessageBox.StandardButton.Yes
 
     def refresh_language(self):
-        self.summary_label.setText(self._t(f"Files found: {len(self.scanned_files)}", f"검색된 대상 파일: {len(self.scanned_files)}개"))
+        file_count = len(self.scanned_files)
+        self.workflow_widget.set_step_texts([
+            self._t("1. Scan Files", "1. 파일 스캔", "1. Skanuj pliki"),
+            self._t("2. Run Conversion", "2. 변환 실행", "2. Uruchom konwersję"),
+            self._t("3. Complete", "3. 완료", "3. Zakończ"),
+        ])
+        self.file_table.setHorizontalHeaderLabels([
+            self._t("File Name", "파일명", "Nazwa pliku"),
+            self._t("Original Size", "원본 크기", "Rozmiar oryginału"),
+            self._t("Target Format", "대상 형식", "Format docelowy"),
+            self._t("Status", "상태", "Stan"),
+        ])
+        self.summary_label.setText(self._t(f"Files found: {file_count}", f"검색된 대상 파일: {file_count}개", f"Znalezione pliki: {file_count}"))
         self.backup_recovery_btn.setText(
             self._t(
                 "Review / Restore Original Backup",
@@ -240,10 +252,20 @@ class BypassTab(QWidget):
             )
         )
         if not self.scanned_files:
-            if self.src_entry.text().startswith(("드래그 앤 드롭", "Drag a folder")):
-                self.src_entry.setText(self._t("Drag a folder here or choose one with the button.", "드래그 앤 드롭 또는 우측 버튼으로 폴더를 선택하세요."))
-            if self.tgt_entry.text().startswith(("저장할 우회", "Choose the folder")):
-                self.tgt_entry.setText(self._t("Choose the folder where converted files are saved.", "저장할 우회 폴더를 선택하세요."))
+            source_prompts = ("드래그 앤 드롭", "Drag a folder", "Przeciągnij folder")
+            if self.src_entry.text().startswith(source_prompts):
+                self.src_entry.setText(self._t(
+                    "Drag a folder here or choose one with the button.",
+                    "드래그 앤 드롭 또는 우측 버튼으로 폴더를 선택하세요.",
+                    "Przeciągnij folder tutaj lub wybierz go przyciskiem.",
+                ))
+            target_prompts = ("저장할 우회", "Choose the folder", "Wybierz folder zapisu")
+            if self.tgt_entry.text().startswith(target_prompts):
+                self.tgt_entry.setText(self._t(
+                    "Choose the folder where converted files are saved.",
+                    "저장할 우회 폴더를 선택하세요.",
+                    "Wybierz folder zapisu przekonwertowanych plików.",
+                ))
         
     def init_ui(self):
         layout = QVBoxLayout()
@@ -521,8 +543,8 @@ class BypassTab(QWidget):
 
     def scan_source_folder(self):
         src_dir = self.src_entry.text()
-        if not os.path.exists(src_dir) or src_dir.startswith(("드래그 앤 드롭", "Drag a folder")):
-            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Select a valid source folder first.", "올바른 소스 폴더를 먼저 선택해 주세요."))
+        if not os.path.exists(src_dir) or src_dir.startswith(("드래그 앤 드롭", "Drag a folder", "Przeciągnij folder")):
+            QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("Select a valid source folder first.", "올바른 소스 폴더를 먼저 선택해 주세요.", "Najpierw wybierz prawidłowy folder źródłowy."))
             return
             
         self.scanned_files.clear()
@@ -569,7 +591,8 @@ class BypassTab(QWidget):
                 self.file_table.setItem(idx, 2, QTableWidgetItem(tgt_ext))
                 self.file_table.setItem(idx, 3, QTableWidgetItem(self._t("Waiting", "대기 중")))
                 
-            self.summary_label.setText(self._t(f"Files found: {len(self.scanned_files)}", f"검색된 대상 파일: {len(self.scanned_files)}개"))
+            file_count = len(self.scanned_files)
+            self.summary_label.setText(self._t(f"Files found: {file_count}", f"검색된 대상 파일: {file_count}개", f"Znalezione pliki: {file_count}"))
             self.log_area.append(self._t(f"✅ Scan complete: found {len(self.scanned_files)} files.", f"✅ 스캔 완료: 총 {len(self.scanned_files)}개의 대상 파일을 발견했습니다."))
             self.workflow_widget.set_active_step(1)
             
@@ -579,7 +602,7 @@ class BypassTab(QWidget):
 
     def start_conversion(self):
         if not self.scanned_files:
-            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("No files are ready. Scan the source folder first.", "변환할 대상 파일이 없습니다. 스캔을 먼저 실행해 주세요."))
+            QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No files are ready. Scan the source folder first.", "변환할 대상 파일이 없습니다. 스캔을 먼저 실행해 주세요.", "Brak plików gotowych do konwersji. Najpierw przeskanuj folder źródłowy."))
             return
             
         # 설정값 실시간 캐시 동기화
