@@ -1,7 +1,10 @@
+import ast
+import re
 import unittest
 from string import Formatter
+from pathlib import Path
 
-from src.ui.i18n import MESSAGES, STATIC_TEXT, detect_system_language, localize_static_text, normalize_language, tr
+from src.ui.i18n import FEATURE_MESSAGES, MESSAGES, STATIC_TEXT, detect_system_language, localize_static_text, normalize_language, tr
 
 
 class LocalizationTests(unittest.TestCase):
@@ -17,9 +20,54 @@ class LocalizationTests(unittest.TestCase):
             self.assertEqual(placeholders["en"], placeholders["ko"], key)
             self.assertEqual(placeholders["en"], placeholders["pl"], key)
 
+    def test_non_korean_catalogs_do_not_contain_hangul(self):
+        hangul = re.compile(r"[가-힣]")
+        for language in ("en", "pl"):
+            leaked = [key for key, value in MESSAGES[language].items() if hangul.search(value)]
+            self.assertEqual(leaked, [], language)
+
     def test_static_text_has_all_supported_languages(self):
         for source, translations in STATIC_TEXT.items():
             self.assertEqual(set(translations), {"en", "ko", "pl"}, source)
+
+    def test_feature_runtime_catalog_is_merged_and_formats_polish(self):
+        for prefix in ("sync_", "eml_", "pdf_", "ocr_", "bypass_"):
+            self.assertTrue(any(key.startswith(prefix) for key in FEATURE_MESSAGES), prefix)
+        self.assertEqual(
+            tr("pdf_page_item", "pl", page=2, filename="sample.png"),
+            "Strona 2: sample.png",
+        )
+        self.assertIn(
+            "3/5",
+            tr("eml_task_completed_log", "pl", success=3, total=5),
+        )
+
+    def test_production_source_has_no_two_language_inline_translation_calls(self):
+        incomplete = []
+        unknown_keys = []
+        source_folder = Path(__file__).resolve().parents[1] / "src"
+        for path in source_folder.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if isinstance(node.func, ast.Attribute):
+                    name = node.func.attr
+                elif isinstance(node.func, ast.Name):
+                    name = node.func.id
+                else:
+                    continue
+                missing_polish = name in {"_t", "_text", "localize"} and len(node.args) == 2
+                missing_polish = missing_polish or name == "choose" and len(node.args) == 3
+                if missing_polish:
+                    incomplete.append(f"{path.name}:{node.lineno}")
+                if name in {"_msg", "tr"} and node.args:
+                    key_arg = node.args[0]
+                    if isinstance(key_arg, ast.Constant) and isinstance(key_arg.value, str):
+                        if key_arg.value not in MESSAGES["en"]:
+                            unknown_keys.append(f"{path.name}:{node.lineno}:{key_arg.value}")
+        self.assertEqual(incomplete, [])
+        self.assertEqual(unknown_keys, [])
 
     def test_supported_windows_and_locale_languages(self):
         self.assertEqual(detect_system_language(ui_language_id=0x0409), "en")

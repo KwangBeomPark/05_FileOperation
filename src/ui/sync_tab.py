@@ -10,7 +10,7 @@ from PyQt6.QtGui import QColor, QBrush, QFont
 
 from src.core.sync_manager import SyncManager
 from src.core.task_contracts import SyncGroupConfig, SyncRunConfig, TaskValidationError
-from src.ui.i18n import choose, get_app_language
+from src.ui.i18n import choose, get_app_language, tr
 from src.ui.toast_notification import show_toast
 from src.utils.logger import get_logger
 
@@ -152,6 +152,9 @@ class SyncTab(QWidget):
 
     def _t(self, english, korean, polish=None):
         return choose(self.language, english, korean, polish)
+
+    def _msg(self, key, **values):
+        return tr(key, self.language, **values)
 
     def _sync_text(self, value):
         if self.language == "ko" or not isinstance(value, str):
@@ -351,13 +354,13 @@ class SyncTab(QWidget):
         self.save_data()
         
     def add_group(self):
-        text, ok = QInputDialog.getText(self, self._t("Add Group", "새 그룹 추가"), self._t("Enter a synchronization group name:", "동기화 그룹 이름을 입력하세요:"))
+        text, ok = QInputDialog.getText(self, self._msg("sync_add_group_title"), self._msg("sync_add_group_prompt"))
         if ok and text:
             text = text.strip()
             if not text:
                 return
             if any(g["name"] == text for g in self.sync_groups):
-                QMessageBox.warning(self, self._t("Warning", "경고"), self._t("A group with this name already exists.", "이미 동일한 이름의 그룹이 존재합니다."))
+                QMessageBox.warning(self, self._msg("common_warning"), self._msg("sync_duplicate_group"))
                 return
                 
             self.sync_groups.append({"name": text, "folders": []})
@@ -370,13 +373,13 @@ class SyncTab(QWidget):
             return
             
         old_name = self.sync_groups[self.current_group_idx]["name"]
-        text, ok = QInputDialog.getText(self, self._t("Rename Group", "이름 변경"), self._t("Enter the new group name:", "새로운 그룹 이름을 입력하세요:"), text=old_name)
+        text, ok = QInputDialog.getText(self, self._msg("sync_rename_group_title"), self._msg("sync_rename_group_prompt"), text=old_name)
         if ok and text:
             text = text.strip()
             if not text or text == old_name:
                 return
             if any(g["name"] == text for g in self.sync_groups):
-                QMessageBox.warning(self, self._t("Warning", "경고"), self._t("A group with this name already exists.", "이미 동일한 이름의 그룹이 존재합니다."))
+                QMessageBox.warning(self, self._msg("common_warning"), self._msg("sync_duplicate_group"))
                 return
                 
             self.sync_groups[self.current_group_idx]["name"] = text
@@ -388,7 +391,7 @@ class SyncTab(QWidget):
             return
             
         group_name = self.sync_groups[self.current_group_idx]["name"]
-        reply = QMessageBox.question(self, self._t("Delete Group", "그룹 삭제"), self._t(f"Delete the '{group_name}' group?", f"'{group_name}' 그룹을 삭제하시겠습니까?"), QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        reply = QMessageBox.question(self, self._msg("sync_delete_group_title"), self._msg("sync_delete_group_prompt", name=group_name), QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         
         if reply == QMessageBox.StandardButton.Yes:
             del self.sync_groups[self.current_group_idx]
@@ -438,7 +441,7 @@ class SyncTab(QWidget):
             self.plan_summary_label.setText(self._t("Not analyzed (folders changed)", "분석 전 (폴더 변경됨)", "Nie przeanalizowano (zmieniono foldery)"))
             
     def add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, self._t("Add Folder to Synchronize", "동기화 대상 폴더 추가"))
+        folder = QFileDialog.getExistingDirectory(self, self._msg("sync_add_folder_title"))
         if folder:
             self.add_folder_to_current_group(folder)
             
@@ -553,8 +556,8 @@ class SyncTab(QWidget):
             
         reply = QMessageBox.question(
             self,
-            self._t("Synchronize All Groups", "전체 일괄 동기화 실행"),
-            self._t("Synchronize every configured group in sequence?", "모든 동기화 그룹에 대해 순차적으로 동기화를 자동 실행하시겠습니까?"),
+            self._msg("sync_run_title"),
+            self._msg("sync_run_confirm"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -567,7 +570,7 @@ class SyncTab(QWidget):
         self.stop_btn.setEnabled(True)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("0%")
-        self.plan_summary_label.setText(self._t("Synchronizing all groups...", "전체 일괄 동기화 실행 중..."))
+        self.plan_summary_label.setText(self._msg("sync_running"))
         
         self.worker = SyncWorker(self.sync_groups, self.config_manager, is_dry_run=False)
         self.worker.progress.connect(self.update_progress)
@@ -578,7 +581,7 @@ class SyncTab(QWidget):
         if self.worker:
             self.worker.stop()
             self.stop_btn.setEnabled(False)
-            self.plan_summary_label.setText(self._t("Stopping after the current file...", "중지 요청 중 (현재 파일까지만 처리)"))
+            self.plan_summary_label.setText(self._msg("sync_stopping"))
             logger.info("전체 동기화 중지 요청 전달됨")
             
     def stop_all(self):
@@ -603,20 +606,20 @@ class SyncTab(QWidget):
         
         if success:
             if fail_count == 0:
-                self.plan_summary_label.setText(self._t(f"Synchronization completed: {success_count} successful", f"전체 동기화 완료: 총 성공 {success_count}건"))
-                show_toast(self, self._t("All groups synchronized.", "전체 일괄 동기화 완료!"), "success")
-                QMessageBox.information(self, self._t("Completed", "완료"), self._t(f"All groups were synchronized successfully.\nSuccessful: {success_count}", f"모든 그룹의 동기화 작업이 성공적으로 완료되었습니다.\n(성공: {success_count}건)"))
+                self.plan_summary_label.setText(self._msg("sync_completed_summary", success=success_count))
+                show_toast(self, self._msg("sync_completed_toast"), "success")
+                QMessageBox.information(self, self._msg("common_completed"), self._msg("sync_completed_dialog", success=success_count))
             else:
-                self.plan_summary_label.setText(self._t(f"Partially failed: {success_count} successful, {fail_count} failed", f"일부 실패: 성공 {success_count}건, 실패 {fail_count}건"))
-                show_toast(self, self._t(f"Partially failed ({success_count} successful, {fail_count} failed)", f"일부 실패 (성공: {success_count}, 실패: {fail_count})"), "warning")
+                self.plan_summary_label.setText(self._msg("sync_partial_summary", success=success_count, failed=fail_count))
+                show_toast(self, self._msg("sync_partial_toast", success=success_count, failed=fail_count), "warning")
                 err_text = "\n".join(self._sync_text(error) for error in errors[:10])
                 if len(errors) > 10:
-                    err_text += self._t("\n...and more errors", "\n...외 다수 에러 발생")
-                QMessageBox.warning(self, self._t("Warning", "경고"), self._t(f"Some files could not be synchronized.\nSuccessful: {success_count}, failed: {fail_count}\n\n[Error log]\n{err_text}", f"일부 파일 동기화에 실패했습니다.\n성공: {success_count}건, 실패: {fail_count}건\n\n[오류 로그]\n{err_text}"))
+                    err_text += self._msg("sync_more_errors")
+                QMessageBox.warning(self, self._msg("common_warning"), self._msg("sync_partial_dialog", success=success_count, failed=fail_count, errors=err_text))
         else:
-            self.plan_summary_label.setText(self._t("Synchronization error", "동기화 오류"))
-            show_toast(self, self._t("Synchronization error", "동기화 오류 발생"), "error")
-            QMessageBox.critical(self, self._t("Error", "오류"), self._t("A fatal error occurred:\n", "작업 도중 치명적인 에러가 발생했습니다:\n") + "\n".join(self._sync_text(error) for error in errors))
+            self.plan_summary_label.setText(self._msg("sync_error_summary"))
+            show_toast(self, self._msg("sync_error_toast"), "error")
+            QMessageBox.critical(self, self._msg("common_error"), self._msg("sync_fatal_error", errors="\n".join(self._sync_text(error) for error in errors)))
 
     def build_run_config(self):
         valid_groups = [g for g in self.sync_groups if len(g.get("folders", [])) >= 2]

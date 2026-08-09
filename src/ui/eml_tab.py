@@ -11,7 +11,7 @@ from src.core.eml_converter import EMLConverter
 from src.core.task_contracts import EmlRunConfig, EmlTaskConfig, TaskValidationError
 from src.ui.eml_task_dialog import EMLTaskDialog
 from src.ui.toast_notification import show_toast
-from src.ui.i18n import choose, get_app_language
+from src.ui.i18n import choose, get_app_language, tr
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -33,10 +33,11 @@ class EMLWorker(QThread):
     def _t(self, english, korean, polish=None):
         return choose(self.language, english, korean, polish)
 
-    def refresh_language(self):
-        if not self.is_converting:
-            self.update_table_view()
-            self.status_label.setText(self._t("Waiting", "대기 중"))
+    def _msg(self, key, **values):
+        return tr(key, self.language, **values)
+
+    def _msg(self, key, **values):
+        return tr(key, self.language, **values)
         
     def stop(self):
         self.is_running = False
@@ -48,26 +49,26 @@ class EMLWorker(QThread):
         total_tasks = len(self.tasks)
         
         if total_tasks == 0:
-            self.finished.emit(False, self._t("There are no EML tasks to convert.", "변환할 EML 태스크가 존재하지 않습니다."))
+            self.finished.emit(False, self._msg("eml_no_tasks"))
             return
             
-        self.log_signal.emit(self._t(f"Starting {total_tasks} EML conversion tasks. (width: {self.width}px)", f"총 {total_tasks}개의 EML 태스크 변환 작업을 시작합니다. (폭: {self.width}px)"))
+        self.log_signal.emit(self._msg("eml_worker_starting", tasks=total_tasks, width=self.width))
         
         for task_idx, task in enumerate(self.tasks):
             if not self.is_running:
-                self.task_status_changed.emit(task_idx, self._t("Cancelled", "취소됨"))
-                self.log_signal.emit(self._t(f"\nTask [{task['name']}] cancelled", f"\n태스크 [{task['name']}] 취소됨"))
+                self.task_status_changed.emit(task_idx, self._msg("eml_cancelled"))
+                self.log_signal.emit(self._msg("eml_task_cancelled_log", name=task["name"]))
                 continue
                 
-            self.task_status_changed.emit(task_idx, self._t("Running", "진행 중"))
-            self.log_signal.emit(self._t(f"\n>>> Starting task [{task_idx+1}/{total_tasks}]: {task['name']}", f"\n>>> 태스크 [{task_idx+1}/{total_tasks}] 시작: {task['name']}"))
+            self.task_status_changed.emit(task_idx, self._msg("eml_running"))
+            self.log_signal.emit(self._msg("eml_task_starting_log", current=task_idx + 1, total=total_tasks, name=task["name"]))
             
             src = task.get("source_folder", "")
             tgt = task.get("target_folder", "")
             
             if not src or not os.path.exists(src):
-                self.task_status_changed.emit(task_idx, self._t("Failed (source missing)", "실패 (소스 없음)"))
-                self.log_signal.emit(self._t(f"   ✗ Error: the source folder is missing or invalid. ({src})", f"   ✗ 오류: 소스 폴더가 존재하지 않거나 유효하지 않습니다. ({src})"))
+                self.task_status_changed.emit(task_idx, self._msg("eml_failed_source_missing"))
+                self.log_signal.emit(self._msg("eml_source_missing_log", path=src))
                 continue
                 
             try:
@@ -77,24 +78,24 @@ class EMLWorker(QThread):
                     if f.lower().endswith('.eml')
                 ]
             except Exception as e:
-                self.task_status_changed.emit(task_idx, self._t("Failed (folder read error)", "실패 (폴더 읽기 오류)"))
-                self.log_signal.emit(self._t(f"   ✗ Error: could not read the source folder. ({e})", f"   ✗ 오류: 소스 폴더를 읽는 데 실패했습니다. ({e})"))
+                self.task_status_changed.emit(task_idx, self._msg("eml_failed_folder_read"))
+                self.log_signal.emit(self._msg("eml_folder_read_log", detail=e))
                 continue
                 
             total_files = len(eml_files)
             if total_files == 0:
-                self.task_status_changed.emit(task_idx, self._t("Failed (no EML files)", "실패 (EML 없음)"))
-                self.log_signal.emit(self._t("   ✗ Warning: the source folder contains no EML files.", "   ✗ 경고: 소스 폴더 내에 EML 파일이 없습니다."))
+                self.task_status_changed.emit(task_idx, self._msg("eml_failed_no_files"))
+                self.log_signal.emit(self._msg("eml_no_files_log"))
                 continue
                 
-            self.log_signal.emit(self._t(f"   -> Converting {total_files} EML files.", f"   -> {total_files}개의 EML 파일 변환을 진행합니다."))
+            self.log_signal.emit(self._msg("eml_files_to_convert_log", count=total_files))
             
             # 저장 대상 폴더 자동 생성 시도
             try:
                 os.makedirs(tgt, exist_ok=True)
             except Exception as e:
-                self.task_status_changed.emit(task_idx, self._t("Failed (output folder error)", "실패 (저장폴더 오류)"))
-                self.log_signal.emit(self._t(f"   ✗ Error: could not create the output folder. ({tgt}): {e}", f"   ✗ 오류: 저장 대상 폴더를 생성할 수 없습니다. ({tgt}): {e}"))
+                self.task_status_changed.emit(task_idx, self._msg("eml_failed_output_folder"))
+                self.log_signal.emit(self._msg("eml_output_folder_log", path=tgt, detail=e))
                 continue
                 
             task_success_count = 0
@@ -104,7 +105,7 @@ class EMLWorker(QThread):
                     break
                     
                 filename = os.path.basename(eml_path)
-                self.log_signal.emit(self._t(f"   [{file_idx+1}/{total_files}] Converting: {filename}", f"   [{file_idx+1}/{total_files}] 변환 중: {filename}"))
+                self.log_signal.emit(self._msg("eml_converting_file_log", current=file_idx + 1, total=total_files, filename=filename))
                 self.progress.emit(file_idx, total_files)
                 
                 out_png_name = os.path.splitext(filename)[0] + ".png"
@@ -114,34 +115,34 @@ class EMLWorker(QThread):
                     success = self.eml_converter.convert_eml_to_image(eml_path, out_png_path, width=self.width)
                     if success:
                         task_success_count += 1
-                        self.log_signal.emit(self._t(f"      ✓ Saved: {out_png_name}", f"      ✓ 저장 완료: {out_png_name}"))
+                        self.log_signal.emit(self._msg("eml_saved_log", filename=out_png_name))
                     else:
-                        self.log_signal.emit(self._t(f"      ✗ Conversion failed: {filename}", f"      ✗ 변환 실패: {filename}"))
+                        self.log_signal.emit(self._msg("eml_conversion_failed_log", filename=filename))
                 except Exception as file_err:
-                    self.log_signal.emit(self._t(f"      ✗ Error ({filename}): {file_err}", f"      ✗ 오류 발생 ({filename}): {file_err}"))
+                    self.log_signal.emit(self._msg("eml_file_error_log", filename=filename, detail=file_err))
                     
             if not self.is_running:
-                self.task_status_changed.emit(task_idx, self._t("Cancelled", "취소됨"))
+                self.task_status_changed.emit(task_idx, self._msg("eml_cancelled"))
                 break
                 
             self.progress.emit(total_files, total_files)
             
             if task_success_count == total_files:
-                self.task_status_changed.emit(task_idx, self._t("Completed", "완료"))
-                self.log_signal.emit(self._t(f"   ✓ Task completed ({task_success_count}/{total_files} successful)", f"   ✓ 태스크 완료 (성공: {task_success_count}/{total_files})"))
+                self.task_status_changed.emit(task_idx, self._msg("common_completed"))
+                self.log_signal.emit(self._msg("eml_task_completed_log", success=task_success_count, total=total_files))
                 success_tasks += 1
             else:
-                status_msg = self._t(f"Partially completed ({task_success_count}/{total_files})", f"부분 완료 ({task_success_count}/{total_files})")
+                status_msg = self._msg("eml_partially_completed", success=task_success_count, total=total_files)
                 self.task_status_changed.emit(task_idx, status_msg)
-                self.log_signal.emit(self._t(f"   ⚠ Task partially completed ({task_success_count}/{total_files} successful)", f"   ⚠ 태스크 부분 완료 (성공: {task_success_count}/{total_files})"))
+                self.log_signal.emit(self._msg("eml_partial_log", success=task_success_count, total=total_files))
                 
         if not self.is_running:
-            self.finished.emit(False, self._t("The operation was stopped by the user.", "사용자에 의해 전체 작업이 중지되었습니다."))
+            self.finished.emit(False, self._msg("eml_stopped_by_user"))
         else:
             all_succeeded = success_tasks == total_tasks
             self.finished.emit(
                 all_succeeded,
-                self._t(f"All tasks finished. ({success_tasks}/{total_tasks} successful)", f"전체 태스크 완료! (성공: {success_tasks}/{total_tasks}개 태스크)")
+                self._msg("eml_all_finished", success=success_tasks, total=total_tasks)
             )
 
 
@@ -254,11 +255,11 @@ class EMLTab(QWidget):
         for url in event.mimeData().urls():
             folder_path = os.path.normpath(url.toLocalFile())
             if os.path.isdir(folder_path):
-                self.log(self._t(f"Folder dropped: {folder_path}", f"폴더 드롭 감지: {folder_path}"))
+                self.log(self._msg("eml_folder_dropped", path=folder_path))
                 # 소스 폴더가 입력된 추가 다이얼로그 팝업
                 existing_names = [t["name"] for t in self.tasks]
                 folder_name = os.path.basename(folder_path)
-                default_name = self._t(f"{folder_name} EML Conversion", f"{folder_name} EML 변환")
+                default_name = self._msg("eml_generated_task_name", folder=folder_name)
                 
                 dialog = EMLTaskDialog(
                     self, 
@@ -273,7 +274,7 @@ class EMLTab(QWidget):
                     self.tasks.append(task_data)
                     self.save_tasks()
                     self.update_table_view()
-                    show_toast(self, self._t("Task added successfully.", "태스크가 성공적으로 추가되었습니다."), "success")
+                    show_toast(self, self._msg("eml_task_added_success"), "success")
                 break
                 
     def load_saved_tasks(self):
@@ -285,12 +286,12 @@ class EMLTab(QWidget):
             old_dir = self.config_manager.get("last_eml_directory", "")
             if old_dir and os.path.isdir(old_dir):
                 self.tasks = [{
-                    "name": self._t("Default EML Task", "기본 EML 태스크"),
+                    "name": self._msg("eml_default_task"),
                     "source_folder": old_dir,
                     "target_folder": old_dir
                 }]
                 self.config_manager.set("eml_tasks", self.tasks)
-                self.log(self._t("Migrated the previous EML folder setting to a batch task.", "기존 단일 EML 폴더 설정을 배치 태스크로 마이그레이션했습니다."))
+                self.log(self._msg("eml_migrated_setting"))
         self.update_table_view()
         
     def save_tasks(self):
@@ -304,7 +305,7 @@ class EMLTab(QWidget):
             self.table_widget.setItem(idx, 1, QTableWidgetItem(task.get("source_folder", "")))
             self.table_widget.setItem(idx, 2, QTableWidgetItem(task.get("target_folder", "")))
             
-            status_item = QTableWidgetItem(self._t("Waiting", "대기 중"))
+            status_item = QTableWidgetItem(self._msg("common_waiting"))
             status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table_widget.setItem(idx, 3, status_item)
             
@@ -318,12 +319,12 @@ class EMLTab(QWidget):
             self.tasks.append(task_data)
             self.save_tasks()
             self.update_table_view()
-            show_toast(self, self._t("Task added.", "태스크 추가 완료"), "success")
+            show_toast(self, self._msg("eml_task_added"), "success")
             
     def edit_selected_task(self):
         selected_row = self.table_widget.currentRow()
         if selected_row < 0:
-            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Select a task to edit.", "수정할 태스크를 목록에서 먼저 선택해 주세요."))
+            QMessageBox.warning(self, self._msg("common_warning"), self._msg("eml_select_task_edit"))
             return
             
         task = self.tasks[selected_row]
@@ -340,19 +341,19 @@ class EMLTab(QWidget):
             self.tasks[selected_row] = updated_data
             self.save_tasks()
             self.update_table_view()
-            show_toast(self, self._t("Task updated.", "태스크 수정 완료"), "success")
+            show_toast(self, self._msg("eml_task_updated"), "success")
             
     def delete_selected_task(self):
         selected_row = self.table_widget.currentRow()
         if selected_row < 0:
-            QMessageBox.warning(self, self._t("Warning", "경고"), self._t("Select a task to delete.", "삭제할 태스크를 목록에서 먼저 선택해 주세요."))
+            QMessageBox.warning(self, self._msg("common_warning"), self._msg("eml_select_task_delete"))
             return
             
-        task_name = self.tasks[selected_row].get("name", self._t("Unknown Task", "알 수 없는 태스크"))
+        task_name = self.tasks[selected_row].get("name", self._msg("eml_unknown_task"))
         reply = QMessageBox.question(
             self, 
-            self._t("Delete Task", "태스크 삭제"),
-            self._t(f"Delete the '{task_name}' task?", f"정말로 '{task_name}' 태스크를 삭제하시겠습니까?"),
+            self._msg("eml_delete_task_title"),
+            self._msg("eml_delete_task_prompt", name=task_name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -360,7 +361,7 @@ class EMLTab(QWidget):
             self.tasks.pop(selected_row)
             self.save_tasks()
             self.update_table_view()
-            show_toast(self, self._t("Task deleted.", "태스크 삭제 완료"), "success")
+            show_toast(self, self._msg("eml_task_deleted"), "success")
             
     def start_conversion(self):
         if not self.tasks:
@@ -373,14 +374,14 @@ class EMLTab(QWidget):
         self.set_ui_locked(True)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("0%")
-        self.status_label.setText(self._t(f"Preparing batch conversion... (width: {width}px)", f"배치 변환 실행 준비 중... (DPI 폭: {width}px)"))
+        self.status_label.setText(self._msg("eml_preparing", width=width))
         self.log_area.clear()
         
         # 테이블 내 모든 상태를 '대기 중' 및 흰색으로 초기화
         for r in range(self.table_widget.rowCount()):
             item = self.table_widget.item(r, 3)
             if item:
-                item.setText(self._t("Waiting", "대기 중"))
+                item.setText(self._msg("common_waiting"))
             for c in range(self.table_widget.columnCount()):
                 cell = self.table_widget.item(r, c)
                 if cell:
@@ -398,8 +399,8 @@ class EMLTab(QWidget):
         if self.worker:
             self.worker.stop()
             self.stop_btn.setEnabled(False)
-            self.status_label.setText(self._t("Requesting stop...", "중지 요청 처리 중..."))
-            self.log(self._t("\nStop requested. Finishing safely...", "\n사용자에 의해 작업 중지가 요청되었습니다. 안전하게 종료하는 중..."))
+            self.status_label.setText(self._msg("eml_requesting_stop"))
+            self.log(self._msg("eml_stop_log"))
             
     def stop_all(self):
         if self.worker and self.worker.isRunning():
@@ -409,7 +410,7 @@ class EMLTab(QWidget):
     def update_progress(self, current, total):
         percent = int((current / total) * 100) if total > 0 else 0
         self.progress_bar.setValue(percent)
-        self.progress_bar.setFormat(self._t(f"{percent}% ({current}/{total} files)", f"{percent}% ({current}/{total} 파일)"))
+        self.progress_bar.setFormat(self._msg("eml_progress_format", percent=percent, current=current, total=total))
         
     def on_task_status_changed(self, task_idx, status):
         # 테이블 상태 열 변경 및 색상 하이라이트
@@ -423,17 +424,17 @@ class EMLTab(QWidget):
         # 상태에 따른 로우 색상 매핑 (Dark Mode 고대비 조합)
         bg_color = QColor("#1e1e1e")
         text_color = QColor("#e2e8f0")
-        if status in ("진행 중", "Running"):
+        if status == self._msg("eml_running"):
             bg_color = QColor("#4d3e00")  # 어두운 금색
             text_color = QColor("#fef08a")  # 밝은 노랑
-            self.status_label.setText(self._t(f"Running task: {self.tasks[task_idx]['name']}", f"태스크 진행 중: {self.tasks[task_idx]['name']}"))
-        elif status in ("완료", "Completed"):
+            self.status_label.setText(self._msg("eml_running_task", name=self.tasks[task_idx]["name"]))
+        elif status == self._msg("common_completed"):
             bg_color = QColor("#14532d")  # 어두운 초록
             text_color = QColor("#bbf7d0")  # 밝은 초록
-        elif status.startswith("실패") or status.startswith("Failed"):
+        elif status.startswith(("실패", "Failed", "Niepowodzenie")):
             bg_color = QColor("#7f1d1d")  # 어두운 빨강
             text_color = QColor("#fecaca")  # 밝은 빨강
-        elif status in ("취소됨", "Cancelled"):
+        elif status == self._msg("eml_cancelled"):
             bg_color = QColor("#27272a")  # 어두운 회색
             text_color = QColor("#d4d4d8")  # 밝은 회색
             
@@ -449,12 +450,12 @@ class EMLTab(QWidget):
         self.status_label.setText(message)
         
         if success:
-            show_toast(self, self._t("EML batch conversion completed.", "EML 배치 변환 성공!"), "success")
-            QMessageBox.information(self, self._t("Completed", "완료"), message)
+            show_toast(self, self._msg("eml_completed_toast"), "success")
+            QMessageBox.information(self, self._msg("common_completed"), message)
         else:
-            stopped = "중지" in message or "stopped" in message.lower()
-            show_toast(self, self._t(f"EML conversion stopped/failed: {message}", f"EML 배치 변환 중지/실패: {message}"), "warning" if stopped else "error")
-            QMessageBox.warning(self, self._t("Notice", "알림"), message)
+            stopped = message == self._msg("eml_stopped_by_user")
+            show_toast(self, self._msg("eml_failed_toast", detail=message), "warning" if stopped else "error")
+            QMessageBox.warning(self, self._msg("common_notice"), message)
             
     def set_ui_locked(self, locked):
         self.add_btn.setEnabled(not locked)

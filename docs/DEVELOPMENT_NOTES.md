@@ -210,3 +210,22 @@ Protect source files in Convert Files: default to keeping originals, add a destr
 1. Move remaining worker/toast/message-box strings into `MESSAGES` so translation completeness can be measured by key coverage instead of AST heuristics.
 2. Add screenshot snapshots for stable empty states at one normal and one high-DPI scale; keep real file operations outside visual tests.
 3. Add a translator-facing glossary for recurring terms such as source, output, backup, dry run, and preflight before expanding beyond the current three languages.
+
+## 2026-08-09 — Maintenance pass 3: runtime message catalog integration
+
+### Implemented decisions
+
+- Move the remaining Sync, EML, PDF, OCR, and Convert Files progress, completion, and failure text into the shared key-based localization catalog.
+- Keep feature code responsible only for selecting a message key and supplying named values such as file name, count, path, or error detail.
+- Merge a key-first `FEATURE_MESSAGES` section into the existing language-first `MESSAGES` API so current `tr()` callers and catalog validation remain compatible.
+- Translate legacy OCR and Convert Files error fragments through catalog keys instead of mapping Korean errors directly to English in Polish mode.
+- Remove unused worker-level `refresh_language` methods that referenced tab-only state and could fail if called.
+
+### Audit status
+
+- **Fixed (P2):** detailed Polish worker progress, completion, cancellation, and failure messages fell back to English.
+- **Fixed (P2):** localized EML statuses changed text but the row-color logic recognized only Korean and English states.
+- **Fixed (P3):** Polish Settings strings for access token, manual update mode, and notifications omitted diacritics.
+- **Verified:** all three catalogs have identical keys and placeholders; English and Polish catalogs contain no Hangul; production source contains no two-language-only translation calls; literal runtime message keys are validated against the catalog.
+- **Verified:** 125 automated tests pass, and the actual Polish Windows main window renders correctly at 1400×900 after integration.
+- **Open (P3):** several already-complete three-language dialog strings remain inline. They are covered by the no-missing-language check; moving them is optional catalog housekeeping rather than a user-visible localization defect.
