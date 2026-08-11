@@ -335,6 +335,17 @@ def check_run_plan(
                 "\n".join(backup_folders),
                 TaskStep.BYPASS,
             )
+        elif bypass_config.source_disposition == SourceDisposition.REPLACE:
+            source_files = [task.src for task in bypass_config.tasks]
+            report.add_warning(
+                localize(
+                    "After format-aware output validation, Convert Files moves each old source to Recycle Bin; permanent deletion is used only when recycling is unavailable.",
+                    "파일 변환은 출력 형식 검증 후 기존 원본을 휴지통으로 이동하며, 휴지통을 사용할 수 없을 때만 영구 삭제합니다.",
+                    "Po sprawdzeniu formatu wyniku stare źródło trafia do Kosza; trwałe usunięcie jest używane tylko, gdy Kosz jest niedostępny.",
+                ),
+                "\n".join(source_files),
+                TaskStep.BYPASS,
+            )
 
     if auto_email:
         missing = []

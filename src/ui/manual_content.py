@@ -48,6 +48,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "tips": [
                 "Click Run Diagnostics when a dependency such as Office, OCR, or a network folder is uncertain.",
                 "Open Run History to review earlier manual and scheduled reports.",
+                "The schedule status records the start time, end time, duration, and result of the latest scheduled run.",
             ],
             "cautions": [
                 "The application must remain running for a daily schedule to start.",
@@ -126,17 +127,19 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "title": "Convert Files",
             "summary": "Convert supported Office and PDF files while applying explicit output and source-handling rules.",
             "steps": [
-                "Choose the source folder and, when needed, a separate output folder.",
-                "Review target formats and source backup options.",
+                "Choose source replacement or a separate output folder, then select the source folder.",
+                "Review target formats and the highlighted source-action explanation.",
                 "Scan the folder and review every file and target format.",
                 "Select Start File Conversion and review the result log.",
             ],
             "tips": [
                 "Changing a target format clears the old scan so the preview cannot become stale.",
                 "Original Backup / Recovery opens the recovery screen for safely moved sources.",
+                "Separate output keeps sources by default and can optionally move them to Original Backup.",
             ],
             "cautions": [
-                "Moving sources to Original Backup happens only after a valid non-empty output is created.",
+                "After format-aware validation and final confirmation, source replacement moves the old source to Recycle Bin. If recycling is unavailable, it permanently deletes the old source. It is available only from this screen.",
+                "If conversion, validation, recycling, and the delete fallback cannot complete, the source remains in place.",
                 "Office conversions require the matching Microsoft Office application on this computer.",
             ],
         },
@@ -188,6 +191,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "tips": [
                 "Office, OCR, 브라우저 또는 네트워크 폴더가 의심되면 진단 및 복구를 실행하세요.",
                 "실행 이력에서 이전 수동·예약 실행의 상세 보고서를 확인할 수 있습니다.",
+                "예약 상태 영역에는 최근 예약 실행의 시작 시각, 종료 시각, 소요 시간과 결과가 함께 기록됩니다.",
             ],
             "cautions": [
                 "매일 자동 실행은 프로그램이 실행 중일 때만 시작됩니다.",
@@ -266,17 +270,19 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "title": "파일 변환",
             "summary": "지원되는 Office·PDF 파일을 명시한 출력 형식과 원본 처리 규칙에 따라 변환합니다.",
             "steps": [
-                "원본 폴더를 선택하고, 필요한 경우 별도의 저장 폴더를 선택합니다.",
-                "파일 종류별 변환 형식과 원본 백업 옵션을 확인합니다.",
+                "원본 교체 또는 별도 저장을 선택한 뒤 원본 폴더를 지정합니다.",
+                "파일 종류별 변환 형식과 강조 표시된 원본 처리 안내를 확인합니다.",
                 "대상 파일 스캔을 실행하고 파일별 변환 형식을 검토합니다.",
-                "파일 변환 시작을 누르고 작업 로그에서 결과를 확인합니다.",
+                "변환 실행 버튼을 누르고 원본 처리 확인창과 작업 로그를 검토합니다.",
             ],
             "tips": [
                 "변환 형식을 바꾸면 오래된 미리보기를 사용하지 않도록 기존 스캔 결과가 초기화됩니다.",
                 "Original Backup 확인·복구에서 안전하게 이동된 원본 파일을 복구할 수 있습니다.",
+                "별도 저장은 기본적으로 원본을 유지하며, 필요할 때만 Original Backup 이동을 선택할 수 있습니다.",
             ],
             "cautions": [
-                "원본 백업 이동은 정상적이고 비어 있지 않은 출력 파일이 만들어진 뒤에만 실행됩니다.",
+                "원본 교체는 마지막 확인과 출력 형식 검증 후 기존 원본을 휴지통으로 이동합니다. 휴지통을 사용할 수 없으면 영구 삭제하며, 이 화면에서 직접 실행할 때만 사용할 수 있습니다.",
+                "변환·검증에 실패하거나 휴지통 이동과 영구 삭제가 모두 실패하면 원본 파일은 그대로 보존됩니다.",
                 "Office 파일 변환에는 해당 Microsoft Office 프로그램이 이 PC에 설치되어 있어야 합니다.",
             ],
         },
@@ -310,7 +316,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "title": "Uruchamianie zadań",
             "summary": "Uruchamiaj kilka skonfigurowanych funkcji po kolei, ręcznie lub raz dziennie.",
             "steps": ["Skonfiguruj każdą funkcję na jej karcie.", "W kolumnie Uruchom wybierz tylko potrzebne funkcje.", "Sprawdź gotowość i popraw pozycje Wymaga konfiguracji.", "Uruchom zadania teraz albo włącz harmonogram i wybierz godzinę."],
-            "tips": ["Użyj Diagnostyki, gdy nie masz pewności co do Office, OCR, przeglądarki lub folderu sieciowego.", "Historia uruchomień zawiera wcześniejsze raporty."],
+            "tips": ["Użyj Diagnostyki, gdy nie masz pewności co do Office, OCR, przeglądarki lub folderu sieciowego.", "Historia uruchomień zawiera wcześniejsze raporty.", "Stan harmonogramu zapisuje czas rozpoczęcia, zakończenia, czas trwania i wynik ostatniego zaplanowanego uruchomienia."],
             "cautions": ["Harmonogram działa tylko wtedy, gdy aplikacja jest uruchomiona.", "Zaplanowane przenoszenie źródeł wymaga osobnej zgody."],
         },
         "sync": {
@@ -344,9 +350,9 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
         "bypass": {
             "title": "Konwersja plików",
             "summary": "Konwertuj obsługiwane pliki Office i PDF według jawnych reguł wyniku i obsługi źródła.",
-            "steps": ["Wybierz folder źródłowy i w razie potrzeby osobny folder wynikowy.", "Sprawdź formaty docelowe oraz opcje kopii źródeł.", "Przeskanuj folder i sprawdź każdy plik oraz format.", "Rozpocznij konwersję i sprawdź dziennik."],
-            "tips": ["Zmiana formatu usuwa stary wynik skanowania.", "Original Backup / Recovery umożliwia przywracanie przeniesionych źródeł."],
-            "cautions": ["Źródło jest przenoszone dopiero po utworzeniu prawidłowego, niepustego wyniku.", "Konwersje Office wymagają odpowiedniej aplikacji Microsoft Office."],
+            "steps": ["Wybierz zastąpienie źródła lub osobny folder wynikowy, a potem folder źródłowy.", "Sprawdź formaty i wyróżnioną informację o obsłudze źródeł.", "Przeskanuj folder i sprawdź każdy plik oraz format.", "Uruchom konwersję, potwierdź akcję na źródłach i sprawdź dziennik."],
+            "tips": ["Zmiana formatu usuwa stary wynik skanowania.", "Original Backup / Recovery umożliwia przywracanie przeniesionych źródeł.", "Osobny wynik domyślnie zachowuje źródła; opcjonalnie może przenieść je do Original Backup."],
+            "cautions": ["Po potwierdzeniu i sprawdzeniu formatu stare źródło trafia do Kosza. Gdy Kosz jest niedostępny, jest trwale usuwane; akcja działa tylko na tym ekranie.", "Jeśli konwersja lub weryfikacja zawiedzie albo nie uda się ani przenieść do Kosza, ani usunąć pliku, źródło pozostaje na miejscu.", "Konwersje Office wymagają odpowiedniej aplikacji Microsoft Office."],
         },
         "settings": {
             "title": "Ustawienia",

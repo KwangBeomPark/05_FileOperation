@@ -26,6 +26,10 @@ class StepStatus(str, Enum):
 class SourceDisposition(str, Enum):
     KEEP = "keep"
     BACKUP = "backup"
+    # Replace a source only after a separate output has been structurally
+    # verified. The old file is recycled first, with a documented permanent
+    # delete fallback when the Recycle Bin is unavailable.
+    REPLACE = "replace"
 
 
 class TaskValidationError(ValueError):
@@ -137,8 +141,8 @@ class BypassFileConfig:
             "ext": self.ext,
             "preserve_meta": self.preserve_meta,
             "source_disposition": self.source_disposition.value,
-            # Older workers understand only this key. Keep it explicitly false so
-            # upgrading can never turn the new recoverable action into deletion.
+            # Source replacement is carried by source_disposition. Keep the
+            # ambiguous legacy flag false so old workers never delete a source.
             "delete_original": False,
         }
 

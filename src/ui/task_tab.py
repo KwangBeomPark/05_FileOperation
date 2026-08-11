@@ -401,7 +401,8 @@ class TaskTab(QWidget):
     def _update_backup_consent_visibility(self):
         bypass_check = getattr(self, "step_checks", {}).get(TaskStep.BYPASS)
         bypass_selected = bool(bypass_check and bypass_check.isChecked())
-        backup_enabled = (
+        separate_output = self.config_manager.get("bypass_output_mode", "inplace") == "custom"
+        backup_enabled = separate_output and (
             self.config_manager.get("bypass_source_disposition", SourceDisposition.KEEP.value)
             == SourceDisposition.BACKUP.value
         )
@@ -670,6 +671,15 @@ class TaskTab(QWidget):
 
         bypass_config = configs.get(TaskStep.BYPASS)
         if (
+            isinstance(bypass_config, BypassRunConfig)
+            and bypass_config.source_disposition == SourceDisposition.REPLACE
+        ):
+            self._set_readiness_item(
+                TaskStep.BYPASS,
+                "blocked",
+                tr("task_source_replace_direct_only", self.language),
+            )
+        if (
             self.check_schedule.isChecked()
             and isinstance(bypass_config, BypassRunConfig)
             and bypass_config.source_disposition == SourceDisposition.BACKUP
@@ -799,8 +809,38 @@ class TaskTab(QWidget):
         )
 
     def _last_schedule_outcome_text(self):
+        started_at = parse_timestamp(self.config_manager.get("task_schedule_last_started_at", ""))
+        finished_at = parse_timestamp(self.config_manager.get("task_schedule_last_finished_at", ""))
         success_at = parse_timestamp(self.config_manager.get("task_schedule_last_success_at", ""))
         failure_at = parse_timestamp(self.config_manager.get("task_schedule_last_failure_at", ""))
+        reason = str(self.config_manager.get("task_schedule_last_failure_reason", "")).strip()
+        if len(reason) > 140:
+            reason = reason[:137] + "..."
+        if started_at and finished_at and finished_at >= started_at:
+            succeeded = bool(success_at and success_at == finished_at and (not failure_at or success_at >= failure_at))
+            result = (
+                tr("task_schedule_result_success", self.language)
+                if succeeded
+                else tr(
+                    "task_schedule_result_failure",
+                    self.language,
+                    reason=reason or tr("task_schedule_unknown_failure", self.language),
+                )
+            )
+            return tr(
+                "task_schedule_run_window",
+                self.language,
+                started=started_at.strftime("%Y-%m-%d %H:%M:%S"),
+                finished=finished_at.strftime("%Y-%m-%d %H:%M:%S"),
+                duration=self._format_schedule_duration(started_at, finished_at),
+                result=result,
+            )
+        if started_at and (not finished_at or finished_at < started_at):
+            return tr(
+                "task_schedule_run_unfinished",
+                self.language,
+                started=started_at.strftime("%Y-%m-%d %H:%M:%S"),
+            )
         if success_at and (not failure_at or success_at >= failure_at):
             return tr(
                 "task_schedule_last_success",
@@ -808,9 +848,6 @@ class TaskTab(QWidget):
                 timestamp=success_at.strftime("%Y-%m-%d %H:%M"),
             )
         if failure_at:
-            reason = str(self.config_manager.get("task_schedule_last_failure_reason", "")).strip()
-            if len(reason) > 140:
-                reason = reason[:137] + "..."
             return tr(
                 "task_schedule_last_failure",
                 self.language,
@@ -818,6 +855,13 @@ class TaskTab(QWidget):
                 reason=reason or tr("task_schedule_unknown_failure", self.language),
             )
         return tr("task_schedule_no_history", self.language)
+
+    @staticmethod
+    def _format_schedule_duration(started_at, finished_at):
+        total_seconds = max(0, int((finished_at - started_at).total_seconds()))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
     def refresh_schedule_summary(self, now=None):
         now = now or datetime.now()
@@ -915,6 +959,7 @@ class TaskTab(QWidget):
         if started:
             self._update_config({
                 "task_schedule_last_started_at": timestamp,
+                "task_schedule_last_finished_at": "",
                 # Retained for compatibility with existing configuration files.
                 "task_schedule_last_run_date": now.date().isoformat(),
                 "task_schedule_last_failure_reason": "",
@@ -1041,6 +1086,18 @@ class TaskTab(QWidget):
             return self._start_rejected(tr("task_no_selection_body", self.language))
 
         bypass_config = run_plan.get(TaskStep.BYPASS)
+        replace_requested = (
+            isinstance(bypass_config, BypassRunConfig)
+            and bypass_config.source_disposition == SourceDisposition.REPLACE
+        )
+        if replace_requested:
+            reason = tr("task_source_replace_direct_only", self.language)
+            self.log(f"[{tr('task_scheduled_prefix', self.language)}] {reason}" if scheduled else reason)
+            self._set_readiness_item(TaskStep.BYPASS, "blocked", reason)
+            if not scheduled:
+                QMessageBox.warning(self, tr("run_error", self.language), reason)
+            return self._start_rejected(reason)
+
         backup_move_requested = (
             isinstance(bypass_config, BypassRunConfig)
             and bypass_config.source_disposition == SourceDisposition.BACKUP
@@ -1245,17 +1302,38 @@ class TaskTab(QWidget):
         self.run_health_label.setStyleSheet("font-size: 10px; color: #64748b;")
 
         if scheduled_run:
-            finished_at = datetime.now().isoformat(timespec="seconds")
+            finished_time = datetime.now()
+            finished_at = finished_time.isoformat(timespec="seconds")
+            started_time = parse_timestamp(self.config_manager.get("task_schedule_last_started_at", ""))
+            duration = self._format_schedule_duration(started_time, finished_time) if started_time else "--:--:--"
             if success:
                 self._update_config({
+                    "task_schedule_last_finished_at": finished_at,
                     "task_schedule_last_success_at": finished_at,
                     "task_schedule_last_failure_reason": "",
                 })
+                result_text = tr("task_schedule_result_success", self.language)
             else:
                 self._update_config({
+                    "task_schedule_last_finished_at": finished_at,
                     "task_schedule_last_failure_at": finished_at,
                     "task_schedule_last_failure_reason": str(message),
                 })
+                result_text = tr(
+                    "task_schedule_result_failure",
+                    self.language,
+                    reason=str(message),
+                )
+            self.log(
+                f"[{tr('task_scheduled_prefix', self.language)}] "
+                + tr(
+                    "task_schedule_finished_log",
+                    self.language,
+                    timestamp=finished_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    duration=duration,
+                    result=result_text,
+                )
+            )
             self.refresh_schedule_summary()
 
         # 성공/부분 실패와 무관하게 실행 결과가 있으면 담당자에게 보고합니다.

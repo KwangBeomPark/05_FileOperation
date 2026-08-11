@@ -1,6 +1,6 @@
 import os
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import Mock
 
 
@@ -121,12 +121,35 @@ class ScheduledRunIntegrationTests(unittest.TestCase):
         self.assertTrue(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 0)))
         self.assertEqual(self.config.get("task_schedule_last_run_date"), "2026-08-08")
         self.assertEqual(self.config.get("task_schedule_last_started_at"), "2026-08-08T09:00:00")
+        self.assertEqual(self.config.get("task_schedule_last_finished_at"), "")
+        self.assertIn("no end time was recorded", self.tab.schedule_status_label.text())
 
         self.tab.is_running = True
         self.tab.is_scheduled_run = True
         self.tab.on_tasks_finished(True, "Completed", "")
         self.assertTrue(self.config.get("task_schedule_last_success_at"))
-        self.assertIn("Last success", self.tab.schedule_status_label.text())
+        self.assertTrue(self.config.get("task_schedule_last_finished_at"))
+        self.assertIn("Last scheduled run: start", self.tab.schedule_status_label.text())
+        self.assertIn("→ end", self.tab.schedule_status_label.text())
+        self.assertIn("Success", self.tab.schedule_status_label.text())
+        self.assertIn("Finished at", self.tab.log_area.toPlainText())
+
+    def test_failed_scheduled_run_records_start_end_and_reason(self):
+        started_at = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="seconds")
+        self.config.update({
+            "task_schedule_last_started_at": started_at,
+            "task_schedule_last_finished_at": "",
+        })
+        self.tab.is_running = True
+        self.tab.is_scheduled_run = True
+
+        self.tab.on_tasks_finished(False, "Network folder unavailable", "")
+
+        self.assertTrue(self.config.get("task_schedule_last_finished_at"))
+        self.assertEqual(self.config.get("task_schedule_last_failure_reason"), "Network folder unavailable")
+        summary = self.tab.schedule_status_label.text()
+        self.assertIn("Last scheduled run: start", summary)
+        self.assertIn("Failed: Network folder unavailable", summary)
 
 
 if __name__ == "__main__":

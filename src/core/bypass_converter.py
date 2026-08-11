@@ -4,6 +4,7 @@ import zipfile
 import ctypes
 from ctypes import wintypes
 import logging
+from send2trash import send2trash
 
 from src.core.task_contracts import SourceDisposition
 from src.core.backup_recovery import record_backup_move
@@ -119,6 +120,63 @@ class BypassConverter:
         return os.path.normcase(os.path.abspath(first_path)) == os.path.normcase(os.path.abspath(second_path))
 
     @staticmethod
+    def _source_fingerprint(stat_result):
+        """Return fields that reveal a replaced or edited source file."""
+        return (
+            stat_result.st_dev,
+            stat_result.st_ino,
+            stat_result.st_size,
+            stat_result.st_mtime_ns,
+        )
+
+    @staticmethod
+    def _validate_replacement_output(tgt_path, target_ext):
+        """Perform format-aware checks before an irreversible source removal."""
+        try:
+            if not os.path.isfile(tgt_path):
+                return False, f"OUTPUT_NOT_CREATED|{tgt_path}"
+            if os.path.getsize(tgt_path) == 0:
+                return False, f"OUTPUT_EMPTY|{tgt_path}"
+
+            target_ext = target_ext.lower()
+            package_main_parts = {
+                ".xlsx": "xl/workbook.xml",
+                ".xlsm": "xl/workbook.xml",
+                ".xlsb": "xl/workbook.bin",
+                ".pptx": "ppt/presentation.xml",
+                ".pptm": "ppt/presentation.xml",
+                ".docx": "word/document.xml",
+                ".docm": "word/document.xml",
+            }
+            if target_ext in package_main_parts:
+                if not zipfile.is_zipfile(tgt_path):
+                    return False, f"OUTPUT_FORMAT_INVALID|{tgt_path}|invalid Office package"
+                with zipfile.ZipFile(tgt_path, "r") as archive:
+                    if archive.testzip() is not None:
+                        return False, f"OUTPUT_FORMAT_INVALID|{tgt_path}|damaged Office package"
+                    names = {name.lower() for name in archive.namelist()}
+                required = {"[content_types].xml", package_main_parts[target_ext]}
+                if not required.issubset(names):
+                    return False, f"OUTPUT_FORMAT_INVALID|{tgt_path}|required Office content is missing"
+            elif target_ext == ".zip":
+                if not zipfile.is_zipfile(tgt_path):
+                    return False, f"OUTPUT_FORMAT_INVALID|{tgt_path}|invalid ZIP archive"
+                with zipfile.ZipFile(tgt_path, "r") as archive:
+                    if archive.testzip() is not None:
+                        return False, f"OUTPUT_FORMAT_INVALID|{tgt_path}|damaged ZIP archive"
+            elif target_ext == ".pdf":
+                with open(tgt_path, "rb") as output_file:
+                    if output_file.read(5) != b"%PDF-":
+                        return False, f"OUTPUT_FORMAT_INVALID|{tgt_path}|invalid PDF header"
+            elif target_ext in {".xls", ".ppt", ".doc"}:
+                with open(tgt_path, "rb") as output_file:
+                    if output_file.read(8) != b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+                        return False, f"OUTPUT_FORMAT_INVALID|{tgt_path}|invalid legacy Office header"
+        except (OSError, zipfile.BadZipFile) as validation_error:
+            return False, f"OUTPUT_VALIDATION_FAILED|{tgt_path}|{validation_error}"
+        return True, ""
+
+    @staticmethod
     def _unique_backup_path(src_path, backup_folder_name="Original Backup"):
         backup_dir = os.path.join(os.path.dirname(src_path), backup_folder_name)
         filename = os.path.basename(src_path)
@@ -140,14 +198,19 @@ class BypassConverter:
         delete_original=None,
     ):
         """
-        단일 파일을 변환하고 메타데이터를 보존합니다. 선택 시 원본은 삭제하지
-        않고 원본 폴더 아래의 ``Original Backup`` 폴더로 이동합니다.
+        단일 파일을 변환하고 메타데이터를 보존합니다. 원본 처리 방식에 따라
+        보존, 복구 가능한 백업 이동 또는 검증 후 교체를 수행합니다.
         
         Returns:
             tuple: (success, message)
         """
-        src_path = os.path.normpath(src_path)
-        tgt_path = os.path.normpath(tgt_path)
+        try:
+            src_path = os.path.normpath(os.fspath(src_path))
+            tgt_path = os.path.normpath(os.fspath(tgt_path))
+        except (TypeError, ValueError) as path_error:
+            return False, f"INVALID_PATH|{path_error}"
+        if not isinstance(target_ext, str) or not target_ext.strip().startswith("."):
+            return False, f"INVALID_TARGET_EXTENSION|{target_ext}"
 
         # Old callers may still pass delete_original=True. Preserve compatibility
         # without preserving the destructive behavior: True now means backup.
@@ -158,7 +221,7 @@ class BypassConverter:
         except (TypeError, ValueError):
             return False, f"INVALID_SOURCE_DISPOSITION|{source_disposition}"
         
-        if not os.path.exists(src_path):
+        if not os.path.isfile(src_path):
             return False, f"원본 파일을 찾을 수 없습니다: {src_path}"
 
         if self._same_path(src_path, tgt_path):
@@ -166,21 +229,27 @@ class BypassConverter:
 
         if os.path.exists(tgt_path):
             return False, f"TARGET_ALREADY_EXISTS|{tgt_path}"
+
+        normalized_target_ext = target_ext.strip().lower()
+        actual_target_ext = os.path.splitext(tgt_path)[1].lower()
+        if actual_target_ext != normalized_target_ext:
+            return False, f"TARGET_EXTENSION_MISMATCH|{tgt_path}|{normalized_target_ext}"
             
         if self.is_file_locked(src_path):
             return False, f"파일이 이미 다른 프로그램에서 사용 중입니다 (Locked): {os.path.basename(src_path)}"
             
         # 메타데이터 미리 백업
-        stat = os.stat(src_path)
-        creation_time = stat.st_ctime
-        modification_time = stat.st_mtime
-        access_time = stat.st_atime
+        source_stat = os.stat(src_path)
+        source_fingerprint = self._source_fingerprint(source_stat)
+        creation_time = source_stat.st_ctime
+        modification_time = source_stat.st_mtime
+        access_time = source_stat.st_atime
         
         _, src_ext = os.path.splitext(src_path.lower())
-        target_ext = target_ext.lower()
+        target_ext = normalized_target_ext
         
         # 대상 폴더 생성
-        os.makedirs(os.path.dirname(tgt_path), exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.abspath(tgt_path)), exist_ok=True)
         
         success = False
         err_msg = ""
@@ -205,7 +274,8 @@ class BypassConverter:
         if not success:
             return False, err_msg
 
-        # Never move a source until the converter has produced a real output file.
+        # Never move or remove a source until the converter has produced a real
+        # output file. REPLACE performs additional format-aware validation below.
         if not os.path.isfile(tgt_path):
             return False, f"OUTPUT_NOT_CREATED|{tgt_path}"
         if os.path.getsize(tgt_path) == 0:
@@ -218,8 +288,46 @@ class BypassConverter:
             except Exception as meta_ex:
                 logger.error(f"Failed to restore metadata for {tgt_path}: {meta_ex}")
                 # 메타데이터 보존 실패는 파일 자체의 변환 성공을 무효화하지는 않음 (경고만 기록)
+
+        # 3. Validate the output structure and confirm that the source has not
+        # changed while Office was working. Prefer the Windows Recycle Bin; if
+        # the shell cannot recycle this path, use the explicitly documented
+        # permanent-delete fallback.
+        if source_disposition == SourceDisposition.REPLACE:
+            output_ok, output_error = self._validate_replacement_output(tgt_path, target_ext)
+            if not output_ok:
+                return False, output_error
+            try:
+                current_source_stat = os.stat(src_path)
+            except FileNotFoundError:
+                return False, f"SOURCE_MISSING_BEFORE_REPLACE|{src_path}"
+            except OSError as source_check_error:
+                return False, f"SOURCE_REPLACE_CHECK_FAILED|{src_path}|{source_check_error}"
+            if self._source_fingerprint(current_source_stat) != source_fingerprint:
+                return False, f"SOURCE_CHANGED_DURING_CONVERSION|{src_path}"
+            recycle_error = ""
+            try:
+                send2trash(src_path)
+                if not os.path.exists(src_path):
+                    return True, f"SOURCE_RECYCLED|{tgt_path}"
+                recycle_error = "Recycle Bin operation returned but the source still exists"
+            except Exception as recycle_exception:
+                recycle_error = str(recycle_exception)
+                logger.warning("Could not move replaced source to Recycle Bin %s: %s", src_path, recycle_exception)
+                if not os.path.exists(src_path):
+                    return True, f"SOURCE_RECYCLED_WARNING|{tgt_path}|{recycle_error}"
+            try:
+                os.remove(src_path)
+                if os.path.exists(src_path):
+                    return False, f"SOURCE_REPLACE_FAILED|{src_path}|source still exists after fallback"
+                return True, f"SOURCE_DELETED_FALLBACK|{tgt_path}|{recycle_error}"
+            except OSError as replace_error:
+                if not os.path.exists(src_path):
+                    return True, f"SOURCE_DELETED_FALLBACK|{tgt_path}|{recycle_error}; {replace_error}"
+                logger.error("Failed to remove replaced source file %s: %s", src_path, replace_error)
+                return False, f"SOURCE_REPLACE_FAILED|{src_path}|Recycle Bin: {recycle_error}; delete: {replace_error}"
                 
-        # 3. 요청된 경우 원본을 복구 가능한 백업 폴더로 이동
+        # 4. 요청된 경우 원본을 복구 가능한 백업 폴더로 이동
         if source_disposition == SourceDisposition.BACKUP:
             try:
                 backup_path = self._unique_backup_path(src_path)

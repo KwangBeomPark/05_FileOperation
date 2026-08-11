@@ -14,7 +14,7 @@ class ConfigManager:
     """
     
     DEFAULT_CONFIG = {
-        "config_version": 2,
+        "config_version": 3,
 
         # PDF 변환 설정
         "output_folder": "",
@@ -53,8 +53,10 @@ class ConfigManager:
         "bypass_ppt_target": ".pptm",
         "bypass_word_target": ".docm",
         "bypass_pdf_target": ".zip",
+        "bypass_output_mode": "inplace",
         "bypass_source_disposition": "keep",
-        # Legacy safety key. Permanent source deletion is no longer supported.
+        # Legacy safety key. It is never used to authorize source replacement;
+        # the explicit in-place mode and per-run confirmation are required.
         "bypass_delete_original": False,
         "bypass_preserve_meta": True,
         "last_bypass_source_directory": "",
@@ -68,6 +70,7 @@ class ConfigManager:
         "task_schedule_attempt_count": 0,
         "task_schedule_last_attempt_at": "",
         "task_schedule_last_started_at": "",
+        "task_schedule_last_finished_at": "",
         "task_schedule_last_success_at": "",
         "task_schedule_last_failure_at": "",
         "task_schedule_last_failure_reason": "",
@@ -159,13 +162,25 @@ class ConfigManager:
         if version < 2:
             # v1의 sender_password는 SettingsDialog에서 이미 DPAPI 암호문으로 저장되던 값입니다.
             # ConfigManager 보안 키로 편입하되 값을 다시 암호화하지 않습니다.
-            config["config_version"] = 2
+            config["config_version"] = 3
+            migrated = True
+        if version < 3:
+            config["config_version"] = 3
             migrated = True
         if "config_version" not in loaded:
-            config["config_version"] = 2
+            config["config_version"] = 3
+            migrated = True
+        # Older releases inferred custom output merely from a remembered target
+        # path. Preserve that behavior during migration so an update never turns
+        # an existing non-destructive workflow into source replacement.
+        if loaded.get("bypass_output_mode") not in {"inplace", "custom"}:
+            config["bypass_output_mode"] = (
+                "custom" if str(loaded.get("last_bypass_target_directory", "")).strip() else "inplace"
+            )
             migrated = True
         # v1.1.x could permanently delete converted source files and defaulted
-        # that action to on. Never carry that destructive choice across upgrade.
+        # that action to on. Never carry that ambiguous choice across upgrade;
+        # the current replace mode requires an explicit screen choice and run.
         if loaded.get("bypass_delete_original") is not False:
             config["bypass_delete_original"] = False
             migrated = True

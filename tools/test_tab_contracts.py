@@ -95,7 +95,8 @@ class TabContractTests(unittest.TestCase):
             self.assertIsInstance(run_config, BypassRunConfig)
             self.assertEqual(run_config.tasks[0].src, source_path)
             self.assertTrue(run_config.tasks[0].tgt.endswith(".xlsb"))
-            self.assertEqual(run_config.source_disposition, SourceDisposition.BACKUP)
+            self.assertEqual(run_config.source_disposition, SourceDisposition.REPLACE)
+            self.assertEqual(run_config.tasks[0].source_disposition, SourceDisposition.REPLACE)
 
     def test_bypass_tab_never_uses_the_source_as_same_extension_output(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -159,6 +160,53 @@ class TabContractTests(unittest.TestCase):
             self.assertIn(target_dir, summary)
             self.assertIn("Original Backup", summary)
             self.assertEqual(question.call_args.args[-1], QMessageBox.StandardButton.No)
+
+    def test_bypass_replace_confirmation_is_explicit_and_defaults_to_no(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = os.path.join(temp_dir, "book.xlsx")
+            target = os.path.join(temp_dir, "book.xlsm")
+            with open(source, "wb") as file:
+                file.write(b"1234")
+            config = BypassRunConfig(
+                [BypassFileConfig(source, target, ".xlsm", True, SourceDisposition.REPLACE)],
+                SourceDisposition.REPLACE,
+            )
+            fake_tab = type("FakeBypassConfirmation", (), {})()
+            fake_tab._t = lambda english, _korean, _polish=None: english
+            fake_tab._format_size = BypassTab._format_size
+            summary = BypassTab._replacement_confirmation_text(fake_tab, config)
+            fake_tab._replacement_confirmation_text = lambda _config: summary
+            fake_tab._confirm_backup_move = lambda _config: True
+
+            with patch("src.ui.bypass_tab.QMessageBox.warning", return_value=QMessageBox.StandardButton.No) as warning:
+                confirmed = BypassTab._confirm_source_action(fake_tab, config)
+
+            self.assertFalse(confirmed)
+            self.assertIn("Windows Recycle Bin", summary)
+            self.assertIn("permanent deletion is used", summary)
+            self.assertIn("Original Backup is not used", summary)
+            self.assertIn(f"{source}  →  {target}", summary)
+            self.assertEqual(warning.call_args.args[-1], QMessageBox.StandardButton.No)
+
+    def test_bypass_custom_output_keeps_or_backs_up_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = os.path.join(temp_dir, "output")
+            os.makedirs(output_dir)
+            source_path = os.path.join(temp_dir, "book.xlsx")
+            with open(source_path, "wb") as file:
+                file.write(b"x")
+            fake_tab = self.make_bypass_fake(
+                temp_dir,
+                scanned_files=[source_path],
+                table_rows=[["book.xlsx", "1.0 KB", ".xlsm", "대기 중"]],
+            )
+            fake_tab.radio_inplace = CheckedValue(False)
+            fake_tab.tgt_entry = TextValue(output_dir)
+
+            run_config = BypassTab.build_run_config(fake_tab)
+
+            self.assertEqual(run_config.source_disposition, SourceDisposition.BACKUP)
+            self.assertTrue(run_config.tasks[0].tgt.startswith(output_dir))
 
     def test_sync_tab_rejects_missing_or_duplicate_folders(self):
         with tempfile.TemporaryDirectory() as temp_dir:

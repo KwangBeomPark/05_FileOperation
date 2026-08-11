@@ -91,6 +91,7 @@ class TaskSelectionTests(unittest.TestCase):
             "task_schedule_enabled": True,
             "task_enabled_steps": [TaskStep.BYPASS.value],
             "task_schedule_allow_source_backup": False,
+            "bypass_output_mode": "custom",
             "bypass_source_disposition": "backup",
         })
         window = QMainWindow()
@@ -105,6 +106,29 @@ class TaskSelectionTests(unittest.TestCase):
         self.assertFalse(started)
         self.assertIn("separate scheduled source-backup consent", task_tab.start_failure_reason)
         self.assertFalse(task_tab.check_allow_source_backup.isHidden())
+        preflight.assert_not_called()
+        task_tab.schedule_timer.stop()
+        window.deleteLater()
+
+    def test_run_tasks_refuses_source_replacement_before_preflight(self):
+        config = FakeConfig({
+            "task_enabled_steps": [TaskStep.BYPASS.value],
+            "bypass_output_mode": "inplace",
+        })
+        window = QMainWindow()
+        task_tab = TaskTab(config)
+        window.setCentralWidget(task_tab)
+        window.bypass_tab = Mock()
+        window.bypass_tab.build_run_config.return_value = BypassRunConfig([], SourceDisposition.REPLACE)
+
+        with (
+            patch("src.ui.task_tab.run_bounded_preflight") as preflight,
+            patch("src.ui.task_tab.QMessageBox.warning"),
+        ):
+            started = task_tab.start_all_tasks()
+
+        self.assertFalse(started)
+        self.assertIn("directly", task_tab.start_failure_reason)
         preflight.assert_not_called()
         task_tab.schedule_timer.stop()
         window.deleteLater()

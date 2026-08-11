@@ -273,3 +273,18 @@ Protect source files in Convert Files: default to keeping originals, add a destr
 1. Review the Korean manual with an actual operator before release. Wording changes belong in `src/ui/manual_content.py` so every help entry point stays synchronized.
 2. Empty result areas could later gain concise clickable prompts such as `Add PDF` or `Add task`, after the guided workflow is tested with real data.
 3. Estimated remaining time should wait until enough real run history exists to avoid misleading users.
+
+## 2026-08-12 — Phase 9: verified in-place replacement and schedule timing
+
+### Implemented decisions
+
+- Make in-place conversion an explicit source-replacement mode. After format-aware output validation and a source-change check, move the old source to Windows Recycle Bin; if recycling is unavailable, fall back to permanent deletion as disclosed in the final confirmation.
+- Keep separate-output conversion non-destructive by default and retain the optional `Original Backup` workflow.
+- Require source replacement to be reviewed and started directly from Convert Files. Run Tasks and unattended schedules reject it before execution.
+- Skip same-format files during an in-place scan, reserve unique target names, and keep the source whenever conversion, validation, recycling, and the deletion fallback cannot complete safely.
+- Persist and display the start time, end time, duration, and outcome of the latest scheduled run. A start without an end record is shown as an interrupted or unfinished run instead of being mistaken for an older success.
+
+### Validation boundaries
+
+- Deterministic tests cover verified XLSX-to-XLSM replacement, invalid output, source changes during conversion, Recycle Bin failure, permanent-delete fallback, duplicate targets, confirmation defaults, scheduled-run rejection, and scheduled start/end records.
+- Microsoft Excel COM is unavailable on the current build machine, so the release still requires a real Office conversion check on a workstation with licensed Excel.

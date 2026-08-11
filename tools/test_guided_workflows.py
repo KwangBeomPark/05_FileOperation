@@ -88,6 +88,39 @@ class GuidedWorkflowTests(unittest.TestCase):
             self.assertFalse(bypass.start_btn.isEnabled())
             bypass.close()
 
+    def test_convert_files_makes_source_replacement_visible_and_separates_backup_option(self):
+        bypass = BypassTab(FakeConfig({"bypass_output_mode": "inplace"}))
+        self.assertTrue(bypass.radio_inplace.isChecked())
+        self.assertFalse(bypass.check_backup_orig.isEnabled())
+        self.assertIn("휴지통으로 이동", bypass.source_action_hint.text())
+        self.assertIn("영구 삭제", bypass.source_action_hint.text())
+        self.assertEqual(bypass.start_btn.text(), "변환 후 원본 교체")
+
+        bypass.radio_custom.setChecked(True)
+
+        self.assertTrue(bypass.check_backup_orig.isEnabled())
+        self.assertIn("그대로 보존", bypass.source_action_hint.text())
+        self.assertEqual(bypass.start_btn.text(), "파일 변환 시작")
+        bypass.close()
+
+    def test_inplace_scan_skips_files_already_in_target_format(self):
+        with tempfile.TemporaryDirectory() as source:
+            workbook = os.path.join(source, "book.xlsm")
+            with open(workbook, "wb") as file:
+                file.write(b"workbook")
+            bypass = BypassTab(FakeConfig({
+                "bypass_output_mode": "inplace",
+                "bypass_excel_target": ".xlsm",
+            }))
+            bypass.set_source_folder_path(source)
+
+            bypass.scan_source_folder()
+
+            self.assertEqual(bypass.scanned_files, [])
+            self.assertIn("이미 같은 파일 1개", bypass.log_area.toPlainText())
+            self.assertFalse(bypass.start_btn.isEnabled())
+            bypass.close()
+
 
 if __name__ == "__main__":
     unittest.main()

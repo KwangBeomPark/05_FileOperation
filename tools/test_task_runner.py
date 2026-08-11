@@ -162,6 +162,20 @@ class TaskRunnerTests(unittest.TestCase):
         self.assertFalse(report.overall_success)
         self.assertEqual(report.results[TaskStep.SYNC].status.value, "취소됨")
 
+    def test_integrated_runner_refuses_permanent_source_replacement(self):
+        plan = RunPlan({
+            TaskStep.BYPASS: BypassRunConfig(
+                [BypassFileConfig("book.xlsx", "book.xlsm", ".xlsm", True, SourceDisposition.REPLACE)],
+                SourceDisposition.REPLACE,
+            )
+        })
+
+        report = TaskRunner(FakeConfig(), plan).run()
+
+        self.assertFalse(report.overall_success)
+        self.assertEqual(report.results[TaskStep.BYPASS].status.value, "실패")
+        self.assertIn("directly from Convert Files", report.results[TaskStep.BYPASS].error_message)
+
 
 if __name__ == "__main__":
     unittest.main()

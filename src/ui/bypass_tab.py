@@ -159,6 +159,45 @@ class BypassTab(QWidget):
                 f"변환은 성공했지만 원본을 백업 폴더로 이동하지 못했습니다: {detail}",
                 f"Konwersja zakończyła się, ale nie udało się przenieść źródła do kopii: {detail}",
             )
+        if marker == "SOURCE_RECYCLED":
+            return self._t(
+                f"Verified output replaced the source; the old source was moved to the Recycle Bin: {detail}",
+                f"출력 파일을 검증한 뒤 원본을 교체하고 기존 원본은 휴지통으로 이동했습니다: {detail}",
+                f"Zweryfikowany wynik zastąpił źródło, a stare źródło przeniesiono do Kosza: {detail}",
+            )
+        if marker == "SOURCE_RECYCLED_WARNING":
+            output_path, _separator, error = detail.partition("|")
+            return self._t(
+                f"The source left its original location, but Windows reported a Recycle Bin warning: {output_path} ({error})",
+                f"원본은 기존 위치에서 이동했지만 Windows가 휴지통 경고를 보고했습니다: {output_path} ({error})",
+                f"Źródło opuściło pierwotne miejsce, ale Windows zgłosił ostrzeżenie Kosza: {output_path} ({error})",
+            )
+        if marker == "SOURCE_DELETED_FALLBACK":
+            output_path, _separator, error = detail.partition("|")
+            return self._t(
+                f"Verified output replaced the source. Recycle Bin was unavailable, so the old source was permanently deleted: {output_path} ({error})",
+                f"출력 파일을 검증한 뒤 원본을 교체했습니다. 휴지통을 사용할 수 없어 기존 원본을 영구 삭제했습니다: {output_path} ({error})",
+                f"Zweryfikowany wynik zastąpił źródło. Kosz był niedostępny, więc stare źródło trwale usunięto: {output_path} ({error})",
+            )
+        if marker == "SOURCE_REPLACE_FAILED":
+            source, _separator, error = detail.partition("|")
+            return self._t(
+                f"Conversion succeeded, but the source could not be removed. Both files were kept: {source} ({error})",
+                f"변환은 성공했지만 원본을 삭제하지 못해 두 파일을 모두 보존했습니다: {source} ({error})",
+                f"Konwersja powiodła się, ale nie usunięto źródła. Zachowano oba pliki: {source} ({error})",
+            )
+        if marker == "SOURCE_CHANGED_DURING_CONVERSION":
+            return self._t(
+                f"The source changed during conversion, so it was not removed: {detail}",
+                f"변환 중 원본이 변경되어 삭제하지 않았습니다: {detail}",
+                f"Źródło zmieniło się podczas konwersji, więc nie zostało usunięte: {detail}",
+            )
+        if marker in {"SOURCE_MISSING_BEFORE_REPLACE", "SOURCE_REPLACE_CHECK_FAILED"}:
+            return self._t(
+                f"The source could not be safely verified before replacement: {detail}",
+                f"원본 교체 직전 안전 상태를 확인하지 못했습니다: {detail}",
+                f"Nie można było bezpiecznie sprawdzić źródła przed zastąpieniem: {detail}",
+            )
         if marker == "OUTPUT_NOT_CREATED":
             return self._t(
                 f"The converter reported success, but no output file was created: {detail}",
@@ -183,11 +222,31 @@ class BypassTab(QWidget):
                 f"생성된 출력 파일이 비어 있습니다: {detail}",
                 f"Wygenerowany plik wyjściowy jest pusty: {detail}",
             )
+        if marker in {"OUTPUT_FORMAT_INVALID", "OUTPUT_VALIDATION_FAILED"}:
+            output_path, _separator, error = detail.partition("|")
+            return self._t(
+                f"The output could not be verified, so the source was kept: {output_path} ({error})",
+                f"출력 파일을 검증하지 못해 원본을 보존했습니다: {output_path} ({error})",
+                f"Nie zweryfikowano wyniku, dlatego zachowano źródło: {output_path} ({error})",
+            )
+        if marker == "TARGET_EXTENSION_MISMATCH":
+            output_path, _separator, expected = detail.partition("|")
+            return self._t(
+                f"The output extension does not match the selected format: {output_path} (expected {expected})",
+                f"출력 파일 확장자가 선택한 형식과 다릅니다: {output_path} (예상 {expected})",
+                f"Rozszerzenie wyniku nie pasuje do wybranego formatu: {output_path} (oczekiwano {expected})",
+            )
         if marker == "INVALID_SOURCE_DISPOSITION":
             return self._t(
                 f"Unknown source-file action: {detail}",
                 f"알 수 없는 원본 파일 처리 방식입니다: {detail}",
                 f"Nieznana akcja dla pliku źródłowego: {detail}",
+            )
+        if marker in {"INVALID_PATH", "INVALID_TARGET_EXTENSION"}:
+            return self._t(
+                f"Invalid conversion path or target format: {detail}",
+                f"변환 경로 또는 대상 형식이 올바르지 않습니다: {detail}",
+                f"Nieprawidłowa ścieżka konwersji lub format docelowy: {detail}",
             )
         return self._error_text(message)
 
@@ -237,6 +296,51 @@ class BypassTab(QWidget):
         )
         return answer == QMessageBox.StandardButton.Yes
 
+    def _replacement_confirmation_text(self, run_config):
+        total_size = sum(os.path.getsize(task.src) for task in run_config.tasks if os.path.exists(task.src))
+        mappings = [f"- {task.src}  →  {task.tgt}" for task in run_config.tasks[:8]]
+        if len(run_config.tasks) > len(mappings):
+            mappings.append(self._t(
+                f"- ... and {len(run_config.tasks) - len(mappings)} more",
+                f"- ... 외 {len(run_config.tasks) - len(mappings)}개",
+                f"- ... i jeszcze {len(run_config.tasks) - len(mappings)}",
+            ))
+        lines = [
+            self._t(
+                "The app will create and structurally verify each output, then move its old source to the Windows Recycle Bin.",
+                "각 출력 파일을 생성하고 구조를 검증한 뒤 기존 원본 파일을 Windows 휴지통으로 이동합니다.",
+                "Aplikacja utworzy i sprawdzi strukturę każdego wyniku, a następnie przeniesie stare źródło do Kosza Windows.",
+            ),
+            self._t(
+                "If the Recycle Bin is unavailable, permanent deletion is used. If both actions fail, the source is kept. Original Backup is not used.",
+                "휴지통을 사용할 수 없으면 영구 삭제합니다. 두 방법이 모두 실패하면 원본을 보존하며, Original Backup은 사용하지 않습니다.",
+                "Jeśli Kosz jest niedostępny, używane jest trwałe usunięcie. Jeśli obie akcje zawiodą, źródło zostaje zachowane. Original Backup nie jest używany.",
+            ),
+            "",
+            self._t(f"Files: {len(run_config.tasks)}", f"파일 수: {len(run_config.tasks)}개", f"Pliki: {len(run_config.tasks)}"),
+            self._t(f"Total size: {self._format_size(total_size)}", f"전체 크기: {self._format_size(total_size)}", f"Łączny rozmiar: {self._format_size(total_size)}"),
+            "",
+            self._t("Replacement preview:", "교체 미리보기:", "Podgląd zastąpienia:"),
+            *mappings,
+            "",
+            self._t("Replace these source files?", "이 원본 파일들을 교체할까요?", "Zastąpić te pliki źródłowe?"),
+        ]
+        return "\n".join(lines)
+
+    def _confirm_source_action(self, run_config):
+        if run_config.source_disposition == SourceDisposition.BACKUP:
+            return self._confirm_backup_move(run_config)
+        if run_config.source_disposition != SourceDisposition.REPLACE:
+            return True
+        answer = QMessageBox.warning(
+            self,
+            self._t("Confirm source replacement", "원본 교체 확인", "Potwierdź zastąpienie źródeł"),
+            self._replacement_confirmation_text(run_config),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def refresh_language(self):
         file_count = len(self.scanned_files)
         self.workflow_widget.set_step_texts([
@@ -258,6 +362,7 @@ class BypassTab(QWidget):
                 "Przejrzyj / przywróć Original Backup",
             )
         )
+        self._update_source_action_ui()
         if not self.scanned_files:
             source_prompts = ("드래그 앤 드롭", "Drag a folder", "Przeciągnij folder")
             if self.src_entry.text().startswith(source_prompts):
@@ -305,21 +410,28 @@ class BypassTab(QWidget):
         
         # 대상 폴더 옵션
         tgt_option_layout = QHBoxLayout()
-        self.radio_inplace = QRadioButton("소스 폴더에 덮어쓰기/저장 (In-place)")
-        self.radio_inplace.setChecked(True)
-        self.radio_inplace.toggled.connect(self.toggle_target_mode)
+        self.radio_inplace = QRadioButton("원본 교체: 변환 성공 후 기존 원본을 휴지통으로 이동 (In-place)")
         
         self.radio_custom = QRadioButton("특정 저장용 폴더에 우회 보관 (Target)")
-        self.radio_custom.toggled.connect(self.toggle_target_mode)
         
         self.bg_group = QButtonGroup()
         self.bg_group.addButton(self.radio_inplace)
         self.bg_group.addButton(self.radio_custom)
+
+        output_mode = self.config_manager.get("bypass_output_mode", "inplace")
+        self.radio_custom.setChecked(output_mode == "custom")
+        self.radio_inplace.setChecked(output_mode != "custom")
+        self.radio_inplace.toggled.connect(self.toggle_target_mode)
+        self.radio_custom.toggled.connect(self.toggle_target_mode)
         
         tgt_option_layout.addWidget(self.radio_inplace)
         tgt_option_layout.addWidget(self.radio_custom)
         tgt_option_layout.addStretch()
         folder_layout.addLayout(tgt_option_layout)
+
+        self.source_action_hint = QLabel()
+        self.source_action_hint.setWordWrap(True)
+        folder_layout.addWidget(self.source_action_hint)
         
         # 대상 폴더 경로 선택기
         self.tgt_layout_widget = QWidget()
@@ -340,7 +452,7 @@ class BypassTab(QWidget):
         tgt_layout.addWidget(self.tgt_entry, 1)
         tgt_layout.addWidget(tgt_btn)
         folder_layout.addWidget(self.tgt_layout_widget)
-        self.tgt_layout_widget.setVisible(False) # 기본값은 In-place이므로 비활성화
+        self.tgt_layout_widget.setVisible(self.radio_custom.isChecked())
         
         layout.addWidget(folder_group)
         
@@ -477,8 +589,8 @@ class BypassTab(QWidget):
         last_tgt = self.config_manager.get("last_bypass_target_directory", "")
         if last_tgt and os.path.exists(last_tgt):
             self.set_target_folder_path(last_tgt)
-            self.radio_custom.setChecked(True)
-            self.tgt_layout_widget.setVisible(True)
+        self.tgt_layout_widget.setVisible(self.radio_custom.isChecked())
+        self._update_source_action_ui()
         self._refresh_action_state()
 
     def _save_source_disposition(self, backup_enabled):
@@ -495,6 +607,7 @@ class BypassTab(QWidget):
         else:
             for key, value in values.items():
                 self.config_manager.set(key, value)
+        self._update_source_action_ui()
 
     def open_backup_recovery(self):
         current_source = self.src_entry.text().strip()
@@ -521,7 +634,52 @@ class BypassTab(QWidget):
     def toggle_target_mode(self):
         is_custom = self.radio_custom.isChecked()
         self.tgt_layout_widget.setVisible(is_custom)
-        self._refresh_action_state()
+        self.config_manager.set("bypass_output_mode", "custom" if is_custom else "inplace")
+        self._update_source_action_ui()
+        self._invalidate_scan()
+
+    def _update_source_action_ui(self):
+        if not hasattr(self, "source_action_hint"):
+            return
+        inplace = self.radio_inplace.isChecked()
+        available = not self.is_running and not self._ui_locked
+        self.check_backup_orig.setEnabled(available and not inplace)
+        if inplace:
+            self.source_action_hint.setText(self._t(
+                "Source replacement: after output validation, the old source goes to the Recycle Bin. If unavailable, permanent deletion is used. This action runs only from this screen.",
+                "원본 교체: 출력 검증 후 기존 원본을 휴지통으로 이동하며, 휴지통을 사용할 수 없을 때만 영구 삭제합니다. 현재 화면에서 직접 실행할 때만 동작합니다.",
+                "Zastąpienie źródła: po weryfikacji stare źródło trafia do Kosza; gdy jest niedostępny, używane jest trwałe usunięcie. Akcja działa tylko na tym ekranie.",
+            ))
+            self.source_action_hint.setStyleSheet(
+                "background-color: #3f2d16; color: #fde68a; border: 1px solid #d97706; "
+                "padding: 8px; border-radius: 4px; font-weight: bold;"
+            )
+            self.check_backup_orig.setToolTip(self._t(
+                "Original Backup is available only when saving to a separate folder.",
+                "Original Backup은 별도 저장 폴더 모드에서만 사용할 수 있습니다.",
+                "Original Backup jest dostępny tylko przy zapisie do osobnego folderu.",
+            ))
+            self.start_btn.setText(self._t(
+                "Convert and Replace Sources",
+                "변환 후 원본 교체",
+                "Konwertuj i zastąp źródła",
+            ))
+        else:
+            backup_enabled = self.check_backup_orig.isChecked()
+            self.source_action_hint.setText(self._t(
+                "Separate output: source files will be moved to Original Backup after validation."
+                if backup_enabled else "Separate output: source files will remain unchanged.",
+                "별도 저장: 검증 후 원본을 Original Backup으로 이동합니다."
+                if backup_enabled else "별도 저장: 원본 파일은 변경하지 않고 그대로 보존합니다.",
+                "Osobny wynik: po weryfikacji źródła trafią do Original Backup."
+                if backup_enabled else "Osobny wynik: pliki źródłowe pozostaną bez zmian.",
+            ))
+            self.source_action_hint.setStyleSheet(
+                "background-color: #152e2a; color: #a7f3d0; border: 1px solid #059669; "
+                "padding: 8px; border-radius: 4px;"
+            )
+            self.check_backup_orig.setToolTip("")
+            self.start_btn.setText(self._t("Start File Conversion", "파일 변환 시작", "Rozpocznij konwersję plików"))
         
     def select_source_folder(self):
         initial = self.config_manager.get("last_bypass_source_directory", "")
@@ -561,6 +719,18 @@ class BypassTab(QWidget):
 
     def _target_is_ready(self):
         return self.radio_inplace.isChecked() or os.path.isdir(self.tgt_entry.text().strip())
+
+    def _target_extension_for_source(self, source_ext):
+        source_ext = source_ext.lower()
+        if source_ext in ('.xlsx', '.xls', '.xlsm'):
+            return self.excel_combo.currentText()
+        if source_ext in ('.pptx', '.ppt', '.pptm'):
+            return self.ppt_combo.currentText()
+        if source_ext in ('.docx', '.doc', '.docm'):
+            return self.word_combo.currentText()
+        if source_ext == '.pdf':
+            return self.pdf_combo.currentText()
+        return ""
 
     def _invalidate_scan(self, *_args):
         self.scanned_files.clear()
@@ -611,6 +781,7 @@ class BypassTab(QWidget):
         self.log_area.append(self._msg("bypass_scanning"))
         
         target_extensions = ('.xlsx', '.xls', '.xlsm', '.pptx', '.ppt', '.pptm', '.docx', '.doc', '.docm', '.pdf')
+        already_target_count = 0
         
         try:
             # 1단계 직계 파일만 검색 (Spaghetti 방지 및 간단성 유지)
@@ -619,6 +790,9 @@ class BypassTab(QWidget):
                 if os.path.isfile(file_path):
                     _, ext = os.path.splitext(file_name.lower())
                     if ext in target_extensions:
+                        if self.radio_inplace.isChecked() and ext == self._target_extension_for_source(ext):
+                            already_target_count += 1
+                            continue
                         self.scanned_files.append(file_path)
                         
             # 테이블 채우기
@@ -630,15 +804,7 @@ class BypassTab(QWidget):
                 
                 # 원본 종류 판별 및 우회 종류 매칭
                 _, ext = os.path.splitext(filename.lower())
-                tgt_ext = ""
-                if ext in ('.xlsx', '.xls', '.xlsm'):
-                    tgt_ext = self.excel_combo.currentText()
-                elif ext in ('.pptx', '.ppt', '.pptm'):
-                    tgt_ext = self.ppt_combo.currentText()
-                elif ext in ('.docx', '.doc', '.docm'):
-                    tgt_ext = self.word_combo.currentText()
-                elif ext == '.pdf':
-                    tgt_ext = self.pdf_combo.currentText()
+                tgt_ext = self._target_extension_for_source(ext)
                 
                 # 테이블 열 세팅
                 self.file_table.setItem(idx, 0, QTableWidgetItem(filename))
@@ -649,6 +815,12 @@ class BypassTab(QWidget):
             file_count = len(self.scanned_files)
             self.summary_label.setText(self._t(f"Files found: {file_count}", f"검색된 대상 파일: {file_count}개", f"Znalezione pliki: {file_count}"))
             self.log_area.append(self._msg("bypass_scan_complete", count=len(self.scanned_files)))
+            if already_target_count:
+                self.log_area.append(self._t(
+                    f"ℹ️ Skipped {already_target_count} file(s) already in the selected target format; in-place replacement never performs same-format rewrites.",
+                    f"ℹ️ 선택한 대상 형식과 이미 같은 파일 {already_target_count}개를 제외했습니다. 원본 교체 모드는 같은 형식으로 다시 변환하지 않습니다.",
+                    f"ℹ️ Pominięto {already_target_count} plik(i) już w wybranym formacie; zastępowanie nie przepisuje plików w tym samym formacie.",
+                ))
             self.workflow_widget.set_active_step(1)
             self._refresh_action_state()
             
@@ -668,6 +840,7 @@ class BypassTab(QWidget):
         self.config_manager.set("bypass_pdf_target", self.pdf_combo.currentText())
         disposition = SourceDisposition.BACKUP if self.check_backup_orig.isChecked() else SourceDisposition.KEEP
         self.config_manager.set("bypass_source_disposition", disposition.value)
+        self.config_manager.set("bypass_output_mode", "inplace" if self.radio_inplace.isChecked() else "custom")
         self.config_manager.set("bypass_delete_original", False)
         self.config_manager.set("bypass_preserve_meta", self.check_preserve_meta.isChecked())
         
@@ -704,8 +877,8 @@ class BypassTab(QWidget):
             QMessageBox.critical(self, self._msg("bypass_preflight_failed"), preflight.format(include_warnings=False, language=self.language))
             return
 
-        if not self._confirm_backup_move(run_config):
-            self.log_area.append(self._t("Source backup was cancelled.", "원본 백업 이동을 취소했습니다.", "Anulowano kopię źródeł."))
+        if not self._confirm_source_action(run_config):
+            self.log_area.append(self._t("Source action was cancelled.", "원본 처리 작업을 취소했습니다.", "Anulowano akcję na źródłach."))
             return
 
         tasks = [task.to_legacy_dict() for task in run_config.tasks]
@@ -822,7 +995,11 @@ class BypassTab(QWidget):
         # 작업 리스트 작성
         tasks = []
         reserved_targets = set()
-        source_disposition = SourceDisposition.BACKUP if self.check_backup_orig.isChecked() else SourceDisposition.KEEP
+        source_disposition = (
+            SourceDisposition.REPLACE
+            if inplace_mode
+            else SourceDisposition.BACKUP if self.check_backup_orig.isChecked() else SourceDisposition.KEEP
+        )
         for idx in range(self.file_table.rowCount()):
             filename = self.file_table.item(idx, 0).text()
             src_file = os.path.join(src_dir, filename)
@@ -890,6 +1067,7 @@ class BypassTab(QWidget):
         self.ppt_combo.setEnabled(not locked)
         self.word_combo.setEnabled(not locked)
         self.pdf_combo.setEnabled(not locked)
-        self.check_backup_orig.setEnabled(not locked)
+        self.check_backup_orig.setEnabled(not locked and self.radio_custom.isChecked())
         self.check_preserve_meta.setEnabled(not locked)
+        self._update_source_action_ui()
         self._refresh_action_state()

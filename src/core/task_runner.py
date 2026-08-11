@@ -19,6 +19,7 @@ from src.core.task_contracts import (
     PdfRunConfig,
     RunPlan,
     RunReport,
+    SourceDisposition,
     StepResult,
     StepStatus,
     SyncRunConfig,
@@ -439,6 +440,19 @@ class TaskRunner:
 
     def _run_bypass(self, config: BypassRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
         callbacks.log("\n[5] " + self._step_name(TaskStep.BYPASS))
+        if config.source_disposition == SourceDisposition.REPLACE:
+            detail = self._text(
+                "Source replacement must be confirmed and started directly from Convert Files because it recycles old sources and may permanently delete them when recycling is unavailable.",
+                "원본 교체는 기존 원본을 휴지통으로 이동하고 불가능할 때 영구 삭제할 수 있으므로 파일 변환 화면에서 확인한 뒤 직접 실행해야 합니다.",
+                "Zastąpienie źródeł wymaga potwierdzenia w Konwertuj pliki, ponieważ przenosi stare źródła do Kosza, a gdy to niemożliwe, może je trwale usunąć.",
+            )
+            callbacks.log(f"   ✗ {detail}")
+            result.details.append(detail)
+            result.error_message = detail
+            result.success_count = 0
+            result.total_count = len(config.tasks)
+            result.status = StepStatus.FAILED
+            return
         success_count = 0
 
         for idx, task in enumerate(config.tasks):

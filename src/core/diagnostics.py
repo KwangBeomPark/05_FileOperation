@@ -350,6 +350,18 @@ def run_diagnostics(
                 ),
                 "tasks",
             ))
+        if bypass_config.source_disposition == SourceDisposition.REPLACE:
+            items.append(DiagnosticItem(
+                "source_replace_direct_only",
+                t("Source replacement execution", "원본 교체 실행 방식", "Sposób zastępowania źródeł"),
+                DiagnosticStatus.FAIL,
+                t(
+                    "Use Convert Files to review and confirm source replacement. Old sources go to Recycle Bin, with permanent deletion only when recycling is unavailable; Run Tasks and schedules do not execute it.",
+                    "파일 변환 화면에서 원본 교체를 검토하고 확인하세요. 기존 원본은 휴지통으로 이동하며 불가능할 때만 영구 삭제합니다. 작업 실행과 예약 실행에서는 동작하지 않습니다.",
+                    "Potwierdź zastąpienie w Konwertuj pliki. Stare źródła trafiają do Kosza, a gdy to niemożliwe są trwale usuwane; Zadania i harmonogram tego nie wykonują.",
+                ),
+                TaskStep.BYPASS.value,
+            ))
 
     if auto_email:
         server = str(config_manager.get("smtp_server", "")).strip()
