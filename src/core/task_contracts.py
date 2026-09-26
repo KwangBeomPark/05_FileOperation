@@ -60,12 +60,20 @@ class SyncGroupConfig:
     name: str
     folders: list[str]
     move_to_deleted: bool = True
+    archive_folder_name: str = "to be deleted"
+    exclude_patterns: list[str] = field(default_factory=list)
+    include_subfolders: bool = False
+    sync_mode: str = "two_way"
 
     def to_legacy_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "folders": list(self.folders),
             "move_to_deleted": self.move_to_deleted,
+            "archive_folder_name": self.archive_folder_name,
+            "exclude_patterns": list(self.exclude_patterns),
+            "include_subfolders": self.include_subfolders,
+            "sync_mode": self.sync_mode,
         }
 
 
@@ -118,9 +126,19 @@ class PdfRunConfig:
 @dataclass(frozen=True)
 class OcrRunConfig:
     image_paths: list[str]
+    rule_mode: str = "promotion"
+    custom_pattern: str = ""
+    rename_template: str = "{match}"
+    export_txt: bool = False
 
     def to_legacy_dict(self) -> dict[str, Any]:
-        return {"image_paths": list(self.image_paths)}
+        return {
+            "image_paths": list(self.image_paths),
+            "rule_mode": self.rule_mode,
+            "custom_pattern": self.custom_pattern,
+            "rename_template": self.rename_template,
+            "export_txt": self.export_txt,
+        }
 
 
 @dataclass(frozen=True)
@@ -169,11 +187,26 @@ RunConfig = SyncRunConfig | EmlRunConfig | PdfRunConfig | OcrRunConfig | BypassR
 @dataclass(frozen=True)
 class RunPlan:
     configs: dict[TaskStep, RunConfig] = field(default_factory=dict)
+    step_order: list[TaskStep] = field(default_factory=list)
+    chain_outputs: bool = False
 
     @property
     def active_steps(self) -> list[TaskStep]:
-        order = [TaskStep.SYNC, TaskStep.EML, TaskStep.PDF, TaskStep.OCR, TaskStep.BYPASS]
-        return [step for step in order if step in self.configs]
+        default_order = [TaskStep.SYNC, TaskStep.EML, TaskStep.PDF, TaskStep.OCR, TaskStep.BYPASS]
+        if self.step_order:
+            ordered: list[TaskStep] = []
+            for item in self.step_order:
+                try:
+                    step = TaskStep(item)
+                except ValueError:
+                    continue
+                if step in self.configs and step not in ordered:
+                    ordered.append(step)
+            for step in default_order:
+                if step in self.configs and step not in ordered:
+                    ordered.append(step)
+            return ordered
+        return [step for step in default_order if step in self.configs]
 
     def get(self, step: TaskStep) -> RunConfig | None:
         return self.configs.get(step)

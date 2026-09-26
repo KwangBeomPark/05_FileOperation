@@ -33,8 +33,87 @@ SINGLE_INSTANCE_NAME = "fileops.hub.desktop.v1"
 def parse_startup_arguments(argv):
     """Remove FileOps-specific switches before passing arguments to Qt."""
     start_in_tray = "--tray" in argv[1:]
-    qt_argv = [argv[0], *(arg for arg in argv[1:] if arg != "--tray")]
+    qt_argv = [argv[0], *(arg for arg in argv[1:] if arg not in ("--tray", "--headless-run"))]
     return qt_argv, start_in_tray
+
+def run_headless(config_path: str | None = None) -> int:
+    """Execute configured integrated tasks headlessly without displaying GUI."""
+    from src.utils.config_manager import ConfigManager
+    from src.core.task_runner import TaskRunner, RunnerCallbacks
+    from src.core.task_contracts import (
+        RunPlan,
+        TaskStep,
+        SyncGroupConfig,
+        SyncRunConfig,
+        OcrRunConfig,
+    )
+    from src.utils.logger import get_logger
+
+    logger = get_logger()
+    logger.info("Starting FileOps Hub in Headless CLI mode.")
+    config = ConfigManager(config_path) if config_path else ConfigManager()
+
+    configs = {}
+    sync_groups_data = config.get("sync_groups", [])
+    valid_groups = [g for g in sync_groups_data if len(g.get("folders", [])) >= 2]
+    if valid_groups:
+        configs[TaskStep.SYNC] = SyncRunConfig(
+            sync_groups=[
+                SyncGroupConfig(
+                    name=g.get("name", "Group"),
+                    folders=g.get("folders", []),
+                    move_to_deleted=bool(g.get("move_to_deleted", True)),
+                    archive_folder_name=str(g.get("archive_folder_name", "to be deleted")),
+                    exclude_patterns=list(g.get("exclude_patterns", [])),
+                    include_subfolders=bool(g.get("include_subfolders", False)),
+                    sync_mode=str(g.get("sync_mode", "two_way")),
+                )
+                for g in valid_groups
+            ]
+        )
+
+    ocr_rule_mode = str(config.get("ocr_rule_mode", "promotion") or "promotion")
+    custom_pattern = str(config.get("ocr_custom_pattern", "") or "")
+    rename_template = str(config.get("ocr_rename_template", "{match}") or "{match}")
+    export_txt = bool(config.get("ocr_export_txt", False))
+    ocr_images = list(config.get("ocr_image_paths", []))
+    chain_outputs = bool(config.get("task_chain_outputs", False))
+    if ocr_images or chain_outputs:
+        configs[TaskStep.OCR] = OcrRunConfig(
+            image_paths=ocr_images,
+            rule_mode=ocr_rule_mode,
+            custom_pattern=custom_pattern,
+            rename_template=rename_template,
+            export_txt=export_txt,
+        )
+
+    enabled_steps_values = config.get("task_enabled_steps", [TaskStep.SYNC.value])
+    enabled_steps = []
+    for val in enabled_steps_values:
+        try:
+            step = TaskStep(val)
+            if step in configs:
+                enabled_steps.append(step)
+        except ValueError:
+            pass
+
+    if not enabled_steps:
+        enabled_steps = list(configs.keys())
+
+    plan = RunPlan(
+        configs=configs,
+        step_order=enabled_steps,
+        chain_outputs=chain_outputs,
+    )
+
+    runner = TaskRunner(config, plan)
+    callbacks = RunnerCallbacks(
+        log=lambda msg: print(msg, flush=True),
+        step_progress=lambda cur, tot, msg: print(f"[{cur}/{tot}] {msg}", flush=True),
+    )
+    report = runner.run(callbacks)
+    print("\n" + report.report_body)
+    return 0 if report.overall_success else 1
 
 def show_fatal_error(summary: str, details: str) -> None:
     """Report startup failures even when the Qt window could not be constructed."""
@@ -56,6 +135,9 @@ def handle_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
 def main() -> int:
     setup_logger()
     sys.excepthook = handle_unhandled_exception
+
+    if "--headless-run" in sys.argv:
+        return run_headless()
 
     if sys.platform == "win32":
         try:

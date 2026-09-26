@@ -3,7 +3,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QProgressBar,
     QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, QGroupBox, QHeaderView,
-    QComboBox, QInputDialog
+    QComboBox, QInputDialog, QCheckBox, QLineEdit
 )
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QFont
@@ -44,6 +44,17 @@ class SyncWorker(QThread):
         self.is_cancelled = True
         if self.current_manager:
             self.current_manager.cancel()
+
+    def _create_manager(self, group, default_move_to_deleted):
+        folders = group.get("folders", [])
+        return SyncManager(
+            folders=folders,
+            move_to_deleted=bool(group.get("move_to_deleted", default_move_to_deleted)),
+            archive_folder_name=str(group.get("archive_folder_name", "to be deleted") or "to be deleted"),
+            exclude_patterns=list(group.get("exclude_patterns", [])),
+            include_subfolders=bool(group.get("include_subfolders", False)),
+            sync_mode=str(group.get("sync_mode", "two_way") or "two_way"),
+        )
             
     def run(self):
         try:
@@ -60,7 +71,7 @@ class SyncWorker(QThread):
                         continue # 최소 2개 미만 폴더 그룹은 동기화할 수 없으므로 건너뜀
                         
                     self.progress.emit(i, len(self.sync_groups), self._t(f"Analyzing: {group['name']}...", f"분석 중: {group['name']} ...", f"Analizowanie: {group['name']}..."))
-                    self.current_manager = SyncManager(folders=folders, move_to_deleted=move_to_deleted)
+                    self.current_manager = self._create_manager(group, move_to_deleted)
                     actions = self.current_manager.analyze_sync()
                     
                     # 액션 정보에 그룹명 추가 (테이블 표시용)
@@ -89,7 +100,7 @@ class SyncWorker(QThread):
                         
                     self.progress.emit(i, len(self.sync_groups), self._t(f"[{group['name']}] Preparing analysis and synchronization...", f"[{group['name']}] 분석 및 동기화 준비 중...", f"[{group['name']}] Przygotowywanie analizy i synchronizacji..."))
                     
-                    self.current_manager = SyncManager(folders=folders, move_to_deleted=move_to_deleted)
+                    self.current_manager = self._create_manager(group, move_to_deleted)
                     actions = self.current_manager.analyze_sync()
                     
                     if not actions:
@@ -199,6 +210,12 @@ class SyncTab(QWidget):
         ])
         self.analyze_btn.setText(self._t("Preview Sync", "동기화 미리보기", "Podgląd synchronizacji"))
         self.sync_btn.setText(self._t("Synchronize All", "전체 동기화", "Synchronizuj wszystko"))
+        self.sync_mode_label.setText(self._t("Mode:", "동기화 방식:", "Tryb:"))
+        self.sync_mode_combo.setItemText(0, self._t("Two-way (Latest Wins)", "양방향 (최신 파일 기준)", "Dwukierunkowo (najnowszy)"))
+        self.sync_mode_combo.setItemText(1, self._t("One-way (1st Folder -> Others)", "단방향 (첫 번째 폴더 -> 나머지 배포)", "Jednokierunkowo (1. folder -> reszta)"))
+        self.subfolders_check.setText(self._t("Include Subfolders", "하위 폴더 포함(재귀)", "Uwzględnij podfoldery"))
+        self.exclude_label.setText(self._t("Exclude:", "제외 패턴:", "Wyklucz:"))
+        self.archive_label.setText(self._t("Archive Dir:", "백업 폴더명:", "Folder archiwum:"))
         for index, group in enumerate(self.sync_groups):
             self.group_combo.setItemText(index, self._display_group_name(group.get("name", "")))
         self.refresh_folder_list()
@@ -247,6 +264,38 @@ class SyncTab(QWidget):
         group_h_layout.addWidget(del_group_btn)
         
         group_layout.addLayout(group_h_layout)
+
+        # 그룹별 범용 동기화 옵션 (모드, 하위 폴더 재귀, 제외 패턴, 백업 폴더명)
+        options_h_layout = QHBoxLayout()
+        self.sync_mode_label = QLabel(self._t("Mode:", "동기화 방식:", "Tryb:"))
+        self.sync_mode_combo = QComboBox()
+        self.sync_mode_combo.addItem(self._t("Two-way (Latest Wins)", "양방향 (최신 파일 기준)", "Dwukierunkowo (najnowszy)"), "two_way")
+        self.sync_mode_combo.addItem(self._t("One-way (1st Folder -> Others)", "단방향 (첫 번째 폴더 -> 나머지 배포)", "Jednokierunkowo (1. folder -> reszta)"), "one_way")
+        self.sync_mode_combo.currentIndexChanged.connect(self.on_group_options_changed)
+
+        self.subfolders_check = QCheckBox(self._t("Include Subfolders", "하위 폴더 포함(재귀)", "Uwzględnij podfoldery"))
+        self.subfolders_check.stateChanged.connect(self.on_group_options_changed)
+
+        self.exclude_label = QLabel(self._t("Exclude:", "제외 패턴:", "Wyklucz:"))
+        self.exclude_input = QLineEdit()
+        self.exclude_input.setPlaceholderText("*.tmp, *.bak, ~$*")
+        self.exclude_input.editingFinished.connect(self.on_group_options_changed)
+
+        self.archive_label = QLabel(self._t("Archive Dir:", "백업 폴더명:", "Folder archiwum:"))
+        self.archive_input = QLineEdit()
+        self.archive_input.setPlaceholderText("to be deleted")
+        self.archive_input.setFixedWidth(120)
+        self.archive_input.editingFinished.connect(self.on_group_options_changed)
+
+        options_h_layout.addWidget(self.sync_mode_label)
+        options_h_layout.addWidget(self.sync_mode_combo)
+        options_h_layout.addWidget(self.subfolders_check)
+        options_h_layout.addWidget(self.exclude_label)
+        options_h_layout.addWidget(self.exclude_input, 1)
+        options_h_layout.addWidget(self.archive_label)
+        options_h_layout.addWidget(self.archive_input)
+        group_layout.addLayout(options_h_layout)
+
         layout.addWidget(group_groupbox)
         
         # 2. 동기화 폴더 설정 영역
@@ -424,9 +473,44 @@ class SyncTab(QWidget):
         if idx < 0 or idx >= len(self.sync_groups):
             return
         self.current_group_idx = idx
+        group = self.sync_groups[idx]
+        self.sync_mode_combo.blockSignals(True)
+        self.subfolders_check.blockSignals(True)
+        self.exclude_input.blockSignals(True)
+        self.archive_input.blockSignals(True)
+
+        mode_val = str(group.get("sync_mode", "two_way") or "two_way")
+        mode_idx = self.sync_mode_combo.findData(mode_val)
+        self.sync_mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
+        self.subfolders_check.setChecked(bool(group.get("include_subfolders", False)))
+        patterns = group.get("exclude_patterns", [])
+        if isinstance(patterns, list):
+            self.exclude_input.setText(", ".join(str(p) for p in patterns if str(p).strip()))
+        else:
+            self.exclude_input.setText(str(patterns or ""))
+        self.archive_input.setText(str(group.get("archive_folder_name", "to be deleted") or "to be deleted"))
+
+        self.sync_mode_combo.blockSignals(False)
+        self.subfolders_check.blockSignals(False)
+        self.exclude_input.blockSignals(False)
+        self.archive_input.blockSignals(False)
+
         self.refresh_folder_list()
         self.save_data()
         self._refresh_action_state()
+
+    def on_group_options_changed(self):
+        if self.current_group_idx < 0 or self.current_group_idx >= len(self.sync_groups):
+            return
+        group = self.sync_groups[self.current_group_idx]
+        group["sync_mode"] = self.sync_mode_combo.currentData() or "two_way"
+        group["include_subfolders"] = bool(self.subfolders_check.isChecked())
+        raw_exclude = self.exclude_input.text()
+        group["exclude_patterns"] = [p.strip() for p in raw_exclude.split(",") if p.strip()]
+        archive_dir = self.archive_input.text().strip() or "to be deleted"
+        group["archive_folder_name"] = archive_dir
+        self.save_data()
+        self._invalidate_analysis()
         
     def add_group(self):
         text, ok = QInputDialog.getText(self, self._msg("sync_add_group_title"), self._msg("sync_add_group_prompt"))
@@ -749,6 +833,10 @@ class SyncTab(QWidget):
                     name=group.get("name", f"그룹 {idx + 1}"),
                     folders=list(group.get("folders", [])),
                     move_to_deleted=bool(group.get("move_to_deleted", move_to_deleted)),
+                    archive_folder_name=str(group.get("archive_folder_name", "to be deleted") or "to be deleted"),
+                    exclude_patterns=list(group.get("exclude_patterns", [])),
+                    include_subfolders=bool(group.get("include_subfolders", False)),
+                    sync_mode=str(group.get("sync_mode", "two_way") or "two_way"),
                 )
                 for idx, group in enumerate(valid_groups)
             ]

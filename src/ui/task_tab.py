@@ -4,18 +4,22 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
     QProgressBar, QTextEdit, QTableWidget, QTableWidgetItem, 
-    QHeaderView, QMessageBox, QCheckBox, QFrame, QTimeEdit
+    QHeaderView, QMessageBox, QCheckBox, QFrame, QTimeEdit,
+    QFileDialog
 )
-from PyQt6.QtCore import Qt, QTime, QTimer
+from PyQt6.QtCore import Qt, QTime, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
 
 # Core Modules
 from src.core.email_sender import send_email
 from src.core.diagnostics import DiagnosticItem, DiagnosticStatus
+from src.core.folder_watcher import FolderWatcher
+from src.core.notifier import build_webhook_payload, send_webhook
 from src.core.preflight import check_run_plan
+from src.core.preset_manager import apply_workflow_preset, export_workflow_preset, load_workflow_preset
 from src.core.run_journal import RunJournal
-from src.core.schedule import evaluate_daily_schedule, parse_timestamp
-from src.core.task_contracts import BypassRunConfig, RunPlan, SourceDisposition, StepStatus, TaskStep, TaskValidationError
+from src.core.schedule import evaluate_flexible_schedule, parse_timestamp
+from src.core.task_contracts import BypassRunConfig, OcrRunConfig, RunPlan, SourceDisposition, StepStatus, TaskStep, TaskValidationError
 from src.core.task_history import merge_run_report_history, normalize_step_history
 from src.ui.i18n import get_app_language, tr
 from src.ui.diagnostics_dialog import DiagnosticsDialog
@@ -44,10 +48,13 @@ class TaskTab(QWidget):
         TaskStep.BYPASS,
     )
 
+    folder_files_detected = pyqtSignal(list)
+
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
         self.worker = None
+        self.folder_watcher = None
         self.is_running = False
         self.is_scheduled_run = False
         self.is_preflighting = False
@@ -76,6 +83,8 @@ class TaskTab(QWidget):
         self.run_health_timer.setInterval(15_000)
         self.run_health_timer.timeout.connect(self._check_run_health)
         self.run_health_timer.start()
+        self.folder_files_detected.connect(self._handle_folder_watcher_files)
+        self._init_folder_watcher()
         QTimer.singleShot(0, self._on_schedule_tick)
         QTimer.singleShot(0, self.refresh_readiness)
         
@@ -194,6 +203,14 @@ class TaskTab(QWidget):
         self.diagnostics_btn.setMinimumHeight(30)
         self.diagnostics_btn.clicked.connect(self.open_diagnostics)
         hint_layout.addWidget(self.diagnostics_btn)
+        self.export_preset_btn = QPushButton()
+        self.export_preset_btn.setMinimumHeight(30)
+        self.export_preset_btn.clicked.connect(self.export_preset)
+        hint_layout.addWidget(self.export_preset_btn)
+        self.import_preset_btn = QPushButton()
+        self.import_preset_btn.setMinimumHeight(30)
+        self.import_preset_btn.clicked.connect(self.import_preset)
+        hint_layout.addWidget(self.import_preset_btn)
         layout.addLayout(hint_layout)
 
         self.schedule_status_label = QLabel()
@@ -216,10 +233,21 @@ class TaskTab(QWidget):
         )
         layout.addWidget(self.check_allow_source_backup)
 
+        self.check_chain_outputs = QCheckBox()
+        self.check_chain_outputs.setChecked(
+            bool(self.config_manager.get("task_chain_outputs", False))
+        )
+        self.check_chain_outputs.setStyleSheet(
+            "color: #a7f3d0; background-color: #064e3b; border: 1px solid #047857; "
+            "border-radius: 5px; padding: 6px 8px;"
+        )
+        layout.addWidget(self.check_chain_outputs)
+
         self.check_schedule.toggled.connect(self._on_schedule_toggled)
         self.schedule_time_edit.timeChanged.connect(self.save_automation_settings)
         self.check_auto_email.toggled.connect(self.save_automation_settings)
         self.check_allow_source_backup.toggled.connect(self.save_automation_settings)
+        self.check_chain_outputs.toggled.connect(self.save_automation_settings)
         
         # 2. 중간 상태 그리드 테이블 (Tab Summary Status)
         self.status_table = QTableWidget()
@@ -421,11 +449,27 @@ class TaskTab(QWidget):
         self.check_auto_email.setText(tr("task_auto_email", language))
         self.check_allow_source_backup.setText(tr("task_schedule_allow_source_backup", language))
         self.check_allow_source_backup.setToolTip(tr("task_schedule_allow_source_backup_help", language))
+        self.check_chain_outputs.setText(
+            self._text(
+                "Pipeline Output Chaining (Pass EML/PDF converted images directly to OCR)",
+                "파이프라인 출력 연계 (EML/PDF 변환 이미지 결과를 OCR 입력으로 자동 연결)",
+                "Łączenie potoku (przekaż obrazy EML/PDF bezpośrednio do OCR)",
+            )
+        )
+        self.check_chain_outputs.setToolTip(
+            self._text(
+                "When enabled, converted image outputs from EML or PDF steps are automatically fed into OCR processing.",
+                "활성화 시 EML 또는 PDF 변환 단계에서 생성된 이미지들이 OCR 단계의 대상 파일로 자동 전달됩니다.",
+                "Po włączeniu obrazy wyjściowe z etapów EML lub PDF są automatycznie przekazywane do przetwarzania OCR.",
+            )
+        )
         self.start_btn.setText(tr("task_start", language))
         self.stop_btn.setText(tr("task_stop", language))
         self.history_btn.setText(tr("run_history_button", language))
         self.readiness_btn.setText(tr("task_check_readiness", language))
         self.diagnostics_btn.setText(tr("diagnostics_open", language))
+        self.export_preset_btn.setText(self._text("Export Preset", "프리셋 내보내기", "Eksportuj profil"))
+        self.import_preset_btn.setText(self._text("Import Preset", "프리셋 가져오기", "Importuj profil"))
         self.selection_hint.setText(tr("task_selection_hint", language))
         self.status_table.setHorizontalHeaderLabels([
             tr("task_run_header", language),
@@ -740,7 +784,11 @@ class TaskTab(QWidget):
 
         self.diagnostics_dialog = DiagnosticsDialog(
             self.config_manager,
-            RunPlan(configs=configs),
+            RunPlan(
+                configs=configs,
+                step_order=selected_steps,
+                chain_outputs=bool(self.check_chain_outputs.isChecked()),
+            ),
             validation_items,
             self._navigate_diagnostic_target,
             auto_email=self.check_auto_email.isChecked(),
@@ -796,9 +844,15 @@ class TaskTab(QWidget):
         self.refresh_schedule_summary()
 
     def _schedule_decision(self, now):
-        return evaluate_daily_schedule(
+        mode = self.config_manager.get("task_schedule_mode", "daily")
+        interval_minutes = int(self.config_manager.get("task_schedule_interval_minutes", 60) or 60)
+        weekdays = self.config_manager.get("task_schedule_weekdays", None)
+        return evaluate_flexible_schedule(
             now=now,
             schedule_time=self.schedule_time_edit.time().toString("HH:mm"),
+            schedule_mode=mode,
+            interval_minutes=interval_minutes,
+            weekdays=weekdays,
             last_started_at=self.config_manager.get("task_schedule_last_started_at", ""),
             legacy_last_run_date=self.config_manager.get("task_schedule_last_run_date", ""),
             attempt_date=self.config_manager.get("task_schedule_attempt_date", ""),
@@ -807,6 +861,45 @@ class TaskTab(QWidget):
             retry_minutes=self.SCHEDULE_RETRY_MINUTES,
             max_start_attempts=self.SCHEDULE_MAX_START_ATTEMPTS,
         )
+
+    def _init_folder_watcher(self):
+        if bool(self.config_manager.get("task_folder_watch_enabled", False)):
+            self.start_folder_watcher()
+
+    def start_folder_watcher(self, watch_folders=None):
+        self.stop_folder_watcher()
+        folders = list(watch_folders or self.config_manager.get("task_watch_folders", []) or [])
+        if not folders:
+            sync_groups = self.config_manager.get("sync_groups", []) or []
+            for g in sync_groups:
+                if isinstance(g, dict):
+                    folders.extend(g.get("folders", []))
+        if not folders:
+            return False
+        debounce = float(self.config_manager.get("task_watch_debounce_seconds", 3.0) or 3.0)
+        patterns = self.config_manager.get("task_watch_patterns", None)
+        self.folder_watcher = FolderWatcher(
+            watch_folders=folders,
+            callback=lambda files: self.folder_files_detected.emit(files),
+            debounce_seconds=debounce,
+            patterns=patterns,
+        )
+        self.folder_watcher.start()
+        return True
+
+    def stop_folder_watcher(self):
+        if self.folder_watcher:
+            try:
+                self.folder_watcher.stop()
+            except Exception:
+                pass
+            self.folder_watcher = None
+
+    def _handle_folder_watcher_files(self, changed_files: list):
+        prefix = tr("task_scheduled_prefix", self.language)
+        self.log(f"[{prefix}] FolderWatcher detected {len(changed_files)} changed file(s)")
+        if not self.is_running and not self.is_preflighting:
+            self.start_all_tasks(scheduled=True)
 
     def _last_schedule_outcome_text(self):
         started_at = parse_timestamp(self.config_manager.get("task_schedule_last_started_at", ""))
@@ -921,6 +1014,7 @@ class TaskTab(QWidget):
             "task_schedule_time": schedule_time,
             "task_auto_email": self.check_auto_email.isChecked(),
             "task_schedule_allow_source_backup": self.check_allow_source_backup.isChecked(),
+            "task_chain_outputs": self.check_chain_outputs.isChecked(),
         }
         if changed:
             values.update({
@@ -1038,10 +1132,27 @@ class TaskTab(QWidget):
                 if tab_obj and hasattr(tab_obj, "build_run_config"):
                     config = tab_obj.build_run_config()
                     if config is None:
-                        raise TaskValidationError(
-                            tr("task_no_config", self.language),
-                            message_key="task_no_config",
-                        )
+                        if (
+                            step == TaskStep.OCR
+                            and self.check_chain_outputs.isChecked()
+                            and (TaskStep.EML in selected_steps or TaskStep.PDF in selected_steps)
+                        ):
+                            ocr_rule_mode = str(self.config_manager.get("ocr_rule_mode", "promotion") or "promotion")
+                            custom_pattern = str(self.config_manager.get("ocr_custom_pattern", "") or "")
+                            rename_template = str(self.config_manager.get("ocr_rename_template", "{match}") or "{match}")
+                            export_txt = bool(self.config_manager.get("ocr_export_txt", False))
+                            config = OcrRunConfig(
+                                image_paths=[],
+                                rule_mode=ocr_rule_mode,
+                                custom_pattern=custom_pattern,
+                                rename_template=rename_template,
+                                export_txt=export_txt,
+                            )
+                        else:
+                            raise TaskValidationError(
+                                tr("task_no_config", self.language),
+                                message_key="task_no_config",
+                            )
                     configs[step] = config
         except TaskValidationError as val_err:
             feature = self.step_label(current_step)
@@ -1076,7 +1187,11 @@ class TaskTab(QWidget):
                 QMessageBox.critical(self, tr("run_error", self.language), body)
             return self._start_rejected(body)
 
-        run_plan = RunPlan(configs=configs)
+        run_plan = RunPlan(
+            configs=configs,
+            step_order=selected_steps,
+            chain_outputs=bool(self.check_chain_outputs.isChecked()),
+        )
             
         if run_plan.is_empty():
             if scheduled:
@@ -1415,6 +1530,18 @@ class TaskTab(QWidget):
             self.log(self._text("✗ Email failed", "✗ 이메일 전송 실패", "✗ Nie udało się wysłać e-maila") + f": {self._runtime_error_text(send_msg)}")
             if not self.current_report_path:
                 self.save_fallback_report(full_body)
+
+        # Multi-channel webhook notification
+        webhook_url = str(self.config_manager.get("webhook_url", "") or "").strip()
+        if webhook_url:
+            self.log(self._text("✉ Sending Webhook notification...", "✉ 웹훅 알림을 전송합니다...", "✉ Wysyłanie powiadomienia Webhook..."))
+            webhook_type = str(self.config_manager.get("webhook_type", "generic") or "generic")
+            payload = build_webhook_payload(webhook_type, mail_subject, report_body, success=True)
+            wb_ok, wb_msg = send_webhook(webhook_url, payload)
+            if wb_ok:
+                self.log(self._text("✓ Webhook notification sent successfully.", "✓ 웹훅 알림이 성공적으로 전송되었습니다.", "✓ Powiadomienie Webhook wysłane pomyślnie."))
+            else:
+                self.log(self._text("✗ Webhook notification failed", "✗ 웹훅 알림 전송 실패", "✗ Nie udało się wysłać powiadomienia Webhook") + f": {wb_msg}")
             
     def save_fallback_report(self, content):
         """이메일 발송 실패 또는 무설정 시 로컬 Fallback 텍스트 파일 저장 (Atomic Write)"""
@@ -1452,3 +1579,60 @@ class TaskTab(QWidget):
         except Exception as e:
             logger.error(f"Failed to save fallback report atomically: {e}")
             self.log(self._text("✗ Could not save the result report", "✗ 결과 보고서를 저장하지 못했습니다", "✗ Nie można zapisać raportu") + f": {e}")
+
+    def export_preset(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            self._text("Export Workflow Preset", "워크플로우 프리셋 내보내기", "Eksportuj profil przepływu pracy"),
+            os.path.join(os.getcwd(), "workflow_preset.json"),
+            "JSON Files (*.json);;All Files (*)",
+        )
+        if not file_path:
+            return
+        try:
+            config_dict = getattr(self.config_manager, "config", {}) or {}
+            export_workflow_preset(config_dict, file_path)
+            self.log(self._text(f"✓ Preset exported to: {file_path}", f"✓ 프리셋이 내보내졌습니다: {file_path}", f"✓ Profil wyeksportowany do: {file_path}"))
+            QMessageBox.information(
+                self,
+                self._text("Preset Exported", "프리셋 내보내기 완료", "Eksport zakończony"),
+                self._text(f"Workflow preset exported successfully.\n(Sensitive credentials excluded)\n{file_path}", f"워크플로우 프리셋이 안전하게 내보내졌습니다.\n(민감 인증정보 자동 제외)\n{file_path}", f"Profil wyeksportowany pomyślnie.\n(Dane uwierzytelniające wykluczone)\n{file_path}"),
+            )
+        except Exception as e:
+            logger.exception("Failed to export preset")
+            QMessageBox.critical(
+                self,
+                self._text("Export Error", "내보내기 오류", "Błąd eksportu"),
+                str(e),
+            )
+
+    def import_preset(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            self._text("Import Workflow Preset", "워크플로우 프리셋 가져오기", "Importuj profil przepływu pracy"),
+            "",
+            "JSON Files (*.json);;All Files (*)",
+        )
+        if not file_path:
+            return
+        try:
+            settings = load_workflow_preset(file_path)
+            count = apply_workflow_preset(self.config_manager, settings)
+            self.log(self._text(f"✓ Preset loaded ({count} settings applied): {file_path}", f"✓ 프리셋 로드 완료 ({count}개 설정 적용됨): {file_path}", f"✓ Załadowano profil ({count} ustawień): {file_path}"))
+            self.refresh_readiness()
+            self.refresh_schedule_summary()
+            main_win = self.window()
+            if main_win and hasattr(main_win, "load_all_settings"):
+                main_win.load_all_settings()
+            QMessageBox.information(
+                self,
+                self._text("Preset Imported", "프리셋 가져오기 완료", "Import zakończony"),
+                self._text(f"Successfully applied {count} settings from preset.\n{file_path}", f"프리셋에서 {count}개 설정을 성공적으로 불러왔습니다.\n{file_path}", f"Pomyślnie załadowano {count} ustawień z profilu.\n{file_path}"),
+            )
+        except Exception as e:
+            logger.exception("Failed to import preset")
+            QMessageBox.critical(
+                self,
+                self._text("Import Error", "가져오기 오류", "Błąd importu"),
+                str(e),
+            )

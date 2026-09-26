@@ -3,6 +3,7 @@ import re
 import shutil
 import logging
 import stat
+import fnmatch
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -14,27 +15,60 @@ logger = logging.getLogger(__name__)
 # [_-]?[vV] 패턴 뒤에 점(.)으로 분할된 숫자 패턴이 오고 그것이 파일명 끝에 매칭되는 경우
 VERSION_PATTERN = re.compile(r"^(.*?)[_-]?[vV](\d+(?:\.\d+)*)$")
 
+DEFAULT_EXCLUDE_PATTERNS = ("~$*", "*.tmp", "Thumbs.db", ".DS_Store")
+
 class SyncManager:
     """
     여러 대상 폴더들을 비교 분석하여 가장 최신 파일로 동기화하고,
     구버전 파일들은 하위의 'to be deleted' 폴더로 안전하게 이송 및 정리하는 비즈니스 코어 클래스.
     """
 
-    def __init__(self, folders: list, move_to_deleted: bool = True):
+    def __init__(
+        self,
+        folders: list,
+        move_to_deleted: bool = True,
+        archive_folder_name: str = "to be deleted",
+        exclude_patterns: list | None = None,
+        include_subfolders: bool = False,
+        sync_mode: str = "two_way",
+    ):
         """
         Args:
             folders (list): 동기화할 대상 폴더 경로들의 리스트
             move_to_deleted (bool): 구버전을 삭제하지 않고 'to be deleted' 폴더로 이동할지 여부
+            archive_folder_name (str): 구버전 격리 보관 폴더명 (기본값: 'to be deleted')
+            exclude_patterns (list): 동기화에서 제외할 와일드카드 패턴 목록
+            include_subfolders (bool): 하위 폴더까지 재귀적으로 동기화할지 여부
+            sync_mode (str): 'two_way' (양방향 최신본 일치) 또는 'one_way' (첫 번째 폴더 -> 나머지 단방향 배포)
         """
         # 공백 제거 및 유효한 경로 필터링
         self.folders = [os.path.abspath(f) for f in folders if f and os.path.exists(f)]
         self.move_to_deleted = move_to_deleted
+        cleaned_archive = os.path.basename(str(archive_folder_name or "").strip().strip("/\\"))
+        if not cleaned_archive or cleaned_archive in (".", ".."):
+            cleaned_archive = "to be deleted"
+        self.archive_folder_name = cleaned_archive
+        self.exclude_patterns = (
+            [str(p).strip() for p in exclude_patterns if str(p).strip()]
+            if exclude_patterns is not None
+            else []
+        )
+        self.include_subfolders = bool(include_subfolders)
+        self.sync_mode = sync_mode if sync_mode in ("two_way", "one_way") else "two_way"
         self.is_cancelled = False  # 작업 취소 플래그
 
     def cancel(self):
         """동기화 작업을 중간에 취소합니다."""
         self.is_cancelled = True
         logger.info("Sync cancellation requested.")
+
+    def is_excluded(self, filename: str) -> bool:
+        """지정된 제외 패턴(exclude_patterns)과 파일명이 매칭되는지 확인합니다."""
+        base = os.path.basename(filename)
+        for pattern in self.exclude_patterns:
+            if fnmatch.fnmatch(base, pattern) or fnmatch.fnmatch(filename, pattern):
+                return True
+        return False
 
     @staticmethod
     def parse_version(filename: str) -> tuple:
@@ -44,7 +78,7 @@ class SyncManager:
         버전 패턴이 없으면 None을 반환합니다.
         """
         # 확장자를 제외한 파일명 획득
-        name_without_ext, _ = os.path.splitext(filename)
+        name_without_ext, _ = os.path.splitext(os.path.basename(filename))
         
         match = VERSION_PATTERN.match(name_without_ext)
         if match:
@@ -71,15 +105,17 @@ class SyncManager:
         return os.path.commonpath([base_abs]) == os.path.commonpath([base_abs, path_abs])
 
     def get_unique_deleted_path(self, folder: str, filename: str) -> str:
-        """to be deleted 폴더 내에 덮어쓰기 유실이 발생하지 않도록 고유한 파일 경로를 생성합니다."""
-        deleted_dir = os.path.join(folder, "to be deleted")
+        """to be deleted (또는 지정된 보관 폴더) 내에 덮어쓰기 유실이 발생하지 않도록 고유한 파일 경로를 생성합니다."""
+        rel_dir = os.path.dirname(filename)
+        base_filename = os.path.basename(filename)
+        deleted_dir = os.path.join(folder, self.archive_folder_name, rel_dir) if rel_dir else os.path.join(folder, self.archive_folder_name)
         os.makedirs(deleted_dir, exist_ok=True)
         
-        target_path = os.path.join(deleted_dir, filename)
+        target_path = os.path.join(deleted_dir, base_filename)
         if not os.path.exists(target_path):
             return target_path
             
-        name, ext = os.path.splitext(filename)
+        name, ext = os.path.splitext(base_filename)
         counter = 1
         while True:
             new_filename = f"{name}_{counter}{ext}"
@@ -88,62 +124,86 @@ class SyncManager:
                 return new_path
             counter += 1
 
+    def _register_scanned_file(
+        self,
+        folder: str,
+        rel_path: str,
+        full_path: str,
+        version_groups: dict,
+        plain_files: dict,
+    ) -> None:
+        if self.is_excluded(rel_path):
+            return
+        file_stat = os.stat(full_path)
+        mtime = file_stat.st_mtime
+        size = file_stat.st_size
+        base_item = os.path.basename(rel_path)
+        rel_dir = os.path.dirname(rel_path)
+        _, ext = os.path.splitext(base_item)
+        ext = ext.lower()
+
+        version_info = self.parse_version(base_item)
+        if version_info:
+            base_name, version_tuple, version_str = version_info
+            key = (rel_dir, base_name, ext) if rel_dir else (base_name, ext)
+            file_entry = {
+                "folder": folder,
+                "filename": rel_path,
+                "full_path": full_path,
+                "mtime": mtime,
+                "size": size,
+                "version_tuple": version_tuple,
+                "version_str": version_str,
+            }
+            version_groups.setdefault(key, []).append(file_entry)
+        else:
+            file_entry = {
+                "folder": folder,
+                "filename": rel_path,
+                "full_path": full_path,
+                "mtime": mtime,
+                "size": size,
+            }
+            plain_files.setdefault(rel_path, []).append(file_entry)
+
     def scan_files(self) -> tuple:
         """
-        대상 폴더들의 직계 최상위 파일들을 스캔하여 버전 파일 그룹과 일반 파일 그룹으로 분류합니다.
+        대상 폴더들의 직계 최상위 파일들(또는 include_subfolders=True 시 하위 폴더 포함)을 스캔하여
+        버전 파일 그룹과 일반 파일 그룹으로 분류합니다.
         
         Returns:
             tuple: (version_groups, plain_files)
         """
         version_groups = {} # {(base_name, ext): [file_info_dict, ...]}
         plain_files = {}    # {filename_with_ext: [file_info_dict, ...]}
+        ignored_dirs = {"to be deleted", self.archive_folder_name.lower()}
 
         for folder in self.folders:
             if self.is_cancelled:
                 break
                 
             try:
-                # 직계 최상위 아이템 목록 조회
-                for item in os.listdir(folder):
-                    full_path = os.path.join(folder, item)
-                    
-                    # 폴더 및 'to be deleted' 폴더는 동기화 대상에서 명시적 제외
-                    if os.path.isdir(full_path) or item.lower() == "to be deleted":
-                        continue
+                if self.include_subfolders:
+                    for root, dirs, files in os.walk(folder):
+                        if self.is_cancelled:
+                            break
+                        dirs[:] = [
+                            d for d in dirs
+                            if d.lower() not in ignored_dirs and not self.is_excluded(d)
+                        ]
+                        for item in files:
+                            full_path = os.path.join(root, item)
+                            rel_path = os.path.relpath(full_path, folder)
+                            self._register_scanned_file(folder, rel_path, full_path, version_groups, plain_files)
+                else:
+                    # 직계 최상위 아이템 목록 조회
+                    for item in os.listdir(folder):
+                        full_path = os.path.join(folder, item)
                         
-                    # 파일 메타데이터 수집
-                    stat = os.stat(full_path)
-                    mtime = stat.st_mtime
-                    size = stat.st_size
-                    _, ext = os.path.splitext(item)
-                    ext = ext.lower()
-                    
-                    # 버전 정보 파싱 시도
-                    version_info = self.parse_version(item)
-                    
-                    if version_info:
-                        base_name, version_tuple, version_str = version_info
-                        key = (base_name, ext)
-                        file_entry = {
-                            "folder": folder,
-                            "filename": item,
-                            "full_path": full_path,
-                            "mtime": mtime,
-                            "size": size,
-                            "version_tuple": version_tuple,
-                            "version_str": version_str
-                        }
-                        version_groups.setdefault(key, []).append(file_entry)
-                    else:
-                        # 일반 파일
-                        file_entry = {
-                            "folder": folder,
-                            "filename": item,
-                            "full_path": full_path,
-                            "mtime": mtime,
-                            "size": size
-                        }
-                        plain_files.setdefault(item, []).append(file_entry)
+                        # 폴더 및 'to be deleted' 폴더는 동기화 대상에서 명시적 제외
+                        if os.path.isdir(full_path) or item.lower() in ignored_dirs:
+                            continue
+                        self._register_scanned_file(folder, item, full_path, version_groups, plain_files)
             except Exception as e:
                 logger.error(f"Error scanning folder '{folder}': {e}")
                 
@@ -164,20 +224,29 @@ class SyncManager:
             return actions
 
         version_groups, plain_files = self.scan_files()
+        master_folder = self.folders[0]
+        target_folders = self.folders[1:] if self.sync_mode == "one_way" else self.folders
 
         # 1. 버전 파일 그룹 분석
         for _, entries in version_groups.items():
             if self.is_cancelled:
                 break
-                
-            # 전체 폴더 중 가장 버전이 높은 최신 파일 결정
-            # 버전이 동일할 경우 수정 시간이 가장 최근인 파일 선택
-            newest_entry = max(entries, key=lambda x: (x["version_tuple"], x["mtime"]))
+
+            if self.sync_mode == "one_way":
+                master_entries = [e for e in entries if e["folder"] == master_folder]
+                if not master_entries:
+                    continue
+                newest_entry = max(master_entries, key=lambda x: (x["version_tuple"], x["mtime"]))
+            else:
+                # 전체 폴더 중 가장 버전이 높은 최신 파일 결정
+                # 버전이 동일할 경우 수정 시간이 가장 최근인 파일 선택
+                newest_entry = max(entries, key=lambda x: (x["version_tuple"], x["mtime"]))
+
             newest_filename = newest_entry["filename"]
             newest_ver_str = newest_entry["version_str"]
             
             # 각 폴더별 상태 체크
-            for folder in self.folders:
+            for folder in target_folders:
                 # 해당 폴더에 존재하는 이 그룹의 파일들 탐색
                 folder_entries = [e for e in entries if e["folder"] == folder]
                 
@@ -200,7 +269,7 @@ class SyncManager:
                                 "filename": entry["filename"],
                                 "status": f"구버전 정리 (최신: v{newest_ver_str})",
                                 "source_folder": folder,
-                                "target_folder": os.path.join(folder, "to be deleted"),
+                                "target_folder": os.path.join(folder, self.archive_folder_name),
                                 "action": "to_be_deleted이동",
                                 "size": entry["size"],
                                 "mtime": entry["mtime"]
@@ -227,21 +296,28 @@ class SyncManager:
         for filename, entries in plain_files.items():
             if self.is_cancelled:
                 break
-                
-            # 수정 시간 기준 가장 최신 파일 결정
-            newest_entry = max(entries, key=lambda x: x["mtime"])
-            
-            # 충돌 검증 (10초 이내 오차이면서 다른 내용을 가질 가능성이 있는 경우 경고)
-            has_conflict = False
-            for entry in entries:
-                if entry != newest_entry:
-                    # 수정 시간 차이가 10초 이내인 경우 충돌 후보로 판별
-                    time_diff = abs(newest_entry["mtime"] - entry["mtime"])
-                    if time_diff < 10.0 and newest_entry["size"] != entry["size"]:
-                        has_conflict = True
-                        break
 
-            for folder in self.folders:
+            if self.sync_mode == "one_way":
+                master_entry = next((e for e in entries if e["folder"] == master_folder), None)
+                if not master_entry:
+                    continue
+                newest_entry = master_entry
+                has_conflict = False
+            else:
+                # 수정 시간 기준 가장 최신 파일 결정
+                newest_entry = max(entries, key=lambda x: x["mtime"])
+                
+                # 충돌 검증 (10초 이내 오차이면서 다른 내용을 가질 가능성이 있는 경우 경고)
+                has_conflict = False
+                for entry in entries:
+                    if entry != newest_entry:
+                        # 수정 시간 차이가 10초 이내인 경우 충돌 후보로 판별
+                        time_diff = abs(newest_entry["mtime"] - entry["mtime"])
+                        if time_diff < 10.0 and newest_entry["size"] != entry["size"]:
+                            has_conflict = True
+                            break
+
+            for folder in target_folders:
                 folder_entry = next((e for e in entries if e["folder"] == folder), None)
                 
                 if not folder_entry:
@@ -257,6 +333,9 @@ class SyncManager:
                     })
                 else:
                     if folder_entry["full_path"] != newest_entry["full_path"]:
+                        # one_way일 때 이미 크기와 수정시간이 동일하면 불필요한 덮어쓰기 스킵
+                        if self.sync_mode == "one_way" and abs(folder_entry["mtime"] - newest_entry["mtime"]) < 1.0 and folder_entry["size"] == newest_entry["size"]:
+                            continue
                         if has_conflict:
                             # 충돌본을 먼저 보존하고 같은 실행에서 최신본까지 배포합니다.
                             actions.append({
@@ -283,7 +362,7 @@ class SyncManager:
                                 "filename": filename,
                                 "status": "구버전 정리",
                                 "source_folder": folder,
-                                "target_folder": os.path.join(folder, "to be deleted"),
+                                "target_folder": os.path.join(folder, self.archive_folder_name),
                                 "action": "to_be_deleted이동",
                                 "size": folder_entry["size"],
                                 "mtime": folder_entry["mtime"]
@@ -356,7 +435,7 @@ class SyncManager:
                             
                         # 파일 이동
                         shutil.move(src_path, unique_deleted_path)
-                        logger.info(f"Moved old version: {filename} -> to be deleted")
+                        logger.info(f"Moved old version: {filename} -> {self.archive_folder_name}")
                     else:
                         # 백업하지 않도록 설정된 경우 삭제
                         os.remove(src_path)
@@ -365,12 +444,13 @@ class SyncManager:
                 elif action_type == "충돌 보존 백업":
                     # 충돌이 발생한 로컬 파일은 삭제하거나 덮어쓰지 않고 conflict 접미사를 붙여 백업 디렉토리로 이동
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    name, ext = os.path.splitext(filename)
-                    conflict_filename = f"{name}_conflict_{timestamp}{ext}"
+                    rel_dir = os.path.dirname(filename)
+                    name, ext = os.path.splitext(os.path.basename(filename))
+                    conflict_rel = os.path.join(rel_dir, f"{name}_conflict_{timestamp}{ext}") if rel_dir else f"{name}_conflict_{timestamp}{ext}"
                     
-                    unique_deleted_path = self.get_unique_deleted_path(src_folder, conflict_filename)
+                    unique_deleted_path = self.get_unique_deleted_path(src_folder, conflict_rel)
                     shutil.move(src_path, unique_deleted_path)
-                    logger.warning(f"Conflict preserved: {filename} -> to be deleted/{conflict_filename}")
+                    logger.warning(f"Conflict preserved: {filename} -> {self.archive_folder_name}/{conflict_rel}")
                     
                 elif action_type == "복사":
                     tgt_path = os.path.join(tgt_folder, filename)
@@ -378,6 +458,8 @@ class SyncManager:
                     # 목적지 보안성 검증
                     if not self.is_safe_path(tgt_folder, tgt_path):
                         raise PermissionError(f"Path Traversal Blocked on target copy: {tgt_path}")
+
+                    os.makedirs(os.path.dirname(tgt_path), exist_ok=True)
                         
                     # 대상 파일이 존재하고 읽기 전용 속성이 있는 경우 해제 처리 (시니어 노하우)
                     if os.path.exists(tgt_path):

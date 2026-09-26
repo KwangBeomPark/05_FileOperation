@@ -54,6 +54,7 @@ class TaskRunner:
         self.run_plan = run_plan
         self.language = get_app_language(config_manager)
         self.is_running = True
+        self.chained_image_paths: list[str] = []
         self.eml_converter = EMLConverter(self.config_manager)
         self.pdf_converter = PDFConverter(self.config_manager)
         self.ocr_processor = OCRProcessor(self.config_manager)
@@ -270,7 +271,20 @@ class TaskRunner:
                 f"그룹 동기화 중: {group.name}",
                 f"Synchronizowanie grupy: {group.name}",
             ))
-            manager = SyncManager(folders=group.folders, move_to_deleted=group.move_to_deleted)
+            try:
+                manager = SyncManager(
+                    folders=group.folders,
+                    move_to_deleted=group.move_to_deleted,
+                    archive_folder_name=getattr(group, "archive_folder_name", "to be deleted"),
+                    exclude_patterns=getattr(group, "exclude_patterns", None),
+                    include_subfolders=getattr(group, "include_subfolders", False),
+                    sync_mode=getattr(group, "sync_mode", "two_way"),
+                )
+            except TypeError:
+                manager = SyncManager(
+                    folders=group.folders,
+                    move_to_deleted=group.move_to_deleted,
+                )
             actions = manager.analyze_sync()
             success_files, fail_files, errors = manager.execute_sync(
                 actions,
@@ -349,6 +363,8 @@ class TaskRunner:
                 try:
                     if self.eml_converter.convert_eml_to_image(eml_path, out_png, width=config.width):
                         task_success_count += 1
+                        if out_png not in self.chained_image_paths:
+                            self.chained_image_paths.append(out_png)
                     else:
                         callbacks.log(self._text(f"      ✗ Conversion failed: {filename}", f"      ✗ 변환 실패: {filename}", f"      ✗ Konwersja nie powiodła się: {filename}"))
                 except Exception as file_err:
@@ -394,6 +410,9 @@ class TaskRunner:
                         ),
                     ),
                 )
+                for img_out in image_paths or []:
+                    if img_out not in self.chained_image_paths:
+                        self.chained_image_paths.append(img_out)
                 success_count += 1
                 msg = self._text(f"✓ PDF [{filename}] completed -> {len(image_paths)} images created", f"✓ PDF [{filename}] 완료 -> 이미지 {len(image_paths)}개 생성", f"✓ PDF [{filename}] zakończony -> utworzono {len(image_paths)} obrazów")
             except Exception as file_err:
@@ -410,18 +429,44 @@ class TaskRunner:
     def _run_ocr(self, config: OcrRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
         callbacks.log("\n[4] " + self._step_name(TaskStep.OCR))
         success_count = 0
+        target_images = list(config.image_paths)
+        if getattr(self.run_plan, "chain_outputs", False) and self.chained_image_paths:
+            for chained_img in self.chained_image_paths:
+                if chained_img not in target_images:
+                    target_images.append(chained_img)
 
-        for idx, img_path in enumerate(config.image_paths):
+        rule_mode = getattr(config, "rule_mode", "promotion")
+        custom_pattern = getattr(config, "custom_pattern", "")
+        rename_template = getattr(config, "rename_template", "{match}")
+        export_txt = getattr(config, "export_txt", False)
+
+        for idx, img_path in enumerate(target_images):
             if not self.is_running:
                 result.status = StepStatus.CANCELLED
                 return
             filename = os.path.basename(img_path)
             callbacks.log(self._text(f" -> Running OCR: {filename}...", f" -> OCR 분석 중: {filename}...", f" -> OCR: {filename}..."))
-            callbacks.step_progress(idx, len(config.image_paths), self._text(f"Running OCR: {filename}", f"OCR 진행 중: {filename}", f"OCR: {filename}"))
+            callbacks.step_progress(idx, len(target_images), self._text(f"Running OCR: {filename}", f"OCR 진행 중: {filename}", f"OCR: {filename}"))
             try:
-                success, promo_num, _ocr_text, error_msg = self.ocr_processor.process_image(img_path)
+                try:
+                    success, promo_num, _ocr_text, error_msg = self.ocr_processor.process_image(
+                        img_path,
+                        rule_mode=rule_mode,
+                        custom_pattern=custom_pattern,
+                        export_txt=export_txt,
+                    )
+                except TypeError:
+                    success, promo_num, _ocr_text, error_msg = self.ocr_processor.process_image(img_path)
                 if success and promo_num:
-                    final_filename = self._rename_ocr_file(img_path, promo_num)
+                    if rule_mode == "full_text_txt":
+                        final_filename = filename
+                    else:
+                        final_filename = self._rename_ocr_file(
+                            img_path,
+                            promo_num,
+                            rename_template=rename_template,
+                            seq=idx + 1,
+                        )
                     success_count += 1
                     msg = self._text(f"✓ OCR succeeded: {filename} -> {final_filename} (promotion: {promo_num})", f"✓ OCR 성공: {filename} -> {final_filename} (프로모션: {promo_num})", f"✓ OCR zakończony: {filename} -> {final_filename} (promocja: {promo_num})")
                 else:
@@ -434,9 +479,9 @@ class TaskRunner:
             result.details.append(msg)
 
         result.success_count = success_count
-        result.total_count = len(config.image_paths)
-        result.status = StepStatus.COMPLETED if success_count == len(config.image_paths) else StepStatus.PARTIAL
-        callbacks.step_progress(len(config.image_paths), len(config.image_paths), self._text("Image OCR completed", "이미지 OCR 완료", "OCR obrazów zakończony"))
+        result.total_count = len(target_images)
+        result.status = StepStatus.COMPLETED if success_count == len(target_images) else StepStatus.PARTIAL
+        callbacks.step_progress(len(target_images), len(target_images), self._text("Image OCR completed", "이미지 OCR 완료", "OCR obrazów zakończony"))
 
     def _run_bypass(self, config: BypassRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
         callbacks.log("\n[5] " + self._step_name(TaskStep.BYPASS))
@@ -488,16 +533,26 @@ class TaskRunner:
         result.status = StepStatus.COMPLETED if success_count == len(config.tasks) else StepStatus.PARTIAL
         callbacks.step_progress(len(config.tasks), len(config.tasks), self._text("File conversion completed", "파일 변환 완료", "Konwersja plików zakończona"))
 
-    def _rename_ocr_file(self, image_path: str, promo_num: str) -> str:
-        filename = os.path.basename(image_path)
-        ext = os.path.splitext(filename)[1]
+    def _rename_ocr_file(self, image_path: str, promo_num: str, rename_template: str = "{match}", seq: int = 1) -> str:
         dir_path = os.path.dirname(image_path)
-        target_path = os.path.join(dir_path, f"{promo_num}{ext}")
+        format_func = getattr(OCRProcessor, "format_rename_filename", None)
+        if callable(format_func):
+            rendered_name = format_func(
+                image_path,
+                promo_num,
+                rename_template=rename_template,
+                seq=seq,
+            )
+        else:
+            ext = os.path.splitext(image_path)[1]
+            rendered_name = f"{promo_num}{ext}"
+        base_stem, ext = os.path.splitext(rendered_name)
+        target_path = os.path.join(dir_path, rendered_name)
 
         if os.path.exists(target_path) and target_path != image_path:
             counter = 1
             while True:
-                target_path = os.path.join(dir_path, f"{promo_num}_{counter}{ext}")
+                target_path = os.path.join(dir_path, f"{base_stem}_{counter}{ext}")
                 if not os.path.exists(target_path):
                     break
                 counter += 1

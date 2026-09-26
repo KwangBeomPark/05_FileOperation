@@ -1,7 +1,8 @@
 import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QProgressBar,
-    QFileDialog, QMessageBox, QListWidgetItem, QGroupBox, QTextEdit
+    QFileDialog, QMessageBox, QListWidgetItem, QGroupBox, QTextEdit, QComboBox, QLineEdit,
+    QCheckBox, QFormLayout
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
@@ -22,13 +23,27 @@ class OCRWorker(QThread):
     ocr_completed = pyqtSignal(str, str, str, bool, str)  # original_path, new_path, promo_num, success, ocr_text
     finished = pyqtSignal(bool, str)      # success, message
     
-    def __init__(self, image_paths, ocr_processor, file_manager, language="en"):
+    def __init__(
+        self,
+        image_paths,
+        ocr_processor,
+        file_manager,
+        language="en",
+        rule_mode="promotion",
+        custom_pattern="",
+        rename_template="{match}",
+        export_txt=False,
+    ):
         super().__init__()
         self.image_paths = image_paths
         self.ocr_processor = ocr_processor
         self.file_manager = file_manager
         self.is_running = True
         self.language = language
+        self.rule_mode = rule_mode or "promotion"
+        self.custom_pattern = custom_pattern or ""
+        self.rename_template = rename_template or "{match}"
+        self.export_txt = bool(export_txt)
 
     def _t(self, english, korean, polish=None):
         return choose(self.language, english, korean, polish)
@@ -71,42 +86,56 @@ class OCRWorker(QThread):
                 
                 try:
                     # OCR 판독
-                    success, promo_num, ocr_text, error_msg = self.ocr_processor.process_image(img_path)
+                    sig_count = self.ocr_processor.process_image.__code__.co_argcount
+                    if sig_count >= 5:
+                        success, promo_num, ocr_text, error_msg = self.ocr_processor.process_image(
+                            img_path,
+                            rule_mode=self.rule_mode,
+                            custom_pattern=self.custom_pattern,
+                            export_txt=self.export_txt,
+                        )
+                    else:
+                        success, promo_num, ocr_text, error_msg = self.ocr_processor.process_image(img_path)
                     
                     if success and promo_num:
-                        # 파일명 변경 시도 (Collision Protection 포함)
-                        ext = os.path.splitext(filename)[1]
-                        dir_path = os.path.dirname(img_path)
-                        
-                        # 고유 이름 생성
-                        new_name = f"{promo_num}{ext}"
-                        target_path = os.path.join(dir_path, new_name)
-                        
-                        # 충돌 방지: 파일이 이미 존재하면 카운터 접미사 붙임
-                        if os.path.exists(target_path) and target_path != img_path:
-                            counter = 1
-                            while True:
-                                new_name = f"{promo_num}_{counter}{ext}"
-                                target_path = os.path.join(dir_path, new_name)
-                                if not os.path.exists(target_path):
-                                    break
-                                counter += 1
-                        
-                        # os.rename 실행
-                        if target_path != img_path:
-                            # 만약 기존 파일이 읽기전용이라면 쓰기 권한 추가
-                            if os.path.exists(target_path):
-                                try:
-                                    os.chmod(target_path, 0o777)
-                                    os.remove(target_path)
-                                except Exception as rem_err:
-                                    logger.error(f"Cannot overwrite existing path: {rem_err}")
-                            
-                            os.chmod(img_path, 0o777)
-                            os.rename(img_path, target_path)
-                            final_path = target_path
-                        else:
+                        if self.rule_mode == "full_text_txt":
                             final_path = img_path
+                        else:
+                            # 파일명 변경 시도 (Collision Protection + 동적 템플릿 포함)
+                            dir_path = os.path.dirname(img_path)
+                            rendered_name = OCRProcessor.format_rename_filename(
+                                img_path,
+                                promo_num,
+                                rename_template=self.rename_template,
+                                seq=idx + 1,
+                            )
+                            base_stem, ext = os.path.splitext(rendered_name)
+                            target_path = os.path.join(dir_path, rendered_name)
+                            
+                            # 충돌 방지: 파일이 이미 존재하면 카운터 접미사 붙임
+                            if os.path.exists(target_path) and target_path != img_path:
+                                counter = 1
+                                while True:
+                                    new_name = f"{base_stem}_{counter}{ext}"
+                                    target_path = os.path.join(dir_path, new_name)
+                                    if not os.path.exists(target_path):
+                                        break
+                                    counter += 1
+                            
+                            # os.rename 실행
+                            if target_path != img_path:
+                                if os.path.exists(target_path):
+                                    try:
+                                        os.chmod(target_path, 0o777)
+                                        os.remove(target_path)
+                                    except Exception as rem_err:
+                                        logger.error(f"Cannot overwrite existing path: {rem_err}")
+                                
+                                os.chmod(img_path, 0o777)
+                                os.rename(img_path, target_path)
+                                final_path = target_path
+                            else:
+                                final_path = img_path
                             
                         success_count += 1
                         self.ocr_completed.emit(img_path, final_path, promo_num, True, ocr_text)
@@ -160,6 +189,27 @@ class OCRTab(QWidget):
             self._t("2. Run OCR & Rename", "2. OCR 및 이름 변경", "2. Uruchom OCR i zmień nazwy"),
             self._t("3. Complete", "3. 완료", "3. Zakończ"),
         ])
+        self.rule_label.setText(self._t("Extraction Rule:", "추출 규칙:", "Reguła ekstrakcji:"))
+        self.custom_regex_label.setText(self._t("Custom Regex:", "커스텀 정규식:", "Własny regex:"))
+        self.rename_template_label.setText(self._t("Rename Template:", "파일명 템플릿:", "Szablon nazwy:"))
+        self.export_txt_check.setText(
+            self._t("Save extracted text (.txt)", "추출된 전문 .txt 함께 저장", "Zapisz wyodrębniony tekst (.txt)")
+        )
+        self.custom_regex_input.setPlaceholderText(
+            self._t("Custom regex (e.g. INV-\\d+)", "사용자 정의 정규식 (예: INV-\\d+)", "Własny regex (np. INV-\\d+)")
+        )
+        combo_labels = [
+            self._t("Promotion Number (Default)", "프로모션 번호 (기본)", "Numer promocji (domyślny)"),
+            self._t("Invoice / Document Number", "송장 / 문서 번호", "Numer faktury / dokumentu"),
+            self._t("Date (YYYY-MM-DD)", "날짜 (YYYY-MM-DD)", "Data (RRRR-MM-DD)"),
+            self._t("Barcode / Digit Code", "바코드 / 숫자 코드", "Kod kreskowy / cyfrowy"),
+            self._t("First Non-Empty Line", "첫 번째 텍스트 줄", "Pierwsza niepusta linia"),
+            self._t("Custom Regex Pattern", "사용자 정의 정규식", "Własne wyrażenie regularne"),
+            self._t("Full Text Export (.txt Only)", "전체 텍스트 추출 (.txt 저장)", "Pełny tekst (.txt)"),
+        ]
+        for idx, text in enumerate(combo_labels):
+            if idx < self.rule_combo.count():
+                self.rule_combo.setItemText(idx, text)
         self.update_summary_labels()
         
     def init_ui(self):
@@ -213,6 +263,71 @@ class OCRTab(QWidget):
         right_panel = QGroupBox("OCR & Rename Logs")
         right_layout = QVBoxLayout()
         right_panel.setLayout(right_layout)
+
+        rule_form = QFormLayout()
+        self.rule_combo = QComboBox()
+        self.rule_combo.addItem(
+            self._t("Promotion Number (Default)", "프로모션 번호 (기본)", "Numer promocji (domyślny)"),
+            "promotion",
+        )
+        self.rule_combo.addItem(
+            self._t("Invoice / Document Number", "송장 / 문서 번호", "Numer faktury / dokumentu"),
+            "invoice_number",
+        )
+        self.rule_combo.addItem(
+            self._t("Date (YYYY-MM-DD)", "날짜 (YYYY-MM-DD)", "Data (RRRR-MM-DD)"),
+            "date_ymd",
+        )
+        self.rule_combo.addItem(
+            self._t("Barcode / Digit Code", "바코드 / 숫자 코드", "Kod kreskowy / cyfrowy"),
+            "digits",
+        )
+        self.rule_combo.addItem(
+            self._t("First Non-Empty Line", "첫 번째 텍스트 줄", "Pierwsza niepusta linia"),
+            "first_line",
+        )
+        self.rule_combo.addItem(
+            self._t("Custom Regex Pattern", "사용자 정의 정규식", "Własne wyrażenie regularne"),
+            "custom_regex",
+        )
+        self.rule_combo.addItem(
+            self._t("Full Text Export (.txt Only)", "전체 텍스트 추출 (.txt 저장)", "Pełny tekst (.txt)"),
+            "full_text_txt",
+        )
+        saved_mode = str(self.config_manager.get("ocr_rule_mode", "promotion") or "promotion")
+        mode_idx = self.rule_combo.findData(saved_mode)
+        if mode_idx >= 0:
+            self.rule_combo.setCurrentIndex(mode_idx)
+        self.rule_combo.currentIndexChanged.connect(self._on_ocr_rule_changed)
+
+        self.custom_regex_input = QLineEdit()
+        self.custom_regex_input.setPlaceholderText(
+            self._t("Custom regex (e.g. INV-\\d+)", "사용자 정의 정규식 (예: INV-\\d+)", "Własny regex (np. INV-\\d+)")
+        )
+        self.custom_regex_input.setText(str(self.config_manager.get("ocr_custom_pattern", "") or ""))
+        self.custom_regex_input.setEnabled(self.rule_combo.currentData() == "custom_regex")
+        self.custom_regex_input.textChanged.connect(self._save_ocr_rule_settings)
+
+        self.rename_template_input = QLineEdit()
+        self.rename_template_input.setPlaceholderText("{match} / {date}_{match}_{original}_{seq}")
+        self.rename_template_input.setText(str(self.config_manager.get("ocr_rename_template", "{match}") or "{match}"))
+        self.rename_template_input.textChanged.connect(self._save_ocr_rule_settings)
+
+        self.export_txt_check = QCheckBox(
+            self._t("Save extracted text (.txt)", "추출된 전문 .txt 함께 저장", "Zapisz wyodrębniony tekst (.txt)")
+        )
+        self.export_txt_check.setChecked(bool(self.config_manager.get("ocr_export_txt", False)))
+        self.export_txt_check.toggled.connect(self._save_ocr_rule_settings)
+
+        self.rule_label = QLabel(self._t("Extraction Rule:", "추출 규칙:", "Reguła ekstrakcji:"))
+        self.custom_regex_label = QLabel(self._t("Custom Regex:", "커스텀 정규식:", "Własny regex:"))
+        self.rename_template_label = QLabel(self._t("Rename Template:", "파일명 템플릿:", "Szablon nazwy:"))
+
+        rule_form.addRow(self.rule_label, self.rule_combo)
+        rule_form.addRow(self.custom_regex_label, self.custom_regex_input)
+        rule_form.addRow(self.rename_template_label, self.rename_template_input)
+        rule_form.addRow(QLabel(""), self.export_txt_check)
+        right_layout.addLayout(rule_form)
         
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
@@ -297,6 +412,21 @@ class OCRTab(QWidget):
             item.setCheckState(Qt.CheckState.Unchecked)
         self.update_summary_labels()
         
+    def _on_ocr_rule_changed(self, *_args):
+        is_custom = self.rule_combo.currentData() == "custom_regex"
+        self.custom_regex_input.setEnabled(is_custom and not self._ui_locked)
+        self._save_ocr_rule_settings()
+
+    def _save_ocr_rule_settings(self, *_args):
+        rule_mode = str(self.rule_combo.currentData() or "promotion")
+        custom_pattern = self.custom_regex_input.text().strip()
+        rename_template = self.rename_template_input.text().strip() or "{match}"
+        export_txt = self.export_txt_check.isChecked()
+        self.config_manager.set("ocr_rule_mode", rule_mode)
+        self.config_manager.set("ocr_custom_pattern", custom_pattern)
+        self.config_manager.set("ocr_rename_template", rename_template)
+        self.config_manager.set("ocr_export_txt", export_txt)
+
     def start_ocr(self):
         # 체크된 이미지 경로들 추출
         checked_paths = []
@@ -309,6 +439,7 @@ class OCRTab(QWidget):
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("Select at least one image using its checkbox.", "분석을 실행할 이미지 파일을 체크박스에서 먼저 선택해 주세요.", "Zaznacz co najmniej jeden obraz za pomocą pola wyboru."))
             return
             
+        self._save_ocr_rule_settings()
         self.is_converting = True
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
@@ -324,6 +455,10 @@ class OCRTab(QWidget):
             ocr_processor=self.ocr_processor,
             file_manager=self.file_manager,
             language=self.language,
+            rule_mode=str(self.rule_combo.currentData() or "promotion"),
+            custom_pattern=self.custom_regex_input.text().strip(),
+            rename_template=self.rename_template_input.text().strip() or "{match}",
+            export_txt=self.export_txt_check.isChecked(),
         )
         
         self.worker.progress.connect(self.update_progress)
@@ -473,7 +608,13 @@ class OCRTab(QWidget):
                     values={"path": path},
                 )
                 
-        return OcrRunConfig(image_paths=checked_paths)
+        return OcrRunConfig(
+            image_paths=checked_paths,
+            rule_mode=str(self.rule_combo.currentData() or "promotion"),
+            custom_pattern=self.custom_regex_input.text().strip(),
+            rename_template=self.rename_template_input.text().strip() or "{match}",
+            export_txt=self.export_txt_check.isChecked(),
+        )
 
     def get_task_info(self):
         config = self.build_run_config()
@@ -485,4 +626,8 @@ class OCRTab(QWidget):
             if btn not in (self.stop_btn,):
                 btn.setEnabled(not locked)
         self.image_list_widget.setEnabled(not locked)
+        self.rule_combo.setEnabled(not locked)
+        self.custom_regex_input.setEnabled(not locked and self.rule_combo.currentData() == "custom_regex")
+        self.rename_template_input.setEnabled(not locked)
+        self.export_txt_check.setEnabled(not locked)
         self._refresh_action_state()

@@ -107,6 +107,24 @@ class SettingsDialog(QDialog):
         email_form.addRow(choose(self.language, "Mail Subject:", "메일 제목:", "Temat wiadomości:"), self.mail_subject_input)
         email_form.addRow(choose(self.language, "Mail Body Header:", "메일 본문 머리말:", "Nagłówek wiadomości:"), self.mail_body_header_input)
         container_layout.addWidget(email_group)
+
+        # 3.1 Webhook 알림 설정 그룹
+        webhook_group = QGroupBox(choose(self.language, "Webhook Notification Settings", "웹훅 알림 설정 (Slack, Teams, Discord)", "Ustawienia powiadomień Webhook"))
+        webhook_form = QFormLayout()
+        webhook_group.setLayout(webhook_form)
+
+        self.webhook_url_input = QLineEdit()
+        self.webhook_url_input.setPlaceholderText(choose(self.language, "Example: https://hooks.slack.com/... or Discord/Teams webhook URL", "예: https://hooks.slack.com/... 또는 Discord/Teams 웹훅 URL", "Przykład: https://hooks.slack.com/... lub URL webhooka"))
+
+        self.webhook_type_combo = QComboBox()
+        self.webhook_type_combo.addItem(choose(self.language, "Generic Webhook (JSON)", "일반 웹훅 (JSON)", "Ogólny Webhook (JSON)"), "generic")
+        self.webhook_type_combo.addItem("Slack", "slack")
+        self.webhook_type_combo.addItem("Microsoft Teams", "teams")
+        self.webhook_type_combo.addItem("Discord", "discord")
+
+        webhook_form.addRow(choose(self.language, "Webhook URL:", "웹훅 URL:", "URL Webhooka:"), self.webhook_url_input)
+        webhook_form.addRow(choose(self.language, "Platform / Format:", "플랫폼 / 형식:", "Platforma / Format:"), self.webhook_type_combo)
+        container_layout.addWidget(webhook_group)
         
         # 4. 기타 변환 설정
         misc_group = QGroupBox(tr("conversion_settings", self.language))
@@ -180,6 +198,12 @@ class SettingsDialog(QDialog):
         self.receiver_email_input.setText(receiver_email)
         self.mail_subject_input.setText(mail_subject)
         self.mail_body_header_input.setText(mail_body_header)
+
+        self.webhook_url_input.setText(self.config_manager.get("webhook_url", ""))
+        webhook_type = self.config_manager.get("webhook_type", "generic")
+        wb_index = self.webhook_type_combo.findData(webhook_type)
+        if wb_index >= 0:
+            self.webhook_type_combo.setCurrentIndex(wb_index)
         
     def browse_tesseract(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -261,6 +285,18 @@ class SettingsDialog(QDialog):
         self.config_manager.set("receiver_email", receiver_email)
         self.config_manager.set("mail_subject", mail_subject)
         self.config_manager.set("mail_body_header", mail_body_header)
+
+        webhook_url = self.webhook_url_input.text().strip()
+        webhook_type = self.webhook_type_combo.currentData() or "generic"
+        if webhook_url and not (webhook_url.startswith("http://") or webhook_url.startswith("https://")):
+            QMessageBox.warning(
+                self,
+                choose(self.language, "Input Error", "입력 오류", "Błąd danych wejściowych"),
+                choose(self.language, "Webhook URL must start with http:// or https://", "웹훅 URL은 http:// 또는 https://로 시작해야 합니다.", "URL Webhooka musi zaczynać się od http:// lub https://"),
+            )
+            return
+        self.config_manager.set("webhook_url", webhook_url)
+        self.config_manager.set("webhook_type", webhook_type)
         
         self.config_manager.save_config()
         self.accept()
