@@ -78,7 +78,9 @@ def check_python_packages() -> bool:
 
 def check_build_artifacts() -> bool:
     dist = ROOT / "dist"
-    app_exe = dist / "IntegratedDataTool.exe"
+    app_exe = dist / "App05_FileOps.exe"
+    if not app_exe.exists():
+        app_exe = dist / "IntegratedDataTool.exe"
     setup_exe = setup_exe_path()
     launcher_exe = launcher_exe_path()
     ok = True
@@ -94,11 +96,11 @@ def check_build_artifacts() -> bool:
 
 
 def setup_exe_path() -> Path:
-    return RELEASE_DIR / f"IntegratedDataTool_Setup_v{APP_VERSION}.exe"
+    return RELEASE_DIR / f"App05_FileOps_v{APP_VERSION}.exe"
 
 
 def launcher_exe_path() -> Path:
-    return RELEASE_DIR / f"App05_FileOps_v{APP_VERSION}.exe"
+    return RELEASE_DIR / f"App05_FileOps_Launcher_v{APP_VERSION}.exe"
 
 
 def find_iscc() -> str | None:

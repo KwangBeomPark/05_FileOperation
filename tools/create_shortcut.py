@@ -18,7 +18,9 @@ def create_desktop_shortcut():
         pythonw_exe = python_exe
         
     # Check dist EXE if built
-    dist_exe = os.path.join(project_root, "dist", "IntegratedDataTool.exe")
+    dist_exe = os.path.join(project_root, "dist", "App05_FileOps.exe")
+    if not os.path.exists(dist_exe):
+        dist_exe = os.path.join(project_root, "dist", "IntegratedDataTool.exe")
     if os.path.exists(dist_exe):
         target_path = dist_exe
         args = ""

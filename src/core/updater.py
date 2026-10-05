@@ -67,13 +67,29 @@ def is_trusted_download_url(url: str) -> bool:
     return host in TRUSTED_DOWNLOAD_HOSTS
 
 
-def installer_name_for_tag(tag_name: str) -> str | None:
-    """Return the only installer filename accepted for an application version."""
+def _version_tuple(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split(".") if part.isdigit())
+
+
+def installer_names_for_tag(tag_name: str) -> list[str]:
+    """Return acceptable installer filenames for an application version."""
     raw_tag = tag_name.strip()
     version = raw_tag[1:] if raw_tag[:1].lower() == "v" else raw_tag
     if not re.fullmatch(r"\d+(?:\.\d+)*", version):
-        return None
-    return f"IntegratedDataTool_Setup_v{version}.exe"
+        return []
+    if _version_tuple(version) >= (1, 4, 1):
+        return [
+            f"App05_FileOps_v{version}.exe",
+            f"App05_FileOps_Setup_v{version}.exe",
+            f"IntegratedDataTool_Setup_v{version}.exe",
+        ]
+    return [f"IntegratedDataTool_Setup_v{version}.exe"]
+
+
+def installer_name_for_tag(tag_name: str) -> str | None:
+    """Return the primary installer filename accepted for an application version."""
+    names = installer_names_for_tag(tag_name)
+    return names[0] if names else None
 
 
 class AutoUpdater:
@@ -123,23 +139,30 @@ class AutoUpdater:
             return False, self.current_version, None, ""
 
     def _select_verified_installer(self, latest_tag: str, assets: list[dict]) -> ReleaseAsset | None:
-        expected_name = installer_name_for_tag(latest_tag)
-        if not expected_name:
+        expected_names = installer_names_for_tag(latest_tag)
+        if not expected_names:
             logger.warning("Ignoring update with unsupported release tag: %s", latest_tag)
             return None
 
-        matches = [asset for asset in assets if asset.get("name") == expected_name]
+        matches = []
+        for name in expected_names:
+            found = [asset for asset in assets if asset.get("name") == name]
+            if found:
+                matches = found
+                break
+
         if len(matches) != 1:
-            logger.warning("Release %s does not contain the expected installer: %s", latest_tag, expected_name)
+            logger.warning("Release %s does not contain exactly one expected installer from %s", latest_tag, expected_names)
             return None
         selected = matches[0]
+        selected_name = str(selected.get("name") or "")
 
         url = str(selected.get("browser_download_url") or "")
         digest_match = SHA256_PATTERN.fullmatch(str(selected.get("digest") or ""))
         if not is_trusted_download_url(url) or not digest_match:
             logger.warning("Release %s installer metadata failed validation.", latest_tag)
             return None
-        return ReleaseAsset(expected_name, url, digest_match.group(1).lower())
+        return ReleaseAsset(selected_name, url, digest_match.group(1).lower())
 
     def download_file(self, url, dest_path, expected_sha256, progress_callback=None) -> bool:
         """Download a verified installer to a temporary file, then atomically publish it."""

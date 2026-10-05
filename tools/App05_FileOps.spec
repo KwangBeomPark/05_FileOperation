@@ -45,7 +45,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='IntegratedDataTool',
+    name='App05_FileOps',
     icon=os.path.join(PROJECT_ROOT, 'src', 'assets', 'icon.ico'),
     debug=False,
     bootloader_ignore_signals=False,

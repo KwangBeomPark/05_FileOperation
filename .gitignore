@@ -19,7 +19,7 @@ dist/
 release/
 App05_FileOps*.exe
 *.spec
-!tools/IntegratedDataTool.spec
+!tools/App05_FileOps.spec
 
 # Local-only scratch files under tracked validation tools
 tools/_local/

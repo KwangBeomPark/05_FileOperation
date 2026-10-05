@@ -27,19 +27,19 @@ class ReleaseLayoutTests(unittest.TestCase):
         self.assertEqual(build_all.LAUNCHER_SOURCE, ROOT / "tools" / "App05_FileOps.pyw")
         self.assertEqual(
             build_all.setup_exe_path(version),
-            ROOT / "release" / "IntegratedDataTool_Setup_v1.2.3.exe",
-        )
-        self.assertEqual(
-            build_all.launcher_exe_path(version),
             ROOT / "release" / "App05_FileOps_v1.2.3.exe",
         )
         self.assertEqual(
+            build_all.launcher_exe_path(version),
+            ROOT / "release" / "App05_FileOps_Launcher_v1.2.3.exe",
+        )
+        self.assertEqual(
             diagnose_install.setup_exe_path(),
-            ROOT / "release" / f"IntegratedDataTool_Setup_v{diagnose_install.APP_VERSION}.exe",
+            ROOT / "release" / f"App05_FileOps_v{diagnose_install.APP_VERSION}.exe",
         )
         self.assertEqual(
             diagnose_install.launcher_exe_path(),
-            ROOT / "release" / f"App05_FileOps_v{diagnose_install.APP_VERSION}.exe",
+            ROOT / "release" / f"App05_FileOps_Launcher_v{diagnose_install.APP_VERSION}.exe",
         )
 
     def test_launcher_builder_targets_release_directory(self):
@@ -79,6 +79,13 @@ class ReleaseLayoutTests(unittest.TestCase):
         self.assertIn('{userstartup}\\FileOps Hub', setup_text)
         self.assertIn('Parameters: "--tray"', setup_text)
         self.assertIn('Tasks: startup', setup_text)
+
+    def test_installer_uses_user_programs_default_and_preserves_upgrade_location(self):
+        setup_text = (ROOT / "tools" / "setup.iss").read_text(encoding="utf-8")
+        self.assertIn('DefaultDirName={localappdata}\\Programs\\App05_FileOps', setup_text)
+        self.assertIn('UsePreviousAppDir=yes', setup_text)
+        self.assertIn('PrivilegesRequired=lowest', setup_text)
+        self.assertIn('Filename: "{app}\\App05_FileOps.exe"', setup_text)
 
     def test_frozen_probe_workers_are_diverted_before_qt_imports(self):
         main_text = (ROOT / "src" / "main.py").read_text(encoding="utf-8")

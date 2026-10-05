@@ -1,5 +1,6 @@
 import hashlib
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
@@ -60,6 +61,55 @@ class FakeProgress:
 
 
 class App05LauncherTests(unittest.TestCase):
+    def test_finds_new_and_legacy_user_installations(self):
+        for relative_dir in (Path("Programs") / launcher.INSTALL_DIR, Path(launcher.INSTALL_DIR)):
+            with self.subTest(relative_dir=relative_dir), tempfile.TemporaryDirectory() as temp_dir:
+                installed_exe = Path(temp_dir) / relative_dir / launcher.APP_EXE
+                installed_exe.parent.mkdir(parents=True)
+                installed_exe.touch()
+                with (
+                    patch.dict(os.environ, {"LOCALAPPDATA": temp_dir}, clear=True),
+                    patch.object(launcher, "registry_candidates", return_value=[]),
+                ):
+                    self.assertEqual(launcher.find_installed_exe(), installed_exe)
+
+    def test_new_default_precedes_legacy_when_no_install_is_registered(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            new_exe = Path(temp_dir) / "Programs" / launcher.INSTALL_DIR / launcher.APP_EXE
+            legacy_exe = Path(temp_dir) / launcher.INSTALL_DIR / launcher.APP_EXE
+            for installed_exe in (new_exe, legacy_exe):
+                installed_exe.parent.mkdir(parents=True)
+                installed_exe.touch()
+            with (
+                patch.dict(os.environ, {"LOCALAPPDATA": temp_dir}, clear=True),
+                patch.object(launcher, "registry_candidates", return_value=[]),
+            ):
+                self.assertEqual(launcher.find_installed_exe(), new_exe)
+
+    def test_registered_custom_install_precedes_default_and_stale_entry_falls_back(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            new_exe = Path(temp_dir) / "Programs" / launcher.INSTALL_DIR / launcher.APP_EXE
+            custom_exe = Path(temp_dir) / "custom" / launcher.APP_EXE
+            for installed_exe in (new_exe, custom_exe):
+                installed_exe.parent.mkdir(parents=True)
+                installed_exe.touch()
+            with (
+                patch.dict(os.environ, {"LOCALAPPDATA": temp_dir}, clear=True),
+                patch.object(launcher, "registry_candidates", return_value=[custom_exe]),
+            ):
+                self.assertEqual(launcher.find_installed_exe(), custom_exe)
+                custom_exe.unlink()
+                self.assertEqual(launcher.find_installed_exe(), new_exe)
+
+    def test_settings_folder_without_executable_is_not_an_installation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / launcher.INSTALL_DIR).mkdir()
+            with (
+                patch.dict(os.environ, {"LOCALAPPDATA": temp_dir}, clear=True),
+                patch.object(launcher, "registry_candidates", return_value=[]),
+            ):
+                self.assertIsNone(launcher.find_installed_exe())
+
     def test_default_release_repository_is_the_canonical_repository(self):
         self.assertEqual(launcher.REPO_OWNER, DEFAULT_GITHUB_OWNER)
         self.assertEqual(launcher.REPO_NAME, DEFAULT_GITHUB_REPOSITORY)

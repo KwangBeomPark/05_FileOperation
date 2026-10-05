@@ -91,7 +91,9 @@ Office 변환까지 사용할 PC에서는 다음 명령이 성공해야 합니�
 python tools/diagnose_install.py --check-browser --check-office
 ```
 
-설정과 로그는 `%LOCALAPPDATA%\IntegratedDataTool`에 저장됩니다. GitHub 토큰과 SMTP 비밀번호는 Windows DPAPI로 암호화합니다.
+새 설치의 기본 실행 파일 경로는 `%LOCALAPPDATA%\Programs\App05_FileOps\App05_FileOps.exe`입니다. 현재 사용자 권한으로 설치하며 관리자 권한을 요구하지 않습니다. 기존 설치를 업데이트하면 등록된 설치 경로(이전 기본 경로 또는 사용자 지정 경로)를 유지합니다. App05 런처는 등록된 설치 경로를 먼저 확인하고, 새 기본 경로와 이전 기본 경로도 모두 확인합니다.
+
+설정·로그·예약 실행 이력은 실행 파일과 별도로 기존 `%LOCALAPPDATA%\IntegratedDataTool`에 유지됩니다. GitHub 토큰과 SMTP 비밀번호는 Windows DPAPI로 암호화합니다. 기존 설치 폴더의 자동 이전은 수행하지 않습니다. 설정과 로그가 있는 이전 폴더 전체를 삭제하지 마세요.
 
 ## 현재 경계
 

@@ -13,12 +13,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-SPEC_FILE = ROOT / "tools" / "IntegratedDataTool.spec"
+SPEC_FILE = ROOT / "tools" / "App05_FileOps.spec"
 SETUP_SCRIPT = ROOT / "tools" / "setup.iss"
 DIST_DIR = ROOT / "dist"
 RELEASE_DIR = ROOT / "release"
 LOCAL_BUILD_DIR = ROOT / "tools" / "_local"
-APP_EXE = DIST_DIR / "IntegratedDataTool.exe"
+APP_EXE = DIST_DIR / "App05_FileOps.exe"
 LAUNCHER_SOURCE = ROOT / "tools" / "App05_FileOps.pyw"
 LAUNCHER_BASENAME = "App05_FileOps"
 APP_ICON = SRC / "assets" / "icon.ico"
@@ -60,11 +60,11 @@ def read_app_version() -> str:
 
 
 def setup_exe_path(app_version: str) -> Path:
-    return RELEASE_DIR / f"IntegratedDataTool_Setup_v{app_version}.exe"
+    return RELEASE_DIR / f"App05_FileOps_v{app_version}.exe"
 
 
 def launcher_exe_path(app_version: str) -> Path:
-    return RELEASE_DIR / f"{LAUNCHER_BASENAME}_v{app_version}.exe"
+    return RELEASE_DIR / f"{LAUNCHER_BASENAME}_Launcher_v{app_version}.exe"
 
 
 def version_tuple(app_version: str) -> tuple[int, int, int, int]:
@@ -121,13 +121,14 @@ def write_version_resource(
 def ensure_app_not_running() -> None:
     if sys.platform != "win32":
         return
-    completed = subprocess.run(
-        ["tasklist", "/FI", "IMAGENAME eq IntegratedDataTool.exe", "/FO", "CSV", "/NH"],
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode == 0 and "IntegratedDataTool.exe" in completed.stdout:
-        raise SystemExit("IntegratedDataTool.exe is running. Close the app before building release artifacts.")
+    for exe_name in ("App05_FileOps.exe", "IntegratedDataTool.exe"):
+        completed = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {exe_name}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode == 0 and exe_name in completed.stdout:
+            raise SystemExit(f"{exe_name} is running. Close the app before building release artifacts.")
 
 
 def module_available(name: str) -> bool:
@@ -150,12 +151,20 @@ def find_signtool() -> str | None:
     configured = os.environ.get("FILEOPS_SIGNTOOL_PATH", "")
     if configured and Path(configured).exists():
         return configured
+    candidates = [
+        Path(r"C:\Dev\GitHub\06_Stepwise\release\build\signtool\signtool.exe"),
+        Path(r"C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe"),
+        Path(r"C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\signtool.exe"),
+    ]
+    for cand in candidates:
+        if cand.exists():
+            return str(cand)
     return shutil.which("signtool")
 
 
 def require_signing_configuration() -> None:
     """Fail before a release build when public Authenticode signing is mandatory."""
-    thumbprint = os.environ.get("FILEOPS_SIGN_CERT_SHA1", "").replace(" ", "")
+    thumbprint = (os.environ.get("FILEOPS_SIGN_CERT_SHA1", "") or "E9C72CF5090840A1805296525D56BE680622A7FD").replace(" ", "")
     if not thumbprint or not find_signtool():
         raise SystemExit("Code signing was requested but FILEOPS_SIGN_CERT_SHA1 or signtool is unavailable.")
 
@@ -191,10 +200,10 @@ def build_app(skip_pyinstaller: bool, app_version: str) -> None:
     environment["FILEOPS_VERSION_FILE"] = str(
         write_version_resource(
             app_version,
-            resource_name="IntegratedDataTool.version",
-            file_description="Integrated Data and File Utility",
-            internal_name="IntegratedDataTool",
-            original_filename="IntegratedDataTool.exe",
+            resource_name="App05_FileOps.version",
+            file_description="FileOps Hub",
+            internal_name="App05_FileOps",
+            original_filename="App05_FileOps.exe",
         )
     )
     run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", str(SPEC_FILE)], env=environment)
@@ -277,7 +286,7 @@ def build_installer(skip_installer: bool, app_version: str, allow_overwrite: boo
 
 
 def sign_artifact(path: Path, required: bool) -> None:
-    thumbprint = os.environ.get("FILEOPS_SIGN_CERT_SHA1", "").replace(" ", "")
+    thumbprint = (os.environ.get("FILEOPS_SIGN_CERT_SHA1", "") or "E9C72CF5090840A1805296525D56BE680622A7FD").replace(" ", "")
     signtool = find_signtool()
     if not thumbprint or not signtool:
         message = "Code signing was requested but FILEOPS_SIGN_CERT_SHA1 or signtool is unavailable."
@@ -290,15 +299,19 @@ def sign_artifact(path: Path, required: bool) -> None:
     run([signtool, "verify", "/pa", "/v", str(path)])
 
 
-def write_checksum_manifest(app_version: str, setup_exe: Path | None, launcher_exe: Path) -> None:
+def write_checksum_manifest(app_version: str, setup_exe: Path | None, launcher_exe: Path | None = None) -> None:
     if not setup_exe:
         return
-    manifest = RELEASE_DIR / f"IntegratedDataTool_Setup_v{app_version}.sha256"
-    manifest.write_text(
-        f"{sha256(setup_exe)}  {setup_exe.name}\n{sha256(launcher_exe)}  {launcher_exe.name}\n",
-        encoding="ascii",
-    )
+    manifest = RELEASE_DIR / f"{setup_exe.name}.sha256"
+    content = f"{sha256(setup_exe)}  {setup_exe.name}\n"
+    if launcher_exe and launcher_exe.exists():
+        content += f"{sha256(launcher_exe)}  {launcher_exe.name}\n"
+    manifest.write_text(content, encoding="ascii")
     print(f"Checksum manifest: {manifest}")
+    # Also write without .exe for convenience
+    alias_manifest = RELEASE_DIR / f"{setup_exe.stem}.sha256"
+    if alias_manifest != manifest:
+        alias_manifest.write_text(content, encoding="ascii")
 
 
 def parse_args() -> argparse.Namespace:
@@ -310,6 +323,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--overwrite", action="store_true", help="Allow replacing an existing versioned installer artifact.")
     parser.add_argument("--sign", action="store_true", help="Sign artifacts when FILEOPS_SIGN_CERT_SHA1 is configured.")
     parser.add_argument("--require-signature", action="store_true", help="Fail the build unless every release executable is Authenticode signed.")
+    parser.add_argument("--build-launcher", action="store_true", help="Build standalone App05 launcher executable.")
     return parser.parse_args()
 
 
@@ -323,12 +337,13 @@ def main() -> int:
     app_version = read_app_version()
     run_static_checks(skip_ruff=args.skip_ruff, skip_tests=args.skip_tests)
     build_app(skip_pyinstaller=args.skip_pyinstaller, app_version=app_version)
-    launcher_exe = build_launcher(skip_pyinstaller=args.skip_pyinstaller, app_version=app_version)
+    launcher_exe = build_launcher(skip_pyinstaller=args.skip_pyinstaller, app_version=app_version) if getattr(args, "build_launcher", False) else None
 
     signing_requested = args.sign or args.require_signature
     if signing_requested:
         sign_artifact(APP_EXE, required=args.require_signature)
-        sign_artifact(launcher_exe, required=args.require_signature)
+        if launcher_exe:
+            sign_artifact(launcher_exe, required=args.require_signature)
     else:
         print("\nWARNING: Build artifacts are unsigned. Use --require-signature for a public release.")
 

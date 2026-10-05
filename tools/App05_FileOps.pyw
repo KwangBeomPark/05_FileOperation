@@ -25,8 +25,8 @@ except ImportError:
 
 
 APP_TITLE = "FileOps Hub"
-APP_EXE = "IntegratedDataTool.exe"
-INSTALL_DIR = "IntegratedDataTool"
+APP_EXE = "App05_FileOps.exe"
+INSTALL_DIR = "App05_FileOps"
 REPO_OWNER = "KwangBeomPark"
 REPO_NAME = "05_FileOperation"
 # Kept local so this launcher remains standalone. tests/test_app05_launcher.py
@@ -40,7 +40,7 @@ TRUSTED_HOSTS = {
     "github-releases.githubusercontent.com",
     "release-assets.githubusercontent.com",
 }
-INSTALLER_NAME_PATTERN = re.compile(r"^IntegratedDataTool_Setup_v(\d+(?:\.\d+)*)\.exe$", re.IGNORECASE)
+INSTALLER_NAME_PATTERN = re.compile(r"^(?:App05_FileOps|IntegratedDataTool_Setup)_v(\d+(?:\.\d+)*)\.exe$", re.IGNORECASE)
 SHA256_PATTERN = re.compile(r"^sha256:([0-9a-f]{64})$", re.IGNORECASE)
 MAX_INSTALLER_BYTES = 1024 * 1024 * 1024
 
@@ -213,8 +213,8 @@ def registry_candidates() -> list[Path]:
                             continue
 
                         display_name = values.get("DisplayName", "").strip()
-                        if display_name not in {"IntegratedDataTool", "FileOps Hub", "FileOps-Hub"}:
-                            if subkey not in {"IntegratedDataTool_is1", "FileOps Hub_is1", "FileOps-Hub_is1"}:
+                        if display_name not in {"IntegratedDataTool", "FileOps Hub", "FileOps-Hub", "App05_FileOps"}:
+                            if subkey not in {"IntegratedDataTool_is1", "FileOps Hub_is1", "FileOps-Hub_is1", "App05_FileOps_is1"}:
                                 continue
 
                         install_path = values.get("InstallLocation") or values.get("Inno Setup: App Path")
@@ -248,7 +248,10 @@ def read_registry_values(key) -> dict[str, str]:
 def default_candidates() -> list[Path]:
     candidates: list[Path] = []
     if os.environ.get("LOCALAPPDATA"):
-        candidates.append(Path(os.environ["LOCALAPPDATA"]) / INSTALL_DIR / APP_EXE)
+        local_app_data = Path(os.environ["LOCALAPPDATA"])
+        candidates.append(local_app_data / "Programs" / INSTALL_DIR / APP_EXE)
+        # Keep installations made before the Programs default discoverable.
+        candidates.append(local_app_data / INSTALL_DIR / APP_EXE)
     for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
         if os.environ.get(env_name):
             candidates.append(Path(os.environ[env_name]) / INSTALL_DIR / APP_EXE)
@@ -284,6 +287,9 @@ def expected_installer_name(tag_name: str) -> str:
     version = raw_tag[1:] if raw_tag[:1].lower() == "v" else raw_tag
     if not re.fullmatch(r"\d+(?:\.\d+)*", version):
         raise LauncherError(translate("invalid_release_tag", tag_name=tag_name))
+    parts = tuple(int(p) for p in version.split(".") if p.isdigit())
+    if parts >= (1, 4, 1):
+        return f"App05_FileOps_v{version}.exe"
     return f"IntegratedDataTool_Setup_v{version}.exe"
 
 

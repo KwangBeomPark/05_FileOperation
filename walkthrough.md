@@ -2,7 +2,17 @@
 
 본 문서는 FileOps Hub가 특정 사내 전용 도구에서 **'누구나 범용적으로 사용할 수 있는 파일 및 업무 자동화 스튜디오(General-Purpose FileOps & Workflow Studio)'**로 완전히 탈바꿈한 내역과 사용 가이드를 기술합니다.
 
+## 2026-10-05: v1.4.1 전사 제품군 명칭 통일 및 코드 서명 릴리즈
+
+- 실행 파일명을 사내 제품군 표준 규격에 맞추어 `App05_FileOps.exe`로 전면 변경했습니다. (`App01_ClipOCR`, `App04_DataRefinery`, `App06_Stepwise` 등과 일원화)
+- 단일 배포 설치 프로그램 파일명을 `App05_FileOps_v1.4.1.exe`로 표준화했습니다.
+- 새 설치의 기본 경로를 `%LOCALAPPDATA%\Programs\App05_FileOps`로 적용하며, 기존 설치본 업데이트 시 등록된 이전 경로를 감지하여 유실 없이 덮어씁니다.
+- 공인 CA 인증서(`CN=Open Source Developer KWANG BEOM PARK`) 및 DigiCert RFC 3161 공인 타임스탬프 기반 Authenticode 전자 서명을 실행 파일 및 설치 프로그램 전체에 적용했습니다.
+- 자동 업데이트 엔진(`AutoUpdater`)과 런처에서 `v1.4.1+` 신규 명칭(`App05_FileOps_v*.exe`)과 레거시 명칭(`IntegratedDataTool_Setup_v*.exe`)을 모두 지원하도록 하위 호환성을 확보했습니다.
+- 단위/통합 테스트 187개 100% 통과, 3개 국어(ko/en/pl) 다국어 AST 검증 통과, Ruff 정적 분석 통과.
+
 ---
+
 
 ## 🚀 1. 핵심 개요
 
