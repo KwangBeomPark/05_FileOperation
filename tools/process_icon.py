@@ -1,5 +1,6 @@
 import sys
 import os
+from pathlib import Path
 from PIL import Image
 
 def remove_background_and_crop(input_path, output_png_paths, output_ico_paths):
@@ -57,13 +58,8 @@ if __name__ == "__main__":
         
     input_file = sys.argv[1]
     
-    png_targets = [
-        "c:/Dev/GitHub/05_FileOperation/src/assets/icon.png",
-        "c:/Dev/GitHub/05_FileOperation/assets/icon.png"
-    ]
-    ico_targets = [
-        "c:/Dev/GitHub/05_FileOperation/src/assets/icon.ico",
-        "c:/Dev/GitHub/05_FileOperation/assets/icon.ico"
-    ]
+    asset_dir = Path(__file__).resolve().parents[1] / "assets"
+    png_targets = [str(asset_dir / "icon.png")]
+    ico_targets = [str(asset_dir / "icon.ico")]
     
     remove_background_and_crop(input_file, png_targets, ico_targets)

@@ -1,8 +1,7 @@
 """Canonical GitHub release repository settings for the installed application.
 
-The standalone ``App05_FileOps`` launcher repeats these two values because it
-must remain runnable without importing the application package. A regression
-test keeps the launcher copy synchronized with this module.
+The launcher bundles this dependency-free module so all release clients use
+the same repository without depending on the installed application.
 """
 
 DEFAULT_GITHUB_OWNER = "KwangBeomPark"

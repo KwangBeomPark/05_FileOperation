@@ -4,6 +4,7 @@ import os
 import threading
 from .security import encrypt_data, decrypt_data
 import logging
+from src.app_identity import CONFIG_FILENAME, user_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -97,27 +98,21 @@ class ConfigManager:
     # DPAPI로 자동 암복호화할 보안 키 목록
     SECURE_KEYS = ["github_token", "sender_password"]
 
-    def __init__(self, config_file="setting_integrated.json"):
+    def __init__(self, config_file=CONFIG_FILENAME):
         self.config_file = config_file
         self.lock = threading.Lock()
         
-        # AppData/Local 경로 결정
-        local_app_data = os.environ.get('LOCALAPPDATA')
-        if not local_app_data:
-            user_profile = os.environ.get('USERPROFILE')
-            if user_profile:
-                local_app_data = os.path.join(user_profile, 'AppData', 'Local')
-            else:
-                local_app_data = os.getcwd()
-                
-        # AppData 하위의 IntegratedDataTool 디렉토리 지정
-        self.app_dir = os.path.join(local_app_data, 'IntegratedDataTool')
+        # The installed application's UserSetting is the sole data store.
+        self.app_dir = str(user_data_dir())
         
         try:
             os.makedirs(self.app_dir, exist_ok=True)
-        except Exception:
-            # 권한 등의 문제로 실패할 경우 현재 스크립트 디렉토리 사용
-            self.app_dir = os.getcwd()
+        except OSError as exc:
+            # Never silently read or write settings in an unrelated working folder.
+            raise OSError(
+                f"Cannot create the FileOps UserSetting folder: {self.app_dir}. "
+                "Check the installation folder's write permissions."
+            ) from exc
             
         self.config_path = os.path.join(self.app_dir, self.config_file)
         self.config = self.load_config()

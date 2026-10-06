@@ -1545,21 +1545,8 @@ class TaskTab(QWidget):
             
     def save_fallback_report(self, content):
         """이메일 발송 실패 또는 무설정 시 로컬 Fallback 텍스트 파일 저장 (Atomic Write)"""
-        # AppData Local의 로그 디렉토리 획득
-        local_app_data = os.environ.get('LOCALAPPDATA')
-        if not local_app_data:
-            user_profile = os.environ.get('USERPROFILE')
-            if user_profile:
-                local_app_data = os.path.join(user_profile, 'AppData', 'Local')
-            else:
-                local_app_data = os.getcwd()
-                
-        log_dir = os.path.join(local_app_data, 'IntegratedDataTool', 'logs')
-        try:
-            os.makedirs(log_dir, exist_ok=True)
-        except Exception:
-            log_dir = os.path.join(os.getcwd(), 'logs')
-            os.makedirs(log_dir, exist_ok=True)
+        from src.app_identity import user_data_dir
+        log_dir = str(user_data_dir() / 'logs')
             
         timestamp = time.strftime('%Y%m%d_%H%M%S')
         filename = f"task_report_{timestamp}.txt"
@@ -1568,6 +1555,7 @@ class TaskTab(QWidget):
         final_path = os.path.join(log_dir, filename)
         
         try:
+            os.makedirs(log_dir, exist_ok=True)
             # 원자적 파일 쓰기(Atomic Write) 보장
             with open(temp_path, "w", encoding="utf-8") as f:
                 f.write(content)

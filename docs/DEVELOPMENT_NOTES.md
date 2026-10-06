@@ -1,5 +1,8 @@
 # FileOps Hub Development Notes
 
+> Entries below describe historical versions. Current names, paths, and reset
+> behavior are specified in PROJECT_STRUCTURE.md and README.md.
+
 ## 2026-08-08 — Phase 1: Scheduled-run reliability
 
 ### Implemented decisions

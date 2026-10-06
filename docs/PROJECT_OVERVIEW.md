@@ -1,6 +1,6 @@
 # FileOps Hub (Integrated Data & File Utility) 프로젝트 요약 보고서
 
-![FileOps Hub Infographic](./fileops_hub_infographic.jpg)
+![FileOps Hub Infographic](../assets/fileops_hub_infographic.jpg)
 
 ---
 
@@ -26,7 +26,7 @@
 | **PDF (PDF 이미지 변환)** | `.pdf` (전자 문서, 인보이스, 계약서) | 단일/복수 선택 PDF 파일 | 다중 페이지로 구성된 정산 전표 및 증빙 문서 |
 | **OCR (텍스트 추출)** | `.jpg`, `.jpeg`, `.png`, `.bmp` | 이미지 폴더 또는 변환된 페이지 이미지 | 프로모션 번호, 바코드/영수증 번호 등이 포함된 문서 이미지 |
 | **Convert Files (파일 변환)**| `.xlsx`, `.xls`, `.pptx`, `.ppt`, `.docx`, `.doc`, `.pdf` | 원본 문서 디렉토리 | 사내 시스템 업로드용 Office 문서 및 대용량 PDF |
-| **시스템 설정 / 스케줄** | JSON 설정 (`setting_integrated.json`) | `%LOCALAPPDATA%\IntegratedDataTool\` | 실행 주기, 활성화 태스크, SMTP 서버/계정, Tesseract 경로 등 |
+| **시스템 설정 / 스케줄** | JSON 설정 (`settings.json`) | `%LOCALAPPDATA%\Programs\FileOps\UserSetting\` | 실행 주기, 활성화 태스크, SMTP 서버/계정, Tesseract 경로 등 |
 
 ---
 
@@ -48,7 +48,7 @@ FileOps Hub는 **UI에 종속되지 않는 순수 Core 엔진**과 **엄격한 �
    - 매일 지정 시각에 백그라운드 순차 자동 실행 및 완료 시 담당자 SMTP 이메일 통지 (실패 시 로컬 리포트 저장).
 
 2. **Sync (지능형 폴더 양방향 동기화)**
-   - 여러 부서 폴더 간 최상위 파일의 수정 일시(mtime)와 해시를 비교하여 최신본 배포.
+   - 여러 폴더 간 파일의 수정 일시(mtime)와 해시를 비교하여 최신본 배포. 양방향/단방향 및 선택적 하위 폴더 포함 지원.
    - **무손실 안전 정책**: 구버전 또는 충돌 파일은 영구 삭제하지 않고 `to be deleted` 보존 폴더로 안전 격리.
 
 3. **EML (Playwright 기반 고품질 메일 렌더링)**
@@ -79,7 +79,7 @@ FileOps Hub는 **UI에 종속되지 않는 순수 Core 엔진**과 **엄격한 �
 | **PDF 이미지** | 페이지별 고화질 렌더링 이미지 | 지정 출력 폴더 내 `[문서명]_page_001.jpg` 등 |
 | **OCR 리네임 파일** | 정규화된 이름의 이미지 파일 | `[추출된프로모션번호]_[기존명].jpg` 등 |
 | **변환/패키징 문서**| 호환 포맷 문서 및 압축본 | 대상 폴더 내 변환 파일, `.zip` 패키지, `Original Backup/` |
-| **실행 리포트 & 로그**| 이메일 알림 및 HTML/JSON 보고서 | 담당자 수신함 (SMTP 메일), `%LOCALAPPDATA%\IntegratedDataTool\reports\` |
+| **실행 리포트 & 로그**| 이메일 알림 및 JSON/텍스트 보고서 | 담당자 수신함 (SMTP 메일), `%LOCALAPPDATA%\Programs\FileOps\UserSetting\reports\` |
 
 ---
 

@@ -1,70 +1,57 @@
-# 설치 오류 방어계획
+# 설치·실행 문제 점검
 
-## 현재 확인된 위험
+현재 제품 ID는 App005_FileOps입니다. 이름·폴더·데이터 규칙은
+[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md), 배포 절차는 [RELEASE.md](RELEASE.md)를 참조하세요.
 
-1. GitHub에서 소스만 clone/download 하면 생성 산출물은 포함되지 않는다.
-   - `.gitignore`가 `dist/`와 `release/`를 제외하므로 `IntegratedDataTool_Setup_vX.Y.Z.exe`는 Git 소스에 없다.
-   - 설치 대상 PC에는 GitHub Releases의 설치 파일을 내려받거나, 해당 PC에서 빌드를 먼저 해야 한다.
+## 위치와 첫 설정
 
-2. 문서에는 `python tools/build_all.py`가 있었지만 실제 Git 추적 파일에는 없었다.
-   - 새 PC에서 문서대로 빌드하면 `tools/build_all.py` 없음 오류가 발생한다.
-   - 이제 `tools/build_all.py`를 추적 파일로 추가했다.
+- 기본 설치 폴더: `%LOCALAPPDATA%\Programs\FileOps`
+- 실행 파일: `App005_FileOps.exe`
+- 설정: 설치 폴더의 `UserSetting\settings.json`
+- 로그·예약 이력: `UserSetting\logs`, `UserSetting\reports`
+- 설치 폴더를 직접 바꾸면 해당 폴더의 UserSetting을 사용합니다.
+- 이전 IntegratedDataTool 또는 LocalAppData/FileOps 데이터를 자동으로 가져오지 않습니다.
+  언어·작업 그룹·예약·메일 설정을 다시 지정하고 수동 실행부터 확인하세요.
+- UserSetting은 설치 패키지에 넣지 않으며 프로그램 제거 시에도 남습니다.
 
-3. 단일 exe 내부에서 Playwright Chromium 자동 설치가 실패할 수 있었다.
-   - frozen exe에서는 `sys.executable`이 Python이 아니라 앱 exe다.
-   - `src/core/eml_converter.py`를 수정해 bundled Playwright driver를 직접 호출한다.
+## 배포와 개발 빌드
 
-4. EML, OCR, Office 변환은 설치 파일만으로 모든 외부 런타임이 해결되지 않는다.
-   - Playwright Chromium, Tesseract OCR, Microsoft Office COM은 PC 환경 영향을 받는다.
-   - `tools/diagnose_install.py`로 사전 점검한다.
-
-## 정상 배포 절차
-
-개발 PC에서:
+Git clone이나 소스 ZIP에는 설치 파일이 없습니다. 사용자는 GitHub Releases의
+`App005_FileOps_Setup_vX.Y.Z.exe`를 받습니다. 개발자는 다음 순서로 확인합니다.
 
 ```powershell
 python -m pip install -r requirements.txt
-python tools/build_all.py
+python scripts/build_all.py
 ```
 
-`tools/build_all.py`는 `src/version.py` 버전을 Inno Setup과 EXE 메타데이터에 함께 적용하고, 같은 버전 설치 파일의 덮어쓰기를 차단한다. 정식 외부 배포는 코드 서명 인증서를 설정한 뒤 `--require-signature`로 수행한다.
+서명 없는 개발 설치 파일은 `tools/_local/development-release/`에 생성합니다.
+공식 배포는 `FILEOPS_SIGN_CERT_SHA1`과 signtool을 준비한 뒤
+`python scripts/build_all.py --require-signature`로 만듭니다.
+선택적 런처가 필요하면 `--build-launcher`를 추가합니다.
+런처 이름은 `App005_FileOps_Launcher_vX.Y.Z.exe`이며 설치 파일과 다릅니다.
 
-배포할 때:
+빌드는 Python/의존성/테스트/정적 검사를 먼저 수행하고, 같은 버전의 출력 교체는 기본 차단합니다.
+제품명·실행 파일명은 `src/app_identity.py`, 버전은 `src/version.py`가 기준입니다.
+서명 도구를 다른 프로젝트에서 가져오지 않습니다.
 
-- 사용자는 GitHub 소스 zip이 아니라 GitHub Releases의 `IntegratedDataTool_Setup_vX.Y.Z.exe`를 받는다.
-- Release에 setup EXE와 생성된 `.sha256` manifest를 함께 올린다. 앱과 `App05_FileOps.exe`는 GitHub API digest를 검증한 뒤에만 설치 파일을 실행한다.
-- `App05_FileOps.exe`도 Release 자산으로 함께 배포한다. 이 파일은 설치된 앱을 열거나, 없으면 정식 Setup EXE를 내려받아 실행한다.
-- 설치 전 기존 앱을 종료한다.
-
-새 PC에서 장애가 나면:
+## PC별 진단
 
 ```powershell
 python tools/diagnose_install.py --check-browser
-```
-
-Office 변환까지 확인해야 하면 다음 명령이 성공해야 한다. 실패한 PC에서는 Office 파일을 포함한 Bypass 작업을 실행하지 않는다.
-
-```powershell
 python tools/diagnose_install.py --check-browser --check-office
 ```
 
-## 릴리즈 전 체크리스트
+- EML: Playwright driver와 Chromium 상태를 확인합니다.
+- OCR: Tesseract를 설정하거나 Windows OCR fallback이 가능한지 확인합니다.
+- Office: 해당 Excel/Word/PowerPoint 설치·라이선스·COM 권한을 확인합니다.
+- 설치 파일 없음: 소스만 받은 상태인지, 개발 빌드와 공식 release 경로를 혼동했는지 확인합니다.
+- signtool 없음: Windows SDK를 설치하거나 FILEOPS_SIGNTOOL_PATH로 지정합니다.
+- 구버전 앱 감지: 런처는 App005_FileOps.exe, App05_FileOps.exe, IntegratedDataTool.exe를 인식합니다.
+  같은 버전의 설치 파일과 런처를 짝지어 사용하세요.
 
-- `python -m compileall -q src` 통과
-- `python -m pip check` 통과
-- `python tools/build_all.py` 통과
-- `dist/IntegratedDataTool.exe` 생성 확인
-- `release/IntegratedDataTool_Setup_vX.Y.Z.exe` 생성 확인
-- `release/App05_FileOps_vX.Y.Z.exe`와 `.sha256` manifest 생성 확인
-- 설치 파일을 테스트 PC에 복사해 설치와 최초 실행 확인
-- EML 변환을 한 번 실행해 Playwright Chromium 설치/실행 확인
-- OCR PC에서는 Tesseract 경로가 Settings에 잡히는지 확인
-- Office 변환 PC에서는 Excel/Word/PowerPoint COM 실행 확인
+## 실제 Windows 검수
 
-## 장애별 1차 대응
-
-- `release\IntegratedDataTool_Setup_vX.Y.Z.exe`를 찾을 수 없음: 소스만 받은 상태다. `python tools/build_all.py`로 빌드하거나 Release 설치 파일을 받는다.
-- `iscc`를 찾을 수 없음: Inno Setup이 설치되어 있지 않거나 기본 설치 경로/PATH에서 찾을 수 없다. Inno Setup 설치 후 새 터미널에서 다시 빌드한다.
-- 설치 후 EML 변환 실패: `tools/diagnose_install.py --check-browser`로 Playwright driver/Chromium 상태를 확인한다.
-- OCR 실패: Tesseract 설치 여부와 Settings의 `tesseract.exe` 경로를 확인한다.
-- Office 변환 실패: 해당 PC의 Microsoft Office 설치와 COM 자동화 권한을 확인한다.
+격리된 PC에서 신규 설치와 이전/사용자 지정 설치로부터의 업데이트를 확인합니다.
+경로 화면의 기본값, 바탕화면·시작 메뉴, 트레이·중복 실행, 자동 시작, 언어·매뉴얼,
+작업 수동 실행, 예약 시작·종료 이력, 제거 후 UserSetting 보존을 확인하세요.
+설치 프로그램 컴파일 성공은 실제 설치·업데이트 성공을 증명하지 않습니다.

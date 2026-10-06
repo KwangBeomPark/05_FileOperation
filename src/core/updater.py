@@ -10,6 +10,8 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
+from src.app_identity import PRODUCT_ID, installer_names_for_tag
+
 from src.core.release_config import (
     DEFAULT_GITHUB_OWNER,
     DEFAULT_GITHUB_REPOSITORY,
@@ -67,25 +69,6 @@ def is_trusted_download_url(url: str) -> bool:
     return host in TRUSTED_DOWNLOAD_HOSTS
 
 
-def _version_tuple(version: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in version.split(".") if part.isdigit())
-
-
-def installer_names_for_tag(tag_name: str) -> list[str]:
-    """Return acceptable installer filenames for an application version."""
-    raw_tag = tag_name.strip()
-    version = raw_tag[1:] if raw_tag[:1].lower() == "v" else raw_tag
-    if not re.fullmatch(r"\d+(?:\.\d+)*", version):
-        return []
-    if _version_tuple(version) >= (1, 4, 1):
-        return [
-            f"App05_FileOps_v{version}.exe",
-            f"App05_FileOps_Setup_v{version}.exe",
-            f"IntegratedDataTool_Setup_v{version}.exe",
-        ]
-    return [f"IntegratedDataTool_Setup_v{version}.exe"]
-
-
 def installer_name_for_tag(tag_name: str) -> str | None:
     """Return the primary installer filename accepted for an application version."""
     names = installer_names_for_tag(tag_name)
@@ -118,7 +101,7 @@ class AutoUpdater:
         self.latest_asset = None
         url = latest_release_api_url(self.repo_owner, self.repo_name)
         token = self.config_manager.get("github_token", "").strip()
-        headers = {"User-Agent": "IntegratedDataTool-AutoUpdater"}
+        headers = {"User-Agent": f"{PRODUCT_ID}-AutoUpdater"}
         if token:
             headers["Authorization"] = f"token {token}"
 
@@ -172,7 +155,7 @@ class AutoUpdater:
             raise ValueError("업데이트 파일 SHA-256 digest 형식이 올바르지 않습니다.")
 
         token = self.config_manager.get("github_token", "").strip()
-        headers = {"User-Agent": "IntegratedDataTool-AutoUpdater"}
+        headers = {"User-Agent": f"{PRODUCT_ID}-AutoUpdater"}
         if token:
             headers["Authorization"] = f"token {token}"
 

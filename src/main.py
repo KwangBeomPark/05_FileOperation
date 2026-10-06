@@ -25,9 +25,10 @@ from PyQt6.QtGui import QIcon
 from src.ui.main_window import APP_STYLESHEET, MainWindow, create_dark_palette
 from src.ui.single_instance import SingleInstanceController
 from src.utils.logger import setup_logger
+from src.app_identity import WINDOWS_APP_ID, asset_path
 
 
-SINGLE_INSTANCE_NAME = "fileops.hub.desktop.v1"
+SINGLE_INSTANCE_NAME = WINDOWS_APP_ID
 
 
 def parse_startup_arguments(argv):
@@ -141,7 +142,7 @@ def main() -> int:
 
     if sys.platform == "win32":
         try:
-            myappid = "fileops.hub.desktop.v1"
+            myappid = WINDOWS_APP_ID
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass
@@ -156,11 +157,10 @@ def main() -> int:
         if instance_controller is None:
             return 0
 
-        runtime_root = getattr(sys, "_MEIPASS", PROJECT_ROOT)
-        icon_path = os.path.join(runtime_root, "src", "assets", "icon.ico")
+        icon_path = asset_path("icon.ico")
         app_icon = QIcon()
         if os.path.exists(icon_path):
-            app_icon = QIcon(icon_path)
+            app_icon = QIcon(str(icon_path))
             app.setWindowIcon(app_icon)
 
         app.setStyle("Fusion")

@@ -12,8 +12,8 @@ from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSIT
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LAUNCHER_PATH = ROOT / "tools" / "App05_FileOps.pyw"
-loader = SourceFileLoader("app05_launcher", str(LAUNCHER_PATH))
+LAUNCHER_PATH = ROOT / "scripts" / "App005_FileOps_Launcher.pyw"
+loader = SourceFileLoader("app005_launcher", str(LAUNCHER_PATH))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 launcher = importlib.util.module_from_spec(spec)
 sys.modules[loader.name] = launcher
@@ -60,7 +60,49 @@ class FakeProgress:
         return None
 
 
-class App05LauncherTests(unittest.TestCase):
+class App005LauncherTests(unittest.TestCase):
+    def test_true_legacy_paths_and_executable_names_remain_discoverable(self):
+        for folder, exe_name in (
+            ("App05_FileOps", "App05_FileOps.exe"),
+            ("IntegratedDataTool", "IntegratedDataTool.exe"),
+            ("IntegratedDataTool", launcher.APP_EXE),
+        ):
+            for base in (Path("Programs"), Path(".")):
+                with self.subTest(folder=folder, exe=exe_name, base=base), tempfile.TemporaryDirectory() as temp_dir:
+                    installed_exe = Path(temp_dir) / base / folder / exe_name
+                    installed_exe.parent.mkdir(parents=True)
+                    installed_exe.touch()
+                    with (
+                        patch.dict(os.environ, {"LOCALAPPDATA": temp_dir}, clear=True),
+                        patch.object(launcher, "registry_candidates", return_value=[]),
+                    ):
+                        self.assertEqual(launcher.find_installed_exe(), installed_exe)
+
+    def test_registered_legacy_executable_is_accepted(self):
+        for exe_name in ("App05_FileOps.exe", "IntegratedDataTool.exe"):
+            with self.subTest(exe=exe_name), tempfile.TemporaryDirectory() as temp_dir:
+                installed_exe = Path(temp_dir) / exe_name
+                installed_exe.touch()
+                with (
+                    patch.object(launcher, "registry_candidates", return_value=[installed_exe]),
+                    patch.object(launcher, "default_candidates", return_value=[]),
+                ):
+                    self.assertEqual(launcher.find_installed_exe(), installed_exe)
+
+    def test_new_installer_is_selected_and_pre_141_launcher_is_not(self):
+        import json
+
+        for version in ("1.2.3", "1.4.1", "1.4.2"):
+            setup_name = f"App005_FileOps_Setup_v{version}.exe"
+            payload = json.dumps({"tag_name": f"v{version}", "assets": [
+                {"name": setup_name, "browser_download_url": "https://github.com/a/setup.exe", "digest": "sha256:" + "a" * 64},
+                {"name": f"App05_FileOps_v{version}.exe", "browser_download_url": "https://github.com/a/old.exe", "digest": "sha256:" + "b" * 64},
+            ]}).encode()
+            with self.subTest(version=version), patch("urllib.request.urlopen", return_value=FakeResponse(payload=payload)):
+                self.assertEqual(launcher.latest_setup_asset().name, setup_name)
+        self.assertNotIn("App05_FileOps_v1.2.3.exe", launcher.installer_names_for_tag("v1.2.3"))
+        self.assertIn("App05_FileOps_v1.4.1.exe", launcher.installer_names_for_tag("v1.4.1"))
+
     def test_finds_new_and_legacy_user_installations(self):
         for relative_dir in (Path("Programs") / launcher.INSTALL_DIR, Path(launcher.INSTALL_DIR)):
             with self.subTest(relative_dir=relative_dir), tempfile.TemporaryDirectory() as temp_dir:

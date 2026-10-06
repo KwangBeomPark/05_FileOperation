@@ -1,57 +1,54 @@
+"""Create a development desktop shortcut without assuming a checkout location."""
+import base64
 import os
-import sys
 import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.app_identity import APP_EXE_NAMES, DISPLAY_NAME, asset_path
+
+
+def ps_literal(value):
+    """Quote a literal PowerShell string, including apostrophes in folder names."""
+    return "'" + str(value).replace("'", "''") + "'"
+
 
 def create_desktop_shortcut():
-    project_root = r"c:\Dev\GitHub\05_FileOperation"
-    main_py = os.path.join(project_root, "src", "main.py")
-    icon_ico = os.path.join(project_root, "src", "assets", "icon.ico")
-    
-    # Desktop path
-    desktop_path = os.path.join(os.environ["USERPROFILE"], "Desktop")
-    shortcut_path = os.path.join(desktop_path, "FileOps Hub.lnk")
-    
-    # Target pythonw.exe to avoid persistent console window if available
-    python_exe = sys.executable
-    pythonw_exe = os.path.join(os.path.dirname(python_exe), "pythonw.exe")
-    if not os.path.exists(pythonw_exe):
-        pythonw_exe = python_exe
-        
-    # Check dist EXE if built
-    dist_exe = os.path.join(project_root, "dist", "App05_FileOps.exe")
-    if not os.path.exists(dist_exe):
-        dist_exe = os.path.join(project_root, "dist", "IntegratedDataTool.exe")
-    if os.path.exists(dist_exe):
-        target_path = dist_exe
-        args = ""
-    else:
-        target_path = pythonw_exe
-        args = f'"{main_py}"'
-        
-    ps_script = f"""
-$WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut('{shortcut_path}')
-$Shortcut.TargetPath = '{target_path}'
-$Shortcut.Arguments = '{args}'
-$Shortcut.WorkingDirectory = '{project_root}'
-$Shortcut.IconLocation = '{icon_ico}'
-$Shortcut.Description = 'FileOps Hub - Seamless File Operations'
-$Shortcut.Save()
+    """Prefer the canonical compiled app; otherwise launch the repository source."""
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    target = pythonw if pythonw.is_file() else Path(sys.executable)
+    arguments = '"' + str(ROOT / "src" / "main.py") + '"'
+    for exe_name in APP_EXE_NAMES:
+        candidate = ROOT / "dist" / exe_name
+        if candidate.is_file():
+            target, arguments = candidate, ""
+            break
+    script = f"""
+$taskShell = New-Object -ComObject WScript.Shell
+$taskDesktop = $taskShell.SpecialFolders.Item('Desktop')
+$taskShortcut = $taskShell.CreateShortcut((Join-Path $taskDesktop {ps_literal(DISPLAY_NAME + '.lnk')}))
+$taskShortcut.TargetPath = {ps_literal(target)}
+$taskShortcut.Arguments = {ps_literal(arguments)}
+$taskShortcut.WorkingDirectory = {ps_literal(ROOT)}
+$taskShortcut.IconLocation = {ps_literal(asset_path('icon.ico'))}
+$taskShortcut.Description = 'FileOps Hub - File Operations'
+$taskShortcut.Save()
 """
-    
-    ps_file = os.path.join(project_root, "tools", "make_shortcut.ps1")
-    with open(ps_file, "w", encoding="utf-8") as f:
-        f.write(ps_script)
-        
-    res = subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", ps_file], capture_output=True, text=True)
-    if res.returncode == 0:
-        print(f"Desktop shortcut successfully created: {shortcut_path}")
-    else:
-        print(f"Error creating shortcut: {res.stderr}")
-        
-    # Clean up ps file
-    if os.path.exists(ps_file):
-        os.remove(ps_file)
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-EncodedCommand", encoded],
+        capture_output=True, text=True,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or "Desktop shortcut creation failed.")
+    print(f"Desktop shortcut created: {DISPLAY_NAME}.lnk")
+
 
 if __name__ == "__main__":
+    if os.name != "nt":
+        raise SystemExit("Desktop shortcuts require Windows.")
     create_desktop_shortcut()

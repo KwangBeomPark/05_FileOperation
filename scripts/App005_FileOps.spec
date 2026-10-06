@@ -1,11 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import sys
 
 from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 PROJECT_ROOT = os.path.dirname(SPECPATH)
+sys.path.insert(0, PROJECT_ROOT)
+from src.app_identity import PRODUCT_ID
 VERSION_FILE = os.environ.get("FILEOPS_VERSION_FILE")
 if not VERSION_FILE or not os.path.exists(VERSION_FILE):
     raise RuntimeError("FILEOPS_VERSION_FILE must point to the generated PyInstaller version resource.")
@@ -17,7 +20,7 @@ a = Analysis(
     pathex=[PROJECT_ROOT],
     binaries=playwright_binaries + qtawesome_binaries,
     datas=[
-        (os.path.join(PROJECT_ROOT, 'src', 'assets'), 'src/assets'),
+        (os.path.join(PROJECT_ROOT, 'assets'), 'assets'),
     ] + playwright_datas + qtawesome_datas,
     hiddenimports=[
         'PyQt6.QtCore',
@@ -45,8 +48,8 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='App05_FileOps',
-    icon=os.path.join(PROJECT_ROOT, 'src', 'assets', 'icon.ico'),
+    name=PRODUCT_ID,
+    icon=os.path.join(PROJECT_ROOT, 'assets', 'icon.ico'),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

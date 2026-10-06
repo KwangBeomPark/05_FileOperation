@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from datetime import datetime
+from src.app_identity import user_data_dir
 
 _logger_initialized = False
 
@@ -18,29 +19,13 @@ def setup_logger(log_level=logging.INFO):
     """
     애플리케이션 전역 로깅 설정을 초기화합니다.
     - 콘솔 출력(StreamHandler)
-    - AppData/Local/IntegratedDataTool/logs/sync_YYYYMMDD.log 파일 출력
+    - Programs/FileOps/UserSetting/logs/sync_YYYYMMDD.log 파일 출력
     """
     global _logger_initialized
     if _logger_initialized:
         return logging.getLogger()
 
-    # AppData/Local 경로 획득
-    local_app_data = os.environ.get('LOCALAPPDATA')
-    if not local_app_data:
-        # Fallback to user profile or current dir if LOCALAPPDATA is missing
-        user_profile = os.environ.get('USERPROFILE')
-        if user_profile:
-            local_app_data = os.path.join(user_profile, 'AppData', 'Local')
-        else:
-            local_app_data = os.getcwd()
-
-    log_dir = os.path.join(local_app_data, 'IntegratedDataTool', 'logs')
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-    except Exception:
-        # 권한 오류 등으로 디렉토리 생성이 실패할 경우 현재 작업 디렉토리에 로그 디렉토리 생성
-        log_dir = os.path.join(os.getcwd(), 'logs')
-        os.makedirs(log_dir, exist_ok=True)
+    log_dir = str(user_data_dir() / 'logs')
 
     today = datetime.now().strftime('%Y%m%d')
     log_file_path = os.path.join(log_dir, f'sync_{today}.log')
@@ -63,15 +48,16 @@ def setup_logger(log_level=logging.INFO):
 
     # 2. 파일 핸들러 추가
     try:
+        os.makedirs(log_dir, exist_ok=True)
         file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
     except Exception as e:
-        print(f"Failed to initialize file logger: {e}", file=sys.stderr)
+        logger.warning("File logging unavailable at %s: %s. No alternate folder will be used.", log_dir, e)
 
     _logger_initialized = True
     
-    logger.info(f"Logger initialized. Log file path: {log_file_path}")
+    logger.info(f"Logger initialized. Requested log file path: {log_file_path}")
     return logger
 
 def get_logger():

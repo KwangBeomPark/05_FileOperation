@@ -7,6 +7,7 @@ import locale
 import os
 import re
 import ssl
+import sys
 import subprocess
 import tempfile
 import urllib.request
@@ -24,13 +25,18 @@ except ImportError:
     winreg = None
 
 
-APP_TITLE = "FileOps Hub"
-APP_EXE = "App05_FileOps.exe"
-INSTALL_DIR = "App05_FileOps"
-REPO_OWNER = "KwangBeomPark"
-REPO_NAME = "05_FileOperation"
-# Kept local so this launcher remains standalone. tests/test_app05_launcher.py
-# verifies parity with src/core/release_config.py.
+if not getattr(sys, "frozen", False):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from src.app_identity import (
+    APP_EXE, APP_EXE_NAMES, DISPLAY_NAME, INSTALL_DIR, INSTALLER_APP_ID,
+    LEGACY_INSTALL_DIRS, PRODUCT_ID, installer_names_for_tag,
+)
+from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSITORY
+
+APP_TITLE = DISPLAY_NAME
+REPO_OWNER = DEFAULT_GITHUB_OWNER
+REPO_NAME = DEFAULT_GITHUB_REPOSITORY
 LATEST_RELEASE_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 TRUSTED_HOSTS = {
     "github.com",
@@ -40,7 +46,6 @@ TRUSTED_HOSTS = {
     "github-releases.githubusercontent.com",
     "release-assets.githubusercontent.com",
 }
-INSTALLER_NAME_PATTERN = re.compile(r"^(?:App05_FileOps|IntegratedDataTool_Setup)_v(\d+(?:\.\d+)*)\.exe$", re.IGNORECASE)
 SHA256_PATTERN = re.compile(r"^sha256:([0-9a-f]{64})$", re.IGNORECASE)
 MAX_INSTALLER_BYTES = 1024 * 1024 * 1024
 
@@ -119,7 +124,7 @@ def detect_language(
     locale_name: str | None = None,
 ) -> str:
     """Prefer an explicit override, then Windows UI language, then English."""
-    selected = normalize_language(override or os.environ.get("APP05_LANGUAGE"))
+    selected = normalize_language(override or os.environ.get("APP005_LANGUAGE") or os.environ.get("APP05_LANGUAGE"))
     if selected:
         return selected
 
@@ -213,13 +218,14 @@ def registry_candidates() -> list[Path]:
                             continue
 
                         display_name = values.get("DisplayName", "").strip()
-                        if display_name not in {"IntegratedDataTool", "FileOps Hub", "FileOps-Hub", "App05_FileOps"}:
-                            if subkey not in {"IntegratedDataTool_is1", "FileOps Hub_is1", "FileOps-Hub_is1", "App05_FileOps_is1"}:
+                        accepted_names = {INSTALL_DIR, *LEGACY_INSTALL_DIRS, "FileOps-Hub"}
+                        if display_name not in accepted_names:
+                            if subkey not in {f"{name}_is1" for name in accepted_names} | {f"{INSTALLER_APP_ID}_is1"}:
                                 continue
 
                         install_path = values.get("InstallLocation") or values.get("Inno Setup: App Path")
                         if install_path:
-                            candidates.append(Path(install_path) / APP_EXE)
+                            candidates.extend(Path(install_path) / name for name in APP_EXE_NAMES)
 
                         icon_path = values.get("DisplayIcon", "").strip().strip('"')
                         if icon_path:
@@ -250,23 +256,25 @@ def default_candidates() -> list[Path]:
     if os.environ.get("LOCALAPPDATA"):
         local_app_data = Path(os.environ["LOCALAPPDATA"])
         candidates.append(local_app_data / "Programs" / INSTALL_DIR / APP_EXE)
-        # Keep installations made before the Programs default discoverable.
-        candidates.append(local_app_data / INSTALL_DIR / APP_EXE)
+        # An upgrade may retain its old/custom folder while changing EXE names.
+        for base in (local_app_data / "Programs", local_app_data):
+            for folder in (INSTALL_DIR, *LEGACY_INSTALL_DIRS):
+                candidates.extend(base / folder / name for name in APP_EXE_NAMES)
     for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
         if os.environ.get(env_name):
-            candidates.append(Path(os.environ[env_name]) / INSTALL_DIR / APP_EXE)
-            candidates.append(Path(os.environ[env_name]) / APP_TITLE / APP_EXE)
+            for folder in (INSTALL_DIR, *LEGACY_INSTALL_DIRS):
+                candidates.extend(Path(os.environ[env_name]) / folder / name for name in APP_EXE_NAMES)
     return candidates
 
 
 def find_installed_exe() -> Path | None:
     seen: set[str] = set()
     for candidate in registry_candidates() + default_candidates():
-        key = str(candidate)
+        key = os.path.normcase(str(candidate))
         if key in seen:
             continue
         seen.add(key)
-        if candidate.is_file() and candidate.name.lower() == APP_EXE.lower():
+        if candidate.is_file() and candidate.name.lower() in {name.lower() for name in APP_EXE_NAMES}:
             return candidate
     return None
 
@@ -274,7 +282,7 @@ def find_installed_exe() -> Path | None:
 def request_headers() -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "App05-FileOps-Installer",
+        "User-Agent": f"{PRODUCT_ID}-Launcher",
     }
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if token:
@@ -283,14 +291,10 @@ def request_headers() -> dict[str, str]:
 
 
 def expected_installer_name(tag_name: str) -> str:
-    raw_tag = tag_name.strip()
-    version = raw_tag[1:] if raw_tag[:1].lower() == "v" else raw_tag
-    if not re.fullmatch(r"\d+(?:\.\d+)*", version):
+    names = installer_names_for_tag(tag_name)
+    if not names:
         raise LauncherError(translate("invalid_release_tag", tag_name=tag_name))
-    parts = tuple(int(p) for p in version.split(".") if p.isdigit())
-    if parts >= (1, 4, 1):
-        return f"App05_FileOps_v{version}.exe"
-    return f"IntegratedDataTool_Setup_v{version}.exe"
+    return names[0]
 
 
 def latest_setup_asset() -> ReleaseAsset:
@@ -301,7 +305,11 @@ def latest_setup_asset() -> ReleaseAsset:
     tag_name = str(release.get("tag_name") or "")
     expected_name = expected_installer_name(tag_name)
     assets = release.get("assets") or []
-    matches = [asset for asset in assets if asset.get("name") == expected_name]
+    matches = []
+    for accepted_name in installer_names_for_tag(tag_name):
+        matches = [asset for asset in assets if asset.get("name") == accepted_name]
+        if matches:
+            break
     if len(matches) != 1:
         raise LauncherError(translate("installer_missing", expected_name=expected_name))
     selected = matches[0]
@@ -309,7 +317,7 @@ def latest_setup_asset() -> ReleaseAsset:
     name = str(selected.get("name") or "")
     url = str(selected.get("browser_download_url") or "")
     digest_match = SHA256_PATTERN.fullmatch(str(selected.get("digest") or ""))
-    if not INSTALLER_NAME_PATTERN.fullmatch(name) or Path(name).name != name:
+    if name not in installer_names_for_tag(tag_name) or Path(name).name != name:
         raise LauncherError(translate("installer_name_invalid"))
     if not trusted_url(url):
         raise LauncherError(translate("untrusted_url", url=url))
@@ -425,7 +433,7 @@ def download_and_run_installer(root: tk.Tk) -> None:
 
 
 def main() -> int:
-    if os.environ.get("APP05_FILEOPS_SELFTEST") == "1":
+    if (os.environ.get("APP005_FILEOPS_SELFTEST") or os.environ.get("APP05_FILEOPS_SELFTEST")) == "1":
         latest_setup_asset()
         find_installed_exe()
         return 0

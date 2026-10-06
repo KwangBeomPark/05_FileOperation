@@ -18,8 +18,9 @@ build/
 dist/
 release/
 App05_FileOps*.exe
+App005_FileOps*.exe
 *.spec
-!tools/App05_FileOps.spec
+!scripts/App005_FileOps.spec
 
 # Local-only scratch files under tracked validation tools
 tools/_local/
@@ -29,6 +30,9 @@ tools/_local/
 setting_integrated.json
 setting_PDF2Img.json
 config.json
+settings.json
+UserSetting/
+reports/
 
 # System & IDE files
 .vscode/

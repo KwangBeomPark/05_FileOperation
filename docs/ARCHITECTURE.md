@@ -38,7 +38,10 @@ PyQt tabs -> typed RunConfig -> RunPlan -> preflight -> TaskRunner -> core conve
 
 - `src/version.py` is the single release-version source.
 - `src/core/release_config.py` owns the installed application's default GitHub repository and release URL construction.
-- `tools/App05_FileOps.pyw` intentionally repeats the repository constants so the launcher stays standalone; a regression test enforces parity with `release_config.py`.
-- `tools/build_all.py` creates the PyInstaller version resource, calls Inno Setup with the same version, runs tests, and writes an installer checksum manifest.
-- The in-app updater and `App05_FileOps` accept only the exact versioned setup filename from GitHub Releases, verify trusted redirect hosts, and verify the published SHA-256 digest before execution.
+- `src/app_identity.py` owns product ID `App005_FileOps`, executable/installer/launcher names, approved default install folder `Programs/FileOps`, and legacy release compatibility.
+- `scripts/App005_FileOps_Launcher.pyw` bundles the dependency-free identity and release configuration modules; it does not depend on an existing installation.
+- `scripts/build_all.py` creates separate app/launcher version resources, injects the same version and stable Windows IDs into `installer/setup.iss`, runs checks, and writes SHA256SUMS.txt plus build-manifest.json.
+- The in-app updater and launcher share the accepted installer names, verify trusted redirect hosts and SHA-256 before execution, and do not mistake pre-v1.4.1 launchers for installers.
+- Runtime and packaging use the single root `assets/` directory, including inside the frozen application.
+- Fresh configuration, logs, and run history live in `%LOCALAPPDATA%/Programs/FileOps/UserSetting`; old IntegratedDataTool or LocalAppData/FileOps data is not imported. Frozen custom installations use UserSetting beside the actual app executable. Source runs use the approved default. The installer creates UserSetting, excludes it from the payload, and preserves it on uninstall. Program installation defaults to Programs/FileOps with a visible directory page and no automatic reuse of an old install folder.
 - Authenticode signing is a release requirement for public distribution; see `docs/RELEASE.md`.

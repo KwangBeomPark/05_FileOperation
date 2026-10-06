@@ -25,6 +25,7 @@ from src.core.preflight import (
 )
 from src.utils.config_manager import ConfigManager
 from src.version import APP_VERSION
+from src.app_identity import APP_EXE, INSTALLER_BASENAME, LAUNCHER_BASENAME
 
 RELEASE_DIR = ROOT / "release"
 
@@ -78,15 +79,16 @@ def check_python_packages() -> bool:
 
 def check_build_artifacts() -> bool:
     dist = ROOT / "dist"
-    app_exe = dist / "App05_FileOps.exe"
-    if not app_exe.exists():
-        app_exe = dist / "IntegratedDataTool.exe"
+    app_exe = dist / APP_EXE
     setup_exe = setup_exe_path()
     launcher_exe = launcher_exe_path()
     ok = True
     ok &= status(app_exe.exists(), "app exe", str(app_exe))
     ok &= status(setup_exe.exists(), "installer exe", str(setup_exe))
-    ok &= status(launcher_exe.exists(), "release launcher", str(launcher_exe))
+    if launcher_exe.exists():
+        ok &= status(True, "release launcher", str(launcher_exe))
+    else:
+        warn("release launcher", "optional; build with --build-launcher")
     iscc = find_iscc()
     if iscc:
         ok &= status(True, "Inno Setup compiler", iscc)
@@ -96,11 +98,11 @@ def check_build_artifacts() -> bool:
 
 
 def setup_exe_path() -> Path:
-    return RELEASE_DIR / f"App05_FileOps_v{APP_VERSION}.exe"
+    return RELEASE_DIR / f"{INSTALLER_BASENAME}_v{APP_VERSION}.exe"
 
 
 def launcher_exe_path() -> Path:
-    return RELEASE_DIR / f"App05_FileOps_Launcher_v{APP_VERSION}.exe"
+    return RELEASE_DIR / f"{LAUNCHER_BASENAME}_v{APP_VERSION}.exe"
 
 
 def find_iscc() -> str | None:

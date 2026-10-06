@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from src.utils.config_manager import ConfigManager
 from src.utils.security import encrypt_data
+from src.app_identity import user_data_dir
 
 
 class ConfigSecurityTests(unittest.TestCase):
@@ -23,7 +24,7 @@ class ConfigSecurityTests(unittest.TestCase):
 
     def test_v1_sender_password_migrates_without_double_encryption(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.dict(os.environ, {"LOCALAPPDATA": temp_dir}, clear=False):
-            app_dir = os.path.join(temp_dir, "IntegratedDataTool")
+            app_dir = str(user_data_dir())
             os.makedirs(app_dir, exist_ok=True)
             config_path = os.path.join(app_dir, "settings.json")
             encrypted = encrypt_data("legacy-secret")
@@ -36,7 +37,7 @@ class ConfigSecurityTests(unittest.TestCase):
 
     def test_legacy_source_deletion_setting_migrates_to_keep(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.dict(os.environ, {"LOCALAPPDATA": temp_dir}, clear=False):
-            app_dir = os.path.join(temp_dir, "IntegratedDataTool")
+            app_dir = str(user_data_dir())
             os.makedirs(app_dir, exist_ok=True)
             config_path = os.path.join(app_dir, "settings.json")
             with open(config_path, "w", encoding="utf-8") as file:
@@ -53,7 +54,7 @@ class ConfigSecurityTests(unittest.TestCase):
 
     def test_existing_target_path_migrates_to_non_destructive_custom_output(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.dict(os.environ, {"LOCALAPPDATA": temp_dir}, clear=False):
-            app_dir = os.path.join(temp_dir, "IntegratedDataTool")
+            app_dir = str(user_data_dir())
             target_dir = os.path.join(temp_dir, "converted")
             os.makedirs(app_dir)
             os.makedirs(target_dir)
