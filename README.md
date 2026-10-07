@@ -1,10 +1,11 @@
-# FileOps Hub — App005_FileOps
+# FileOps Hub — App05_FileOps
 
-관리 번호는 **005**, 설치된 실행 파일은 `App005_FileOps.exe`입니다.
+관리 번호는 **05**, 공식 제품 ID는 `App05_FileOps`, 설치된 실행 파일은 `App05_FileOps.exe`입니다.
 프로그램의 기본 설치 폴더는 **`%LOCALAPPDATA%\Programs\FileOps`**이며,
 설정·로그·예약 이력은 설치 폴더 안의 **`%LOCALAPPDATA%\Programs\FileOps\UserSetting`**에 저장합니다.
 이번 정리 이후에는 이전 `IntegratedDataTool` 설정·로그·예약 이력을 자동으로 가져오지 않습니다.
-언어, 작업 그룹, 예약, 메일 설정을 새로 지정해 주세요.
+현재 UserSetting을 처음 사용하는 경우 언어, 작업 그룹, 예약, 메일 설정을 지정해 주세요.
+이미 `Programs\FileOps\UserSetting`을 사용 중이라면 이번 이름 변경으로 초기화하지 않습니다.
 
 회사 내 여러 팀이 따로 관리하는 최신 매뉴얼과 업무 자료를 공용 배포 폴더로 모으고, 정산·분석에 필요한 문서 변환 작업을 자동화하는 Windows 데스크톱 도구입니다.
 
@@ -75,16 +76,18 @@ python src/main.py
 ```powershell
 python -m compileall -q src scripts tools
 python -m unittest discover -s tools -p "test_*.py" -v
-python scripts/build_all.py
+powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Unsigned
 ```
 
 `ruff`는 선택 검증입니다. 설치된 경우 `python -m ruff check src scripts tools --select E9,F,B`를 추가로 실행합니다.
 
-앱 버전은 `src/version.py`, 제품명·파일명·경로 규칙은 `src/app_identity.py`에서 관리합니다. `scripts/build_all.py`는 검사 후 앱과 `installer/setup.iss` 기반 설치 파일을 만들며 같은 버전의 배포 파일 덮어쓰기를 기본 차단합니다. 설치 파일은 Git 소스에 포함되지 않습니다. 사용자는 GitHub Releases의 **`App005_FileOps_Setup_vX.Y.Z.exe`**를 받습니다. 공개 배포 빌드는 `python scripts/build_all.py --require-signature`로 수행합니다. 자세한 절차는 [배포 안내](docs/RELEASE.md), [설치 점검](docs/INSTALL_DEFENSE_PLAN.md), [폴더·이름 규칙](docs/PROJECT_STRUCTURE.md)을 참조하세요.
+앱 버전은 `src/version.py`, 제품명·파일명·경로 규칙은 `src/app_identity.py`에서 관리합니다. `scripts/build.ps1`은 기본적으로 검사·빌드·서명을 수행하며, `-Unsigned`일 때만 개발용 미서명 빌드를 만듭니다. 설치 프로그램은 **`App05_FileOps-Setup_vX.Y.Z.exe`**, 공개용은 **`FileOps-Setup.vX.Y.Z.exe`**로 제공합니다. 두 파일은 이름만 다르고 바이트·서명·SHA-256은 같습니다. 자세한 절차는 [배포 안내](docs/RELEASE.md), [설치 점검](docs/INSTALL_DEFENSE_PLAN.md), [폴더·이름 규칙](docs/PROJECT_STRUCTURE.md)을 참조하세요.
 
-서명 없는 개발 빌드는 `tools/_local/development-release/`에 저장합니다. 공식 서명 배포물은 `release/`에 저장하며 두 경로를 혼용하지 않습니다.
+모든 설치 파일은 `dist/packaging/vX.Y.Z-<고유번호>/`에서 먼저 검증합니다. 미서명 앱도 이 폴더에 저장하여 기존 서명 앱을 덮어쓰지 않습니다. 실제 서명·무결성 검사를 통과한 세트만 `release/`에 반영하며 이전 세트는 `tools/_local/`에 보존합니다. `release/`에는 최신 설치 파일 두 개, `SHA256SUMS.txt`, `build-manifest.json` 및 선택적 런처만 둡니다.
 
-선택적 런처 **`App005_FileOps_Launcher_vX.Y.Z.exe`**는 별도 Python 설치 없이 설치된 프로그램을 열거나 설치 파일 다운로드를 안내합니다. `--build-launcher`로 생성합니다. 실행 파일·설치 파일·런처는 서로 다른 파일이며 런처는 반드시 필요한 배포물이 아닙니다. 새 이름과 구버전 실행 파일·설치 위치를 함께 감지하며, 설치 파일을 다운로드할 때 정확한 파일명·신뢰된 GitHub 주소·SHA-256 digest를 검증합니다.
+기존 공개 v1.4.2의 로컬 설치 파일은 새 이름의 별칭만 준비했습니다. `build-manifest.json`의 `alias_only=true`는 내부 앱 이름과 코드가 기존 공개본 그대로라는 뜻입니다. 새 소스를 재빌드·서명한 결과와 혼동하지 않으며, 이 별칭 세트의 재공개는 차단합니다. 이미 공개된 v1.4.2는 변경하지 않습니다.
+
+선택적 런처 **`App05_FileOps_Launcher_vX.Y.Z.exe`**는 별도 Python 설치 없이 설치된 프로그램을 열거나 설치 파일 다운로드를 안내합니다. `-BuildLauncher`로 생성합니다. 실행 파일·설치 파일·런처는 서로 다른 파일이며 런처는 반드시 필요한 배포물이 아닙니다. 새 이름과 구버전 실행 파일·설치 위치를 함께 감지하며, 설치 파일을 다운로드할 때 정확한 파일명·신뢰된 GitHub 주소·SHA-256 digest를 검증합니다.
 런처와 앱은 Windows 표시 언어를 자동 감지하며 English, 한국어, Polski를 지원합니다. 지원하지 않는 Windows 언어의 기본 표시는 English입니다.
 
 설치/런타임 사전 점검:
@@ -99,13 +102,13 @@ Office 변환까지 사용할 PC에서는 다음 명령이 성공해야 합니�
 python tools/diagnose_install.py --check-browser --check-office
 ```
 
-기본 실행 파일 경로는 **`%LOCALAPPDATA%\Programs\FileOps\App005_FileOps.exe`**입니다. 현재 사용자 권한으로 설치하며 관리자 권한을 요구하지 않습니다. 이전 설치 경로를 기본값으로 자동 재사용하지 않으며, 설치 화면에서 경로를 확인하거나 직접 지정할 수 있습니다. 설치 식별자와 중복 실행 방지 식별자는 유지합니다. 기존 프로그램 폴더를 통째로 이동하거나 삭제하는 작업은 수행하지 않습니다.
+기본 실행 파일 경로는 **`%LOCALAPPDATA%\Programs\FileOps\App05_FileOps.exe`**입니다. 현재 사용자 권한으로 설치하며 관리자 권한을 요구하지 않습니다. 신규 설치는 이 기본값을 사용하고, 업그레이드는 설정 보존을 위해 기존 설치 폴더를 유지합니다. 설치 화면에서 경로를 확인하거나 직접 지정할 수 있습니다. 설치 식별자와 중복 실행 방지 식별자는 유지합니다. 기존 프로그램 폴더를 통째로 이동하거나 삭제하는 작업은 수행하지 않습니다.
 
 새 데이터 위치는 `%LOCALAPPDATA%\Programs\FileOps\UserSetting\settings.json`, `UserSetting\logs\`, `UserSetting\reports\`입니다. 직접 설치 경로를 바꾸면 해당 설치 폴더의 `UserSetting`을 사용합니다. 소스로 실행할 때는 기본 설치 폴더의 `UserSetting`을 사용합니다. 기존 `%LOCALAPPDATA%\IntegratedDataTool`이나 `%LOCALAPPDATA%\FileOps`의 데이터는 자동으로 가져오지 않습니다. 새 설정에서는 예약 실행이 꺼져 있으며 작업 그룹을 다시 등록해야 합니다. GitHub 토큰과 SMTP 비밀번호는 Windows DPAPI로 암호화합니다. 설치 프로그램은 `UserSetting`을 배포물에 포함하지 않고, 프로그램 제거 시에도 사용자 데이터는 보존합니다.
 
 ## 현재 경계
 
-- GUI 예약·폴더 감시는 앱이 실행 중일 때 동작합니다. 설치 시 Windows 시작 옵션을 켜면 로그인 후 트레이에서 실행됩니다. Windows 작업 스케줄러에서는 `App005_FileOps.exe --headless-run`을 사용할 수 있으나, 현재 무인 CLI는 폴더 동기화와 OCR 설정만 구성하므로 모든 GUI 기능을 지원한다고 가정하지 마세요. Office 작업 등은 로그인·권한·해당 PC 환경의 별도 검증이 필요합니다.
+- GUI 예약·폴더 감시는 앱이 실행 중일 때 동작합니다. 설치 시 Windows 시작 옵션을 켜면 로그인 후 트레이에서 실행됩니다. Windows 작업 스케줄러에서는 `App05_FileOps.exe --headless-run`을 사용할 수 있으나, 현재 무인 CLI는 폴더 동기화와 OCR 설정만 구성하므로 모든 GUI 기능을 지원한다고 가정하지 마세요. Office 작업 등은 로그인·권한·해당 PC 환경의 별도 검증이 필요합니다.
 - 폴더 동기화는 기본적으로 최상위 파일을 처리하며, **하위 폴더 포함**을 켜면 재귀 처리합니다.
 - PDF/OCR 대상은 현재 GUI에서 선택한 파일 기준입니다. 반복 감시 폴더 방식은 아직 제공하지 않습니다.
 - 실제 네트워크 드라이브, SharePoint 동기화 지연, Office COM, SMTP 계정은 해당 회사 환경에서 별도 수동 검증이 필요합니다.

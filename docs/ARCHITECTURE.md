@@ -38,10 +38,10 @@ PyQt tabs -> typed RunConfig -> RunPlan -> preflight -> TaskRunner -> core conve
 
 - `src/version.py` is the single release-version source.
 - `src/core/release_config.py` owns the installed application's default GitHub repository and release URL construction.
-- `src/app_identity.py` owns product ID `App005_FileOps`, executable/installer/launcher names, approved default install folder `Programs/FileOps`, and legacy release compatibility.
-- `scripts/App005_FileOps_Launcher.pyw` bundles the dependency-free identity and release configuration modules; it does not depend on an existing installation.
-- `scripts/build_all.py` creates separate app/launcher version resources, injects the same version and stable Windows IDs into `installer/setup.iss`, runs checks, and writes SHA256SUMS.txt plus build-manifest.json.
+- `src/app_identity.py` owns product ID `App05_FileOps`, executable/dual-installer/launcher names, approved default install folder `Programs/FileOps`, and centralized legacy compatibility.
+- `scripts/App05_FileOps_Launcher.pyw` bundles the dependency-free identity and release configuration modules; it does not depend on an existing installation.
+- `scripts/build.ps1` / `scripts/sign.ps1` wrap the Python build engine. Independent staging, actual Windows signature checks, complete manifest/checksum validation, and rollback-protected promotion keep unsigned builds out of release/. `publish_release.py` additionally requires a clean matching source commit and never replaces a published version.
 - The in-app updater and launcher share the accepted installer names, verify trusted redirect hosts and SHA-256 before execution, and do not mistake pre-v1.4.1 launchers for installers.
 - Runtime and packaging use the single root `assets/` directory, including inside the frozen application.
-- Fresh configuration, logs, and run history live in `%LOCALAPPDATA%/Programs/FileOps/UserSetting`; old IntegratedDataTool or LocalAppData/FileOps data is not imported. Frozen custom installations use UserSetting beside the actual app executable. Source runs use the approved default. The installer creates UserSetting, excludes it from the payload, and preserves it on uninstall. Program installation defaults to Programs/FileOps with a visible directory page and no automatic reuse of an old install folder.
+- Fresh configuration, logs, and run history live in `%LOCALAPPDATA%/Programs/FileOps/UserSetting`; old IntegratedDataTool or LocalAppData/FileOps data is not imported. Frozen custom installations use UserSetting beside the actual app executable. Source runs use the approved default. The installer creates UserSetting, excludes it from the payload, and preserves it on uninstall. Fresh installations default to Programs/FileOps with a visible directory page; upgrades retain the existing install folder and UserSetting.
 - Authenticode signing is a release requirement for public distribution; see `docs/RELEASE.md`.

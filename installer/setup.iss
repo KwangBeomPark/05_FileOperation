@@ -17,25 +17,31 @@
 #ifndef AppWindowsId
   #error "AppWindowsId must be supplied by scripts/build_all.py."
 #endif
+#ifndef AppCloseApplications
+  #error "AppCloseApplications must be supplied by scripts/build_all.py."
+#endif
+#ifndef LegacyShortcutsFile
+  #error "LegacyShortcutsFile must be supplied by scripts/build_all.py."
+#endif
 AppId={#AppInstallerId}
 AppName=FileOps Hub
 AppVersion={#AppVersion}
 VersionInfoVersion={#AppVersion}
 VersionInfoProductVersion={#AppVersion}
 DefaultDirName={localappdata}\Programs\{#AppInstallDir}
-; Start with the approved Programs/FileOps default, also when upgrading.
-UsePreviousAppDir=no
+; New installs use Programs/FileOps; upgrades keep the actual existing folder/data.
+UsePreviousAppDir=yes
 DisableDirPage=no
 DefaultGroupName=FileOps Hub
 UninstallDisplayIcon={app}\{#AppProductId}.exe
-OutputDir=..\tools\_local\development-release
-OutputBaseFilename={#AppProductId}_Setup_v{#AppVersion}
+OutputDir=..\dist\packaging
+OutputBaseFilename={#AppProductId}-Setup_v{#AppVersion}
 SetupIconFile=..\assets\icon.ico
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=lowest
 CloseApplications=yes
-CloseApplicationsFilter={#AppProductId}.exe,App05_FileOps.exe,IntegratedDataTool.exe
+CloseApplicationsFilter={#AppCloseApplications}
 
 [Files]
 Source: "{#AppExeSource}"; DestDir: "{app}"; DestName: "{#AppProductId}.exe"; Flags: ignoreversion
@@ -54,11 +60,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "startup"; Description: "Start FileOps Hub automatically when Windows starts"; GroupDescription: "Startup:"; Flags: unchecked
 
 [InstallDelete]
-; Remove only shortcuts with the previous product names, never user data.
-Type: files; Name: "{userdesktop}\App05_FileOps.lnk"
-Type: files; Name: "{userdesktop}\IntegratedDataTool.lnk"
-Type: files; Name: "{userprograms}\App05_FileOps\App05_FileOps.lnk"
-Type: files; Name: "{userprograms}\IntegratedDataTool\IntegratedDataTool.lnk"
+; Remove only old shortcut and EXE leaves, never user folders/data.
+; Historical names are injected from the central compatibility lists.
+#include LegacyShortcutsFile
 
 [Run]
 Filename: "{app}\{#AppProductId}.exe"; Description: "{cm:LaunchProgram,FileOps Hub}"; Flags: nowait postinstall skipifsilent

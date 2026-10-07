@@ -1,4 +1,29 @@
-# App005 naming and layout cleanup
+# v1.4.3 signed publication (user authorized 2026-10-07)
+
+- [x] 1. Set v1.4.3 and document App05 naming, preserved UserSetting, and the one-time manual v1.4.2 upgrade.
+- [x] 2. Re-run regression/static checks and prepare the reviewed main-branch source commit: 229 tests, Ruff, compile/dependency checks, and PowerShell syntax passed.
+- [ ] 3. Build/sign with the user's active SimplySign session; verify all signatures, timestamps, packaged sources, and checksums.
+- [ ] 4. Push main and the matching tag; publish verified artifacts and compare GitHub asset digests.
+
+Publication is authorized. A visible certificate is not proof of private-key access.
+Native clean-PC installation/upgrade checks remain a separate manual gate.
+The signing attempt stopped before building: SCardSvr is stopped and the agent
+session is not elevated. The user must run sign.ps1 in their administrator
+PowerShell with SimplySign logged in. No signed v1.4.3 artifacts are claimed yet.
+
+# App05 normalization and PL Suite pipeline (2026-10-06)
+
+- [x] 1. Normalize identity/EXE/spec/launcher to App05; keep old names centralized for compatibility.
+- [x] 2. Add standard PowerShell entry points, signed-only staging/promotion, and explicit non-clobber publishing.
+- [x] 3. Delete 38 confirmed obsolete release files (2,007,781,004 bytes), protecting the latest signatures/data.
+- [x] 4. Prepare the four-file local v1.4.2 dual-alias set; preserve original signed files/provenance. Alias-only is not a rebuilt App05 binary and cannot be republished.
+- [x] 5. 229 regression tests, Ruff/compile/dependency/PowerShell syntax gates passed. Actual unsigned app/launcher/Inno build and packaged sources/icons match. Opus 5.5 reviewed twice; promotion/custom-upgrade/verifier/dev-stage issues fixed, manual v1.4.2 transition documented, no remaining code blockers found. See APP05_PIPELINE_VALIDATION.md for untested signing/native-install boundaries and non-blocking follow-ups.
+
+This task does not replace public v1.4.2. A new signed normalized release requires a new
+version decision and the user's active SimplySign session. UserSetting and the stable
+Windows identities remain unchanged. See RELEASE.md for staging/alias provenance.
+
+# Historical App005 naming and layout cleanup
 
 - [x] 1. Centralize product names and restore legacy installation/update detection. 31 targeted tests passed.
 - [x] 2. Move packaging to installer/, automation to scripts/, and consolidate assets/.

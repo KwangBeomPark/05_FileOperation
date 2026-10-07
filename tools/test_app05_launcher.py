@@ -1,5 +1,6 @@
 import hashlib
 import importlib.util
+import json
 import os
 import sys
 import tempfile
@@ -12,8 +13,8 @@ from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSIT
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LAUNCHER_PATH = ROOT / "scripts" / "App005_FileOps_Launcher.pyw"
-loader = SourceFileLoader("app005_launcher", str(LAUNCHER_PATH))
+LAUNCHER_PATH = ROOT / "scripts" / "App05_FileOps_Launcher.pyw"
+loader = SourceFileLoader("app05_launcher", str(LAUNCHER_PATH))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 launcher = importlib.util.module_from_spec(spec)
 sys.modules[loader.name] = launcher
@@ -60,9 +61,24 @@ class FakeProgress:
         return None
 
 
-class App005LauncherTests(unittest.TestCase):
+class App05LauncherTests(unittest.TestCase):
+    def test_dual_installer_names_prefer_enterprise_and_allow_public_only(self):
+        enterprise = {"name": "App05_FileOps-Setup_v1.4.2.exe",
+                      "browser_download_url": "https://github.com/a/enterprise.exe", "digest": "sha256:" + "a" * 64}
+        public = {"name": "FileOps-Setup.v1.4.2.exe",
+                  "browser_download_url": "https://github.com/a/public.exe", "digest": "sha256:" + "a" * 64}
+        for assets, expected in (([public, enterprise], enterprise), ([public], public)):
+            payload = json.dumps({"tag_name": "v1.4.2", "assets": assets}).encode()
+            with patch("urllib.request.urlopen", return_value=FakeResponse(payload=payload)):
+                self.assertEqual(launcher.latest_setup_asset().name, expected["name"])
+        duplicate = json.dumps({"tag_name": "v1.4.2", "assets": [enterprise, enterprise, public]}).encode()
+        with patch("urllib.request.urlopen", return_value=FakeResponse(payload=duplicate)):
+            with self.assertRaises(launcher.LauncherError):
+                launcher.latest_setup_asset()
+
     def test_true_legacy_paths_and_executable_names_remain_discoverable(self):
         for folder, exe_name in (
+            ("App005_FileOps", "App005_FileOps.exe"),
             ("App05_FileOps", "App05_FileOps.exe"),
             ("IntegratedDataTool", "IntegratedDataTool.exe"),
             ("IntegratedDataTool", launcher.APP_EXE),
@@ -79,7 +95,7 @@ class App005LauncherTests(unittest.TestCase):
                         self.assertEqual(launcher.find_installed_exe(), installed_exe)
 
     def test_registered_legacy_executable_is_accepted(self):
-        for exe_name in ("App05_FileOps.exe", "IntegratedDataTool.exe"):
+        for exe_name in ("App005_FileOps.exe", "IntegratedDataTool.exe"):
             with self.subTest(exe=exe_name), tempfile.TemporaryDirectory() as temp_dir:
                 installed_exe = Path(temp_dir) / exe_name
                 installed_exe.touch()
@@ -93,7 +109,7 @@ class App005LauncherTests(unittest.TestCase):
         import json
 
         for version in ("1.2.3", "1.4.1", "1.4.2"):
-            setup_name = f"App005_FileOps_Setup_v{version}.exe"
+            setup_name = f"App05_FileOps-Setup_v{version}.exe"
             payload = json.dumps({"tag_name": f"v{version}", "assets": [
                 {"name": setup_name, "browser_download_url": "https://github.com/a/setup.exe", "digest": "sha256:" + "a" * 64},
                 {"name": f"App05_FileOps_v{version}.exe", "browser_download_url": "https://github.com/a/old.exe", "digest": "sha256:" + "b" * 64},

@@ -30,7 +30,7 @@ if not getattr(sys, "frozen", False):
 
 from src.app_identity import (
     APP_EXE, APP_EXE_NAMES, DISPLAY_NAME, INSTALL_DIR, INSTALLER_APP_ID,
-    LEGACY_INSTALL_DIRS, PRODUCT_ID, installer_names_for_tag,
+    LEGACY_INSTALL_DIRS, PRODUCT_ID, LANGUAGE_ENV_NAMES, SELFTEST_ENV_NAMES, installer_names_for_tag,
 )
 from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSITORY
 
@@ -124,7 +124,7 @@ def detect_language(
     locale_name: str | None = None,
 ) -> str:
     """Prefer an explicit override, then Windows UI language, then English."""
-    selected = normalize_language(override or os.environ.get("APP005_LANGUAGE") or os.environ.get("APP05_LANGUAGE"))
+    selected = normalize_language(override or next((os.environ[name] for name in LANGUAGE_ENV_NAMES if os.environ.get(name)), None))
     if selected:
         return selected
 
@@ -433,7 +433,7 @@ def download_and_run_installer(root: tk.Tk) -> None:
 
 
 def main() -> int:
-    if (os.environ.get("APP005_FILEOPS_SELFTEST") or os.environ.get("APP05_FILEOPS_SELFTEST")) == "1":
+    if next((os.environ[name] for name in SELFTEST_ENV_NAMES if os.environ.get(name)), None) == "1":
         latest_setup_asset()
         find_installed_exe()
         return 0

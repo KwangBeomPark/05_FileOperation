@@ -38,6 +38,7 @@ class ReleaseLayoutTests(unittest.TestCase):
         with (
             patch.dict(build_all.os.environ, {"FILEOPS_SIGN_CERT_SHA1": "A" * 40}),
             patch.object(build_all, "find_signtool", return_value="signtool.exe"),
+            patch.object(build_all, "verify_signtool"),
             patch.object(build_all, "run", side_effect=lambda command: commands.append(command)),
         ):
             build_all.sign_artifact(Path("app.exe"), required=True)
@@ -51,6 +52,8 @@ class ReleaseLayoutTests(unittest.TestCase):
         command = build_all.authenticode_verification_command(Path("C:/O'Brien/app.exe"), "A" * 40)
         self.assertIn("O''Brien", command[-1])
         self.assertIn("-LiteralPath", command[-1])
+        self.assertIn("[IO.Path]::Combine($PSHOME", command[-1])
+        self.assertIn("$ErrorActionPreference = 'Stop'", command[-1])
 
     def test_required_signing_cannot_silently_skip_a_missing_tool(self):
         with (
@@ -64,22 +67,22 @@ class ReleaseLayoutTests(unittest.TestCase):
 
     def test_release_sources_and_artifacts_have_one_home(self):
         version = "1.2.3"
-        self.assertEqual(build_all.LAUNCHER_SOURCE, ROOT / "scripts" / "App005_FileOps_Launcher.pyw")
+        self.assertEqual(build_all.LAUNCHER_SOURCE, ROOT / "scripts" / "App05_FileOps_Launcher.pyw")
         self.assertEqual(
             build_all.setup_exe_path(version),
-            ROOT / "release" / "App005_FileOps_Setup_v1.2.3.exe",
+            ROOT / "release" / "App05_FileOps-Setup_v1.2.3.exe",
         )
         self.assertEqual(
             build_all.launcher_exe_path(version),
-            ROOT / "release" / "App005_FileOps_Launcher_v1.2.3.exe",
+            ROOT / "release" / "App05_FileOps_Launcher_v1.2.3.exe",
         )
         self.assertEqual(
             diagnose_install.setup_exe_path(),
-            ROOT / "release" / f"App005_FileOps_Setup_v{diagnose_install.APP_VERSION}.exe",
+            ROOT / "release" / f"App05_FileOps-Setup_v{diagnose_install.APP_VERSION}.exe",
         )
         self.assertEqual(
             diagnose_install.launcher_exe_path(),
-            ROOT / "release" / f"App005_FileOps_Launcher_v{diagnose_install.APP_VERSION}.exe",
+            ROOT / "release" / f"App05_FileOps_Launcher_v{diagnose_install.APP_VERSION}.exe",
         )
 
     def test_launcher_builder_targets_release_directory(self):
@@ -120,10 +123,10 @@ class ReleaseLayoutTests(unittest.TestCase):
         self.assertIn('Parameters: "--tray"', setup_text)
         self.assertIn('Tasks: startup', setup_text)
 
-    def test_installer_uses_user_programs_default_without_reusing_old_location(self):
+    def test_new_install_default_is_programs_and_upgrade_keeps_existing_data_location(self):
         setup_text = (ROOT / "installer" / "setup.iss").read_text(encoding="utf-8")
         self.assertIn('DefaultDirName={localappdata}\\Programs\\{#AppInstallDir}', setup_text)
-        self.assertIn('UsePreviousAppDir=no', setup_text)
+        self.assertIn('UsePreviousAppDir=yes', setup_text)
         self.assertIn('DisableDirPage=no', setup_text)
         self.assertIn('PrivilegesRequired=lowest', setup_text)
         self.assertIn('Filename: "{app}\\{#AppProductId}.exe"', setup_text)
@@ -131,13 +134,14 @@ class ReleaseLayoutTests(unittest.TestCase):
     def test_installer_receives_stable_identity_and_legacy_process_filter(self):
         command = build_all.installer_command("iscc", "1.4.2")
         self.assertIn(f'/O{build_all.RELEASE_DIR}', command)
-        self.assertIn('/DAppProductId=App005_FileOps', command)
+        self.assertIn('/DAppProductId=App05_FileOps', command)
         self.assertIn('/DAppInstallDir=FileOps', command)
         self.assertIn('/DAppVersion=1.4.2', command)
         self.assertIn('/DAppInstallerId={{2A0D58B7-8D1D-44B1-9C3A-2B33F4F3DF11}', command)
         self.assertIn(f'/DAppExeSource={build_all.APP_EXE}', command)
         setup_text = build_all.SETUP_SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('App05_FileOps.exe,IntegratedDataTool.exe', setup_text)
+        self.assertIn('/DAppCloseApplications=App05_FileOps.exe,App005_FileOps.exe,IntegratedDataTool.exe,FileOps.exe', command)
+        self.assertIn('CloseApplicationsFilter={#AppCloseApplications}', setup_text)
 
     def test_frozen_probe_workers_are_diverted_before_qt_imports(self):
         main_text = (ROOT / "src" / "main.py").read_text(encoding="utf-8")
@@ -148,11 +152,11 @@ class ReleaseLayoutTests(unittest.TestCase):
     def test_app_and_launcher_version_resources_have_distinct_names(self):
         resources = []
         with tempfile.TemporaryDirectory() as temp_dir:
-            app = Path(temp_dir) / "App005_FileOps.exe"
+            app = Path(temp_dir) / "App05_FileOps.exe"
             release = Path(temp_dir) / "release"
             release.mkdir()
             app.write_bytes(b"app")
-            (release / "App005_FileOps_Launcher_v1.4.2.exe").write_bytes(b"launcher")
+            (release / "App05_FileOps_Launcher_v1.4.2.exe").write_bytes(b"launcher")
             with (
                 patch.object(build_all, "APP_EXE", app),
                 patch.object(build_all, "RELEASE_DIR", release),
@@ -164,14 +168,14 @@ class ReleaseLayoutTests(unittest.TestCase):
             ):
                 build_all.build_app(False, "1.4.2")
                 build_all.build_launcher(False, "1.4.2")
-        self.assertEqual(resources, ["App005_FileOps.version", "App005_FileOps_Launcher.version"])
+        self.assertEqual(resources, ["App05_FileOps.version", "App05_FileOps_Launcher.version"])
 
     def test_manifest_records_version_commit_and_every_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            app = root / "dist" / "App005_FileOps.exe"
-            setup = root / "release" / "App005_FileOps_Setup_v1.4.2.exe"
-            launcher = root / "release" / "App005_FileOps_Launcher_v1.4.2.exe"
+            app = root / "dist" / "App05_FileOps.exe"
+            setup = root / "release" / "App05_FileOps-Setup_v1.4.2.exe"
+            launcher = root / "release" / "App05_FileOps_Launcher_v1.4.2.exe"
             for artifact in (app, setup, launcher):
                 artifact.parent.mkdir(parents=True, exist_ok=True)
                 artifact.write_bytes(artifact.name.encode())

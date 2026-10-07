@@ -67,7 +67,7 @@ class AppIdentityTests(unittest.TestCase):
 
     def test_approved_data_folder_is_inside_the_installation_folder(self):
         self.assertEqual(INSTALL_DIR, "FileOps")
-        self.assertEqual(APP_EXE, "App005_FileOps.exe")
+        self.assertEqual(APP_EXE, "App05_FileOps.exe")
         with patch.dict(os.environ, {"LOCALAPPDATA": "C:/user/local"}):
             self.assertEqual(user_data_dir(), Path("C:/user/local/Programs/FileOps/UserSetting"))
 

@@ -1,6 +1,7 @@
 import sys
 import base64
 import logging
+from src.app_identity import SECURITY_DESCRIPTION
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ def encrypt_data(plain_text: str) -> str:
         # dwFlags: 1 = CRYPTPROTECT_UI_FORBIDDEN (UI 팝업 방지)
         success = CryptProtectData(
             ctypes.byref(data_in),
-            "IntegratedDataToolSecurity",
+            SECURITY_DESCRIPTION,
             None,
             None,
             None,

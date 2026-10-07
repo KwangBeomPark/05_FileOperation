@@ -20,7 +20,7 @@ release/
 App05_FileOps*.exe
 App005_FileOps*.exe
 *.spec
-!scripts/App005_FileOps.spec
+!scripts/App05_FileOps.spec
 
 # Local-only scratch files under tracked validation tools
 tools/_local/

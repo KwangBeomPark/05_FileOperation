@@ -5,11 +5,16 @@ import unittest
 from unittest.mock import patch
 
 from src.utils.config_manager import ConfigManager
-from src.utils.security import encrypt_data
+from src.utils.security import encrypt_data, decrypt_data
 from src.app_identity import user_data_dir
 
 
 class ConfigSecurityTests(unittest.TestCase):
+    def test_product_description_change_does_not_break_existing_dpapi_credentials(self):
+        with patch("src.utils.security.SECURITY_DESCRIPTION", "Historical description fixture"):
+            encrypted = encrypt_data("compatibility-test-secret")
+        self.assertEqual(decrypt_data(encrypted), "compatibility-test-secret")
+
     def test_sender_password_is_managed_as_secure_key(self):
         with tempfile.TemporaryDirectory() as temp_dir, patch.dict(os.environ, {"LOCALAPPDATA": temp_dir}, clear=False):
             manager = ConfigManager("settings.json")

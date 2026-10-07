@@ -49,6 +49,19 @@ class FakeOpener:
 
 
 class UpdaterTests(unittest.TestCase):
+    def test_dual_installer_names_prefer_enterprise_and_allow_public_only(self):
+        with patch("src.core.updater.ConfigManager") as config_manager:
+            config_manager.return_value.get.return_value = ""
+            updater = AutoUpdater()
+        enterprise = {"name": "App05_FileOps-Setup_v1.4.2.exe",
+                      "browser_download_url": "https://github.com/a/enterprise.exe", "digest": "sha256:" + "a" * 64}
+        public = {"name": "FileOps-Setup.v1.4.2.exe",
+                  "browser_download_url": "https://github.com/a/public.exe", "digest": "sha256:" + "a" * 64}
+        selected = updater._select_verified_installer("v1.4.2", [public, enterprise])
+        self.assertEqual(selected.name, enterprise["name"])
+        self.assertEqual(updater._select_verified_installer("v1.4.2", [public]).name, public["name"])
+        self.assertIsNone(updater._select_verified_installer("v1.4.2", [enterprise, enterprise, public]))
+
     def test_default_release_repository_is_the_canonical_repository(self):
         with patch("src.core.updater.ConfigManager") as config_manager:
             config_manager.return_value.get.return_value = ""
