@@ -161,3 +161,24 @@ OK
 - `tools/test_generalization_phase3.py`: 통과
 - `tools/test_generalization_phase4.py`: 통과
 - `tools/test_i18n.py`: 통과 (한국어, 영어, 폴란드어 무결성)
+
+
+## Suite standardization phase 1 (2026-10-07)
+
+Added the common six-app baseline and current exceptions, linked from README. Kept UserSetting protection and added local environment/private-key exclusions. Tracked private-data paths and known private references passed the source audit. Installer flow was inspected without executing installation; running-app shutdown, old EXE cleanup timing, and failure recovery remain required checks in the next release phase. See [phase 1 review](STANDARDIZATION_PHASE1_REVIEW.md). No App05 runtime or published artifacts were changed.
+# Suite standardization phase 2 (2026-10-07)
+
+Obsolete EXEs are retained before the new payload is installed. The installer
+captures previous registration/location and file hashes, requests normal closure,
+blocks locked executable replacement, and only removes proven unchanged legacy
+leaves at successful completion after checking the replacement hash. Central
+identity/compatibility lists and UserSetting are preserved. Isolated regression
+gates passed 230 tests and actual Inno compilation. See
+[phase 2 review](STANDARDIZATION_PHASE2_REVIEW.md) for remaining signed/native checks.
+
+## Suite standardization phases 3–5 (2026-10-08)
+
+Settings now use a unique sibling temporary file and replace the original only after flush, fsync and close. ConfigManager commits memory after disk success. The dialog validates all fields before one secure-key-aware batch save and displays failures without accepting the dialog. Permission errors do not trigger corruption recovery; invalid content is copied to a unique backup before recovery.
+
+The canonical application spec is installer/App05_FileOps.spec. Its scripts/ compatibility entry point resolves identical sources, icon, product identity and version resource. Public roles and backup boundaries are documented in CODE_MAP.md and USER_DATA.md; isolated backup checks run with the build's test gate. See STANDARDIZATION_PHASE3_5_REVIEW.md for regression evidence and native/manual limits. Actual settings, signed release files and publication are untouched.
+Final cross-review also blocked writes over externally corrupted running settings, verified corruption-recovery copies, and propagated preset persistence failure to the existing import-error UI. The final isolated regression suite passed 244 tests.

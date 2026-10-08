@@ -1,5 +1,8 @@
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +26,29 @@ diagnose_install = load_module("diagnose_install_release_layout", ROOT / "tools"
 
 
 class ReleaseLayoutTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Installer compilation requires Windows")
+    def test_upgrade_policy_compiles_with_actual_identity_and_shortcut_contract(self):
+        compiler = shutil.which("ISCC.exe")
+        if not compiler:
+            self.skipTest("Inno Setup compiler is unavailable")
+        with tempfile.TemporaryDirectory(prefix="FileOps-installer-policy-") as temporary:
+            folder = Path(temporary)
+            payload = folder / "App05_FileOps.exe"
+            payload.write_bytes(b"unsigned-payload-fixture")
+            (folder / "legacy_shortcuts.iss").write_text(
+                build_all.legacy_shortcut_entries(), encoding="utf-8",
+            )
+            with (
+                patch.object(build_all, "APP_EXE", payload),
+                patch.object(build_all, "RELEASE_DIR", folder),
+                patch.object(build_all, "LOCAL_BUILD_DIR", folder),
+            ):
+                command = build_all.installer_command(compiler, "1.4.3")
+            compiled = subprocess.run(command[:1] + ["/Q"] + command[1:], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            self.assertEqual(payload.read_bytes(), b"unsigned-payload-fixture")
+            self.assertTrue((folder / "App05_FileOps-Setup_v1.4.3.exe").exists())
+
     def test_release_tests_use_isolated_data_without_changing_signing_environment(self):
         before = build_all.os.environ.get("LOCALAPPDATA")
         calls = []
@@ -31,6 +57,9 @@ class ReleaseLayoutTests(unittest.TestCase):
         test_call = next(kw for cmd, kw in calls if "unittest" in cmd)
         self.assertEqual(test_call["env"]["QT_QPA_PLATFORM"], "offscreen")
         self.assertNotEqual(test_call["env"]["LOCALAPPDATA"], before)
+        self.assertNotEqual(test_call["env"]["APPDATA"], build_all.os.environ.get("APPDATA"))
+        backup_call = next(kw for cmd, kw in calls if any("test_user_data_backup.ps1" in part for part in cmd))
+        self.assertEqual(backup_call["env"], test_call["env"])
         self.assertEqual(build_all.os.environ.get("LOCALAPPDATA"), before)
 
     def test_signing_verifies_all_signatures_and_windows_trust_before_returning(self):
@@ -67,6 +96,7 @@ class ReleaseLayoutTests(unittest.TestCase):
 
     def test_release_sources_and_artifacts_have_one_home(self):
         version = "1.2.3"
+        self.assertEqual(build_all.SPEC_FILE, ROOT / "installer" / "App05_FileOps.spec")
         self.assertEqual(build_all.LAUNCHER_SOURCE, ROOT / "scripts" / "App05_FileOps_Launcher.pyw")
         self.assertEqual(
             build_all.setup_exe_path(version),

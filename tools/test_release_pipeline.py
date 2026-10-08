@@ -152,9 +152,10 @@ class ReleasePipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "no fallback"):
                 build.find_signtool()
 
-    def test_obsolete_executable_cleanup_is_leaf_only_and_excludes_user_setting(self):
+    def test_legacy_executables_are_not_deleted_before_successful_install(self):
         entries = build.legacy_shortcut_entries()
-        self.assertIn('Type: files; Name: "{app}\\App005_FileOps.exe"', entries)
+        self.assertIn('Type: files; Name: "{userstartup}\\App005_FileOps.lnk"', entries)
+        self.assertNotIn('{app}', entries)
         self.assertNotIn("UserSetting", entries)
         self.assertNotIn("filesandordirs", entries)
         self.assertNotIn('"{app}\\App05_FileOps.exe"', entries)

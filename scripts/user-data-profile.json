@@ -1,0 +1,17 @@
+{
+  "appId": "App05_FileOps",
+  "displayName": "FileOps Hub",
+  "installFolder": "FileOps",
+  "executableNames": [
+    "App05_FileOps.exe",
+    "App005_FileOps.exe",
+    "IntegratedDataTool.exe",
+    "FileOps.exe"
+  ],
+  "optionalDataFolders": [],
+  "externalData": [
+    "Sync source/target/backup folders",
+    "Conversion outputs",
+    "Exported workflow presets"
+  ]
+}

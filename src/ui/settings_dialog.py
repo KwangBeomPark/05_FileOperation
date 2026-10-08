@@ -2,7 +2,8 @@ import os
 import re
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, 
-    QFileDialog, QMessageBox, QGroupBox, QFormLayout, QComboBox, QScrollArea, QWidget
+    QFileDialog, QMessageBox, QGroupBox, QFormLayout, QComboBox, QScrollArea, QWidget,
+    QCheckBox
 )
 from src.ui.i18n import choose, get_app_language, tr
 
@@ -40,6 +41,15 @@ class SettingsDialog(QDialog):
         self.language_combo.addItem(tr("language_pl", self.language), "pl")
         language_form.addRow(tr("display_language", self.language), self.language_combo)
         container_layout.addWidget(language_group)
+
+        # 시스템 설정 그룹 (윈도우 시작 시 자동 실행)
+        system_group = QGroupBox(tr("system_settings", self.language))
+        system_layout = QVBoxLayout()
+        system_group.setLayout(system_layout)
+        self.startup_checkbox = QCheckBox(tr("startup_with_windows", self.language))
+        self.startup_checkbox.setToolTip(tr("startup_with_windows_tooltip", self.language))
+        system_layout.addWidget(self.startup_checkbox)
+        container_layout.addWidget(system_group)
 
         # 1. OCR 설정 그룹
         ocr_group = QGroupBox(tr("ocr_settings", self.language))
@@ -204,6 +214,10 @@ class SettingsDialog(QDialog):
         wb_index = self.webhook_type_combo.findData(webhook_type)
         if wb_index >= 0:
             self.webhook_type_combo.setCurrentIndex(wb_index)
+
+        # 윈도우 시작 시 자동 실행 상태 반영
+        from src.utils.startup_manager import is_startup_enabled
+        self.startup_checkbox.setChecked(is_startup_enabled())
         
     def browse_tesseract(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -270,22 +284,6 @@ class SettingsDialog(QDialog):
                     )
                     return
                     
-        # 설정 저장
-        self.config_manager.set("tesseract_path", tesseract_path)
-        self.config_manager.set("ui_language", self.language_combo.currentData())
-        self.config_manager.set("github_repo", github_repo)
-        self.config_manager.set("github_token", github_token)
-        self.config_manager.set("auto_check_update", auto_check)
-        self.config_manager.set("eml_output_width", eml_width)
-        
-        self.config_manager.set("smtp_server", smtp_server)
-        self.config_manager.set("smtp_port", smtp_port)
-        self.config_manager.set("sender_email", sender_email)
-        self.config_manager.set("sender_password", sender_pwd)
-        self.config_manager.set("receiver_email", receiver_email)
-        self.config_manager.set("mail_subject", mail_subject)
-        self.config_manager.set("mail_body_header", mail_body_header)
-
         webhook_url = self.webhook_url_input.text().strip()
         webhook_type = self.webhook_type_combo.currentData() or "generic"
         if webhook_url and not (webhook_url.startswith("http://") or webhook_url.startswith("https://")):
@@ -295,8 +293,27 @@ class SettingsDialog(QDialog):
                 choose(self.language, "Webhook URL must start with http:// or https://", "웹훅 URL은 http:// 또는 https://로 시작해야 합니다.", "URL Webhooka musi zaczynać się od http:// lub https://"),
             )
             return
-        self.config_manager.set("webhook_url", webhook_url)
-        self.config_manager.set("webhook_type", webhook_type)
-        
-        self.config_manager.save_config()
+        values = {
+            "tesseract_path": tesseract_path, "ui_language": self.language_combo.currentData(),
+            "github_repo": github_repo, "github_token": github_token,
+            "auto_check_update": auto_check, "eml_output_width": eml_width,
+            "smtp_server": smtp_server, "smtp_port": smtp_port, "sender_email": sender_email,
+            "sender_password": sender_pwd, "receiver_email": receiver_email,
+            "mail_subject": mail_subject, "mail_body_header": mail_body_header,
+            "webhook_url": webhook_url, "webhook_type": webhook_type,
+        }
+        if not self.config_manager.set_many(values):
+            QMessageBox.warning(
+                self,
+                choose(self.language, "Settings not saved", "설정 저장 실패", "Nie zapisano ustawień"),
+                choose(
+                    self.language,
+                    "Your previous settings were kept. Check write permissions and try again.",
+                    "이전 설정을 유지했습니다. 저장 폴더의 쓰기 권한을 확인한 뒤 다시 시도하세요.",
+                    "Zachowano poprzednie ustawienia. Sprawdź uprawnienia zapisu i spróbuj ponownie.",
+                ),
+            )
+            return
+        from src.utils.startup_manager import set_startup_enabled
+        set_startup_enabled(self.startup_checkbox.isChecked())
         self.accept()

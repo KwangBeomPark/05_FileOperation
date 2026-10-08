@@ -82,8 +82,9 @@ def export_workflow_preset(
     if dir_name and not os.path.exists(dir_name):
         os.makedirs(dir_name, exist_ok=True)
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(envelope, f, ensure_ascii=False, indent=2)
+    from src.utils.atomic_write import atomic_write_json
+
+    atomic_write_json(output_path, envelope)
 
     return envelope
 
@@ -147,9 +148,11 @@ def apply_workflow_preset(
     if updates:
         update_fn = getattr(config_manager, "update", None)
         if callable(update_fn):
-            update_fn(updates)
+            if update_fn(updates) is False:
+                raise OSError("Workflow preset settings could not be saved. Previous settings were retained.")
         else:
             for k, v in updates.items():
-                config_manager.set(k, v)
+                if config_manager.set(k, v) is False:
+                    raise OSError("Workflow preset settings could not be saved completely.")
 
     return applied_count

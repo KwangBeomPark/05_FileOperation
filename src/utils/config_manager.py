@@ -2,6 +2,9 @@ import copy
 import json
 import os
 import threading
+import shutil
+import uuid
+from .atomic_write import atomic_write_json
 from .security import encrypt_data, decrypt_data
 import logging
 from src.app_identity import CONFIG_FILENAME, user_data_dir
@@ -126,34 +129,51 @@ class ConfigManager:
                 try:
                     with open(self.config_path, 'r', encoding='utf-8') as f:
                         loaded = json.load(f)
+                        if not isinstance(loaded, dict):
+                            raise ValueError("Configuration root must be an object.")
                         config.update(loaded)
                         migrated = self._migrate_config(config, loaded)
                     logger.debug(f"Configuration loaded successfully from {self.config_path}")
                     if migrated:
                         self._save_config_raw(config)
-                except Exception as e:
+                except OSError as exc:
+                    # Permission/locking failures do not imply corrupt content.
+                    raise OSError("Cannot read FileOps settings. Check permissions and retry.") from exc
+                except (json.JSONDecodeError, UnicodeError, ValueError) as e:
                     logger.error(f"Error loading configuration file ({self.config_path}): {e}")
                     # 손상된 설정 파일 백업 및 초기 복원
                     try:
-                        bak_path = self.config_path + ".bak"
-                        if os.path.exists(bak_path):
-                            os.remove(bak_path)
-                        os.rename(self.config_path, bak_path)
+                        bak_path = self.config_path + "." + uuid.uuid4().hex + ".bak"
+                        shutil.copy2(self.config_path, bak_path)
+                        with open(self.config_path, "rb") as source, open(bak_path, "rb") as backup:
+                            if source.read() != backup.read():
+                                raise OSError("Corrupt settings backup could not be verified.")
                         logger.info(f"Corrupted config file backed up to {bak_path}")
                     except Exception as backup_err:
                         logger.error(f"Failed to backup corrupted config: {backup_err}")
+                        raise OSError("Cannot preserve unreadable FileOps settings. Restore a backup or check permissions.") from backup_err
                     # 기본값 저장
-                    self._save_config_raw(config)
+                    config = copy.deepcopy(self.DEFAULT_CONFIG)
+                    # The corrupt original has been preserved. Normal writes below
+                    # reject invalid existing content rather than replacing it.
+                    try:
+                        atomic_write_json(self.config_path, config, indent=4)
+                    except Exception as save_error:
+                        raise OSError("Cannot save recovered FileOps settings. The original and backup were retained.") from save_error
             else:
                 logger.info(f"Config file not found. Creating default config at {self.config_path}")
                 # 초기 생성
-                self._save_config_raw(config)
+                if not self._save_config_raw(config):
+                    raise OSError("Cannot create FileOps settings. Check write permissions and retry.")
             return config
 
     def _migrate_config(self, config: dict, loaded: dict) -> bool:
         """기존 사용자 설정 파일을 삭제하지 않고 현재 스키마로 보강합니다."""
         migrated = False
-        version = int(loaded.get("config_version", 1) or 1)
+        try:
+            version = int(loaded.get("config_version", 1) or 1)
+        except (TypeError, ValueError):
+            version = 1
         if version < 2:
             # v1의 sender_password는 SettingsDialog에서 이미 DPAPI 암호문으로 저장되던 값입니다.
             # ConfigManager 보안 키로 편입하되 값을 다시 암호화하지 않습니다.
@@ -168,7 +188,7 @@ class ConfigManager:
         # Older releases inferred custom output merely from a remembered target
         # path. Preserve that behavior during migration so an update never turns
         # an existing non-destructive workflow into source replacement.
-        if loaded.get("bypass_output_mode") not in {"inplace", "custom"}:
+        if loaded.get("bypass_output_mode") not in ("inplace", "custom"):
             config["bypass_output_mode"] = (
                 "custom" if str(loaded.get("last_bypass_target_directory", "")).strip() else "inplace"
             )
@@ -179,7 +199,7 @@ class ConfigManager:
         if loaded.get("bypass_delete_original") is not False:
             config["bypass_delete_original"] = False
             migrated = True
-        if loaded.get("bypass_source_disposition") not in {"keep", "backup"}:
+        if loaded.get("bypass_source_disposition") not in ("keep", "backup"):
             config["bypass_source_disposition"] = "keep"
             migrated = True
         return migrated
@@ -191,19 +211,19 @@ class ConfigManager:
 
     def _save_config_raw(self, config_dict) -> bool:
         """스레드 락이 취득된 상태에서 임시 파일을 이용해 원자적(Atomic)으로 설정을 기록하는 내부 헬퍼 메소드"""
-        tmp_path = self.config_path + ".tmp"
         try:
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(config_dict, f, indent=4, ensure_ascii=False)
-            os.replace(tmp_path, self.config_path)
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as stream:
+                    existing = json.load(stream)
+            except FileNotFoundError:
+                pass
+            else:
+                if not isinstance(existing, dict):
+                    raise ValueError("Existing configuration root must be an object.")
+            atomic_write_json(self.config_path, config_dict, indent=4)
             return True
         except Exception as e:
             logger.error(f"Failed to save configuration atomically: {e}")
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
             return False
 
     def get(self, key, default=None):
@@ -227,33 +247,61 @@ class ConfigManager:
         보안 키인 경우 자동으로 DPAPI 암호화를 거쳐 저장합니다.
         """
         with self.lock:
+            draft = copy.deepcopy(self.config)
             if key in self.SECURE_KEYS and value:
                 try:
                     encrypted_val = encrypt_data(value)
-                    self.config[key] = encrypted_val
+                    draft[key] = encrypted_val
                 except Exception as e:
                     logger.error(f"Failed to automatically encrypt secure key '{key}': {e}")
                     # 보안 키는 암호화 실패 시 평문으로 저장하지 않습니다.
                     return False
             else:
-                self.config[key] = value
+                draft[key] = value
             
             # 설정 값 변경 시 세이브 자동 유도 가능하도록 구성
             # 실시간 안전 저장을 위해 즉시 save 호출
-            return self._save_config_raw(self.config)
+            if not self._save_config_raw(draft):
+                return False
+            self.config = draft
+            return True
 
     def update(self, values: dict) -> bool:
         """Persist several non-sensitive runtime state values atomically."""
         if any(key in self.SECURE_KEYS for key in values):
             raise ValueError("ConfigManager.update does not accept secure keys.")
         with self.lock:
-            self.config.update(values)
-            return self._save_config_raw(self.config)
+            draft = copy.deepcopy(self.config)
+            draft.update(copy.deepcopy(values))
+            if not self._save_config_raw(draft):
+                return False
+            self.config = draft
+            return True
+
+    def set_many(self, values: dict) -> bool:
+        """Save a complete settings-dialog change, including encrypted credentials."""
+        with self.lock:
+            draft = copy.deepcopy(self.config)
+            for key, value in values.items():
+                if key in self.SECURE_KEYS and value:
+                    try:
+                        value = encrypt_data(value)
+                    except Exception:
+                        logger.error("Could not encrypt secure setting '%s'.", key)
+                        return False
+                draft[key] = copy.deepcopy(value)
+            if not self._save_config_raw(draft):
+                return False
+            self.config = draft
+            return True
             
     def remove(self, key):
         """설정에서 특정 키를 제거하고 즉시 저장합니다."""
         with self.lock:
             if key in self.config:
-                del self.config[key]
-                return self._save_config_raw(self.config)
+                draft = copy.deepcopy(self.config)
+                del draft[key]
+                if not self._save_config_raw(draft):
+                    return False
+                self.config = draft
             return True

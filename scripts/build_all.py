@@ -21,11 +21,11 @@ if str(ROOT) not in sys.path:
 from src.app_identity import (
     APP_EXE as APP_EXE_NAME, APP_EXE_NAMES, DISPLAY_NAME, INSTALL_DIR, INSTALLER_APP_ID,
     INSTALLER_BASENAME, LAUNCHER_BASENAME, PRODUCT_ID, WINDOWS_APP_ID,
-    LEGACY_SHORTCUT_NAMES, LEGACY_EXE_NAMES, installer_filenames,
+    LEGACY_SHORTCUT_NAMES, installer_filenames,
 )
 
 SRC = ROOT / "src"
-SPEC_FILE = ROOT / "scripts" / f"{PRODUCT_ID}.spec"
+SPEC_FILE = ROOT / "installer" / f"{PRODUCT_ID}.spec"
 SETUP_SCRIPT = ROOT / "installer" / "setup.iss"
 DIST_DIR = ROOT / "dist"
 RELEASE_DIR = ROOT / "release"
@@ -232,16 +232,21 @@ def verify_source_tree() -> None:
 
 
 def run_static_checks(skip_ruff: bool, skip_tests: bool) -> None:
-    run([sys.executable, "-m", "compileall", "-q", "src", "scripts", "tools"])
+    run([sys.executable, "-m", "compileall", "-q", "src", "scripts", "tools", "installer"])
     run([sys.executable, "-m", "pip", "check"])
     if not skip_tests:
         # Isolate test settings, but preserve the real signing-session environment.
         with tempfile.TemporaryDirectory(prefix="app05-release-tests-") as test_dir:
             test_environment = os.environ.copy()
-            test_environment["LOCALAPPDATA"] = test_dir
+            test_environment["LOCALAPPDATA"] = str(Path(test_dir) / "local")
+            test_environment["APPDATA"] = str(Path(test_dir) / "roaming")
             test_environment["QT_QPA_PLATFORM"] = "offscreen"
             run(
                 [sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_*.py", "-v"],
+                env=test_environment,
+            )
+            run(
+                [windows_powershell_path(), "-NoProfile", "-File", str(ROOT / "scripts" / "test_user_data_backup.ps1")],
                 env=test_environment,
             )
 
@@ -363,8 +368,8 @@ def legacy_shortcut_entries() -> str:
             f'Type: files; Name: "{{userprograms}}\\{name}\\{name}.lnk"',
             f'Type: files; Name: "{{userstartup}}\\{name}.lnk"',
         ))
-    # Leaf-only obsolete executables in this installation; never old folders or data.
-    entries.extend(f'Type: files; Name: "{{app}}\\{name}"' for name in LEGACY_EXE_NAMES)
+    # Executables are retained until successful installation and payload verification.
+    # setup.iss uses the same APP_EXE_NAMES filter for post-install leaf cleanup.
     return "\n".join(entries)
 
 

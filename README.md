@@ -112,3 +112,10 @@ python tools/diagnose_install.py --check-browser --check-office
 - 폴더 동기화는 기본적으로 최상위 파일을 처리하며, **하위 폴더 포함**을 켜면 재귀 처리합니다.
 - PDF/OCR 대상은 현재 GUI에서 선택한 파일 기준입니다. 반복 감시 폴더 방식은 아직 제공하지 않습니다.
 - 실제 네트워크 드라이브, SharePoint 동기화 지연, Office COM, SMTP 계정은 해당 회사 환경에서 별도 수동 검증이 필요합니다.
+
+
+Shared installation, settings, release goals, and current exceptions are documented in [Suite standardization](docs/SUITE_STANDARDIZATION.md).
+
+Installation upgrade safeguards and signed/runtime verification limits are recorded in [Phase 2 review](docs/STANDARDIZATION_PHASE2_REVIEW.md).
+
+현재 소스 역할은 [공개 코드맵](docs/CODE_MAP.md), 설정·로그·실행 이력의 백업과 새 폴더 복원은 [사용자 자료 안내](docs/USER_DATA.md)를 참고하세요. 기본 백업은 UserSetting 전체이며 사용자가 지정한 외부 동기화·변환 파일은 별도로 보관합니다. 설정 저장 실패는 기존 값을 유지하고 오류를 표시합니다. 구조·설정 개선 검수는 [3–5단계 검수](docs/STANDARDIZATION_PHASE3_5_REVIEW.md)에 기록했습니다.

@@ -508,23 +508,44 @@ class MainWindow(QMainWindow):
         self.tray_open_action = QAction(self)
         self.tray_open_action.triggered.connect(self.show_from_tray)
         self.tray_menu.addAction(self.tray_open_action)
+
+        self.tray_startup_action = QAction(self)
+        self.tray_startup_action.setCheckable(True)
+        self.tray_startup_action.triggered.connect(self.on_toggle_tray_startup)
+        self.tray_menu.addAction(self.tray_startup_action)
+
         self.tray_menu.addSeparator()
         self.tray_exit_action = QAction(self)
         self.tray_exit_action.triggered.connect(self.request_exit)
         self.tray_menu.addAction(self.tray_exit_action)
 
+        self.tray_menu.aboutToShow.connect(self.sync_tray_startup_state)
+
         self.tray_icon.setContextMenu(self.tray_menu)
         self.tray_icon.activated.connect(self.on_tray_activated)
         self.update_tray_translations()
+        self.sync_tray_startup_state()
         self.tray_icon.show()
         if app:
             app.aboutToQuit.connect(self.tray_icon.hide)
+
+    def sync_tray_startup_state(self):
+        if hasattr(self, "tray_startup_action"):
+            from src.utils.startup_manager import is_startup_enabled
+            self.tray_startup_action.setChecked(is_startup_enabled())
+
+    def on_toggle_tray_startup(self, checked: bool):
+        from src.utils.startup_manager import set_startup_enabled
+        set_startup_enabled(checked)
+        self.sync_tray_startup_state()
 
     def update_tray_translations(self):
         if not self.tray_icon:
             return
         self.tray_icon.setToolTip(tr("tray_tooltip", self.language))
         self.tray_open_action.setText(tr("tray_open", self.language))
+        if hasattr(self, "tray_startup_action"):
+            self.tray_startup_action.setText(tr("tray_startup", self.language))
         self.tray_exit_action.setText(tr("tray_exit", self.language))
 
     def on_tray_activated(self, reason):

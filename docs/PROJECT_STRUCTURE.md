@@ -55,7 +55,7 @@
 | --- | --- | --- |
 | `src/` | 앱 코드·제품 ID·버전 | 포함 |
 | `assets/` | 아이콘·설명 이미지의 유일한 원본 | 포함 |
-| `installer/` | Inno Setup 설치 설계 | 포함 |
+| `installer/` | Inno Setup 설치 설계와 PyInstaller spec | 포함 |
 | `scripts/` | 빌드·서명·런처·PyInstaller 설계 | 포함 |
 | `tools/` | 재사용 가능한 진단·검증·개발 도구 | 포함 |
 | `tools/_local/` | 개발 빌드·임시 작업·정리 중 보관 자료 | 제외 |

@@ -227,34 +227,24 @@ class RunJournal:
 
     @staticmethod
     def _write_json_atomic(path: Path, value: dict[str, Any]) -> bool:
-        temp_path = path.with_suffix(path.suffix + ".tmp")
+        from src.utils.atomic_write import atomic_write_json
+
         try:
-            with temp_path.open("w", encoding="utf-8") as file:
-                json.dump(value, file, indent=2, ensure_ascii=False)
-            os.replace(temp_path, path)
+            atomic_write_json(path, value)
             return True
         except OSError:
             logger.exception("Could not write run journal entry: %s", path)
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
             return False
 
     @staticmethod
     def _write_text_atomic(path: Path, content: str) -> bool:
-        temp_path = path.with_suffix(path.suffix + ".tmp")
+        from src.utils.atomic_write import atomic_write_text
+
         try:
-            with temp_path.open("w", encoding="utf-8") as file:
-                file.write(content)
-            os.replace(temp_path, path)
+            atomic_write_text(path, content)
             return True
         except OSError:
             logger.exception("Could not write run report: %s", path)
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
             return False
 
     @staticmethod

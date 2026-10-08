@@ -44,3 +44,30 @@ is part of this cleanup.
 - [x] Verify regression tests, source/package layout, and release prerequisites. Signing gates and isolated test settings added; 205 tests passed again after signing. The user resolved the agent-session private-key access limitation by executing the canonical signing wrapper directly in administrator PowerShell.
 - [x] Commit the approved changes on main and build/sign/verify all three executables. Build source commit: 5f417c605fe31a30c6fea544627cca0aab8d9c41. All files are Authenticode Valid with the selected signer and DigiCert timestamp; SignTool /pa /all /v has zero warnings/errors. Packaged app (49 modules plus main), launcher sources, icons, and checksums match.
 - [x] Push main and matching tag, publish only verified artifacts, and check GitHub state/digests. v1.4.2 is published as Latest, not draft/prerelease; all four uploaded assets match local sizes and SHA-256. Current updater/launcher select the published canonical installer and digest. See RELEASE_VALIDATION_v1.4.2.md.
+
+
+# Suite standardization phase 1 (2026-10-07)
+
+- [x] Record the six-app baseline and compatibility exceptions in docs/SUITE_STANDARDIZATION.md.
+- [x] Confirm UserSetting exclusion and add local environment/private-key protection.
+- [x] Review tracked sensitive paths, known private references, and installation sources; record the scope and deferred runtime checks in docs/STANDARDIZATION_PHASE1_REVIEW.md.
+
+This phase does not change App05 runtime code, installation behavior, user data, or published artifacts. Existing release tasks above are preserved.
+
+# Suite standardization phase 2 (2026-10-07)
+
+- [x] Retain stable identities and previous installation folders; defer obsolete EXE cleanup until successful installation and payload hash verification.
+- [x] Register compatibility EXEs for normal closure; block the first payload copy if an executable remains locked, without force termination.
+- [x] Run isolated regression, compiler, dependency and lint gates: 230 tests passed; record independent review in STANDARDIZATION_PHASE2_REVIEW.md.
+- [ ] Signed/native running-upgrade, refusal, failure/cancel, uninstall preservation and published asset verification remain release gates.
+
+Existing signing/publication tasks and protected release-folder permissions remain unchanged.
+
+# Suite standardization phases 3–5 (2026-10-08)
+
+- [x] Preserve complete settings and in-memory values on write/encryption failures; distinguish read errors from corruption and preserve unique corruption backups.
+- [x] Validate the entire settings dialog before a single atomic save; retain the dialog and show a translated failure message.
+- [x] Move canonical PyInstaller spec to installer/ with a compatibility wrapper; update build paths and public/local code maps.
+- [x] Add backup/restore documentation and connect isolated backup safety checks to the build gate.
+- [x] Run isolated source and failure-injection regressions; record evidence in STANDARDIZATION_PHASE3_5_REVIEW.md.
+- [ ] Same-user DPAPI/native workflow, locked installed settings and signed install/upgrade checks remain release gates.
