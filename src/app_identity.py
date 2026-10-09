@@ -19,7 +19,7 @@ USER_SETTING_DIR = "UserSetting"
 CONFIG_FILENAME = "settings.json"
 INSTALLER_APP_ID = "{2A0D58B7-8D1D-44B1-9C3A-2B33F4F3DF11}"
 WINDOWS_APP_ID = "fileops.hub.desktop.v1"
-INSTALLER_BASENAME = f"{PRODUCT_ID}-Setup"
+INSTALLER_BASENAME = f"{PRODUCT_ID}_Setup"
 PUBLIC_INSTALLER_BASENAME = "FileOps-Setup"
 LAUNCHER_BASENAME = f"{PRODUCT_ID}_Launcher"
 LEGACY_INSTALLER_BASENAMES = ("App005_FileOps_Setup", "App05_FileOps_Setup", "IntegratedDataTool_Setup")
@@ -29,11 +29,11 @@ SELFTEST_ENV_NAMES = ("APP05_FILEOPS_SELFTEST", "APP005_FILEOPS_SELFTEST")
 SECURITY_DESCRIPTION = f"{PRODUCT_ID} Security"
 
 
-def installer_filenames(version: str) -> tuple[str, str]:
-    """Enterprise and public names point to the identical signed installer bytes."""
+def installer_filenames(version: str) -> tuple[str, ...]:
+    """Generate only the canonical installer; historical names are read-only compatibility."""
     if version_from_tag(version) != version:
         raise ValueError("Invalid artifact version")
-    return f"{INSTALLER_BASENAME}_v{version}.exe", f"{PUBLIC_INSTALLER_BASENAME}.v{version}.exe"
+    return (f"{INSTALLER_BASENAME}_v{version}.exe",)
 
 
 def version_from_tag(tag_name: str) -> str | None:
@@ -52,11 +52,12 @@ def installer_names_for_tag(tag_name: str) -> list[str]:
     if not version:
         return []
     names = list(installer_filenames(version))
+    names.extend((f"{PRODUCT_ID}-Setup_v{version}.exe", f"{PUBLIC_INSTALLER_BASENAME}.v{version}.exe"))
     names.extend(f"{basename}_v{version}.exe" for basename in LEGACY_INSTALLER_BASENAMES)
     parts = tuple(int(part) for part in version.split("."))
     if parts >= (1, 4, 1):
         names.append(f"{PRODUCT_ID}_v{version}.exe")
-    return names
+    return list(dict.fromkeys(names))
 
 
 def asset_path(filename: str) -> Path:

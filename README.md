@@ -81,9 +81,9 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Unsigned
 
 `ruff`는 선택 검증입니다. 설치된 경우 `python -m ruff check src scripts tools --select E9,F,B`를 추가로 실행합니다.
 
-앱 버전은 `src/version.py`, 제품명·파일명·경로 규칙은 `src/app_identity.py`에서 관리합니다. `scripts/build.ps1`은 기본적으로 검사·빌드·서명을 수행하며, `-Unsigned`일 때만 개발용 미서명 빌드를 만듭니다. 설치 프로그램은 **`App05_FileOps-Setup_vX.Y.Z.exe`**, 공개용은 **`FileOps-Setup.vX.Y.Z.exe`**로 제공합니다. 두 파일은 이름만 다르고 바이트·서명·SHA-256은 같습니다. 자세한 절차는 [배포 안내](docs/RELEASE.md), [설치 점검](docs/INSTALL_DEFENSE_PLAN.md), [폴더·이름 규칙](docs/PROJECT_STRUCTURE.md)을 참조하세요.
+앱 버전은 `src/version.py`, 제품명·파일명·경로 규칙은 `src/app_identity.py`에서 관리합니다. `scripts/build.ps1`은 기본적으로 검사·빌드·서명을 수행하며, `-Unsigned`일 때만 개발용 미서명 빌드를 만듭니다. 새 설치 프로그램은 **`App05_FileOps_Setup_vX.Y.Z.exe` 한 개**와 매니페스트·체크섬으로 제공합니다. 과거 공개 설치 이름은 updater 읽기 호환으로 유지하며 이미 게시한 자산은 변경하지 않습니다. 자세한 절차는 [배포 안내](docs/RELEASE.md), [설치 점검](docs/INSTALL_DEFENSE_PLAN.md), [폴더·이름 규칙](docs/PROJECT_STRUCTURE.md)을 참조하세요.
 
-모든 설치 파일은 `dist/packaging/vX.Y.Z-<고유번호>/`에서 먼저 검증합니다. 미서명 앱도 이 폴더에 저장하여 기존 서명 앱을 덮어쓰지 않습니다. 실제 서명·무결성 검사를 통과한 세트만 `release/`에 반영하며 이전 세트는 `tools/_local/`에 보존합니다. `release/`에는 최신 설치 파일 두 개, `SHA256SUMS.txt`, `build-manifest.json` 및 선택적 런처만 둡니다.
+모든 설치 파일은 `dist/packaging/vX.Y.Z-<고유번호>/`에서 먼저 검증합니다. 미서명 앱도 이 폴더에 저장하여 기존 서명 앱을 덮어쓰지 않습니다. 실제 서명·무결성 검사를 통과한 세트만 `release/`에 반영하며 이전 세트는 `tools/_local/`에 보존합니다. `release/`에는 단일 설치 파일, `SHA256SUMS.txt`, `build-manifest.json`의 세 파일만 둡니다. 내부 앱과 선택 런처 빌드 결과는 공식 업로드 세트와 구분합니다.
 
 기존 공개 v1.4.2의 로컬 설치 파일은 새 이름의 별칭만 준비했습니다. `build-manifest.json`의 `alias_only=true`는 내부 앱 이름과 코드가 기존 공개본 그대로라는 뜻입니다. 새 소스를 재빌드·서명한 결과와 혼동하지 않으며, 이 별칭 세트의 재공개는 차단합니다. 이미 공개된 v1.4.2는 변경하지 않습니다.
 

@@ -28,7 +28,6 @@ class ReleasePipelineTests(unittest.TestCase):
         self.context.enter_context(patch.object(build, "LOCAL_BUILD_DIR", self.root / "tools" / "_local"))
         self.enterprise = self.folder / installer_filenames(self.version)[0]
         self.enterprise.write_bytes(b"signed installer fixture")
-        self.public = build.prepare_public_alias(self.version, self.enterprise)
         result = type("Result", (), {"returncode": 0, "stdout": ""})
         with patch.object(build.subprocess, "run", side_effect=[result(), result()]):
             build.write_build_manifest(self.version, self.enterprise, None, signed=True)
@@ -41,11 +40,11 @@ class ReleasePipelineTests(unittest.TestCase):
         (self.folder / "build-manifest.json").write_text(json.dumps(self.manifest), encoding="utf-8")
         build.write_checksum_manifest(self.version, self.enterprise)
 
-    def test_complete_dual_alias_set_and_manifest_checksum(self):
+    def test_complete_single_installer_set_and_manifest_checksum(self):
         manifest, paths = publish.validate_release(self.folder, self.version, "abc123")
         self.assertEqual(manifest["product_id"], PRODUCT_ID)
-        self.assertEqual(len(paths), 4)
-        self.assertEqual(self.enterprise.read_bytes(), self.public.read_bytes())
+        self.assertEqual(len(paths), 3)
+        self.assertEqual(sum(path.suffix == ".exe" for path in paths), 1)
         self.assertIn("build-manifest.json", (self.folder / "SHA256SUMS.txt").read_text())
 
     def test_unsigned_dirty_stale_wrong_product_and_alias_only_rejected(self):
@@ -61,11 +60,12 @@ class ReleasePipelineTests(unittest.TestCase):
                 self.manifest = original
                 self.save_manifest()
 
-    def test_missing_alias_and_extra_old_binary_rejected(self):
-        self.public.unlink()
+    def test_missing_installer_and_extra_old_binary_rejected(self):
+        content = self.enterprise.read_bytes()
+        self.enterprise.unlink()
         with self.assertRaises(ValueError):
             publish.validate_release(self.folder, self.version, "abc123")
-        build.prepare_public_alias(self.version, self.enterprise)
+        self.enterprise.write_bytes(content)
         (self.folder / "obsolete.exe").write_bytes(b"old")
         with self.assertRaises(ValueError):
             publish.validate_release(self.folder, self.version, "abc123")
@@ -88,10 +88,10 @@ class ReleasePipelineTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 publish.validate_release(self.folder, self.version, "abc123")
 
-    def test_divergent_aliases_rejected_even_when_hashes_refreshed(self):
-        self.public.write_bytes(b"different installer")
+    def test_old_alias_is_not_allowed_in_new_official_set(self):
+        build.public_setup_exe_path(self.version).write_bytes(self.enterprise.read_bytes())
         self.save_manifest()
-        with self.assertRaisesRegex(ValueError, "identical"):
+        with self.assertRaisesRegex(ValueError, "complete release set"):
             publish.validate_release(self.folder, self.version, "abc123")
 
     def test_duplicate_manifest_entries_rejected(self):
@@ -118,7 +118,7 @@ class ReleasePipelineTests(unittest.TestCase):
         with patch.object(build, "verify_signed_payload") as verify:
             build.promote_verified_release(self.version, None, overwrite=False)
         verify.assert_called_once()
-        self.assertEqual(len(list(official.iterdir())), 4)
+        self.assertEqual(len(list(official.iterdir())), 3)
         backups = list((self.root / "tools" / "_local").glob("previous-release-*"))
         self.assertEqual((backups[0] / "previous.exe").read_bytes(), b"preserved")
         self.assertEqual((backups[0] / "SHA256SUMS.txt").read_text(), "old checksums")
@@ -186,12 +186,12 @@ class ReleasePipelineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             publish.validate_remote_assets(payload, paths, "v1.4.2", draft=True)
 
-    def test_release_verification_checks_app_and_both_installer_names(self):
+    def test_release_verification_checks_internal_app_and_single_installer(self):
         manifest, paths = publish.validate_release(self.folder, self.version, "abc123")
         with (patch.object(build, "find_signtool", return_value="signtool.exe"),
               patch.object(build, "verify_signtool"), patch.object(build, "run") as run):
             build.verify_signed_payload(manifest, paths)
-        self.assertEqual(run.call_count, 6)
+        self.assertEqual(run.call_count, 4)
 
     def test_signing_checks_tool_publisher_before_any_tool_execution(self):
         with patch.object(build, "run") as run:

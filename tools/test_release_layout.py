@@ -47,7 +47,7 @@ class ReleaseLayoutTests(unittest.TestCase):
             compiled = subprocess.run(command[:1] + ["/Q"] + command[1:], capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
             self.assertEqual(payload.read_bytes(), b"unsigned-payload-fixture")
-            self.assertTrue((folder / "App05_FileOps-Setup_v1.4.3.exe").exists())
+            self.assertTrue((folder / "App05_FileOps_Setup_v1.4.3.exe").exists())
 
     def test_release_tests_use_isolated_data_without_changing_signing_environment(self):
         before = build_all.os.environ.get("LOCALAPPDATA")
@@ -100,7 +100,7 @@ class ReleaseLayoutTests(unittest.TestCase):
         self.assertEqual(build_all.LAUNCHER_SOURCE, ROOT / "scripts" / "App05_FileOps_Launcher.pyw")
         self.assertEqual(
             build_all.setup_exe_path(version),
-            ROOT / "release" / "App05_FileOps-Setup_v1.2.3.exe",
+            ROOT / "release" / "App05_FileOps_Setup_v1.2.3.exe",
         )
         self.assertEqual(
             build_all.launcher_exe_path(version),
@@ -108,7 +108,7 @@ class ReleaseLayoutTests(unittest.TestCase):
         )
         self.assertEqual(
             diagnose_install.setup_exe_path(),
-            ROOT / "release" / f"App05_FileOps-Setup_v{diagnose_install.APP_VERSION}.exe",
+            ROOT / "release" / f"App05_FileOps_Setup_v{diagnose_install.APP_VERSION}.exe",
         )
         self.assertEqual(
             diagnose_install.launcher_exe_path(),
@@ -204,7 +204,7 @@ class ReleaseLayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             app = root / "dist" / "App05_FileOps.exe"
-            setup = root / "release" / "App05_FileOps-Setup_v1.4.2.exe"
+            setup = root / "release" / "App05_FileOps_Setup_v1.4.2.exe"
             launcher = root / "release" / "App05_FileOps_Launcher_v1.4.2.exe"
             for artifact in (app, setup, launcher):
                 artifact.parent.mkdir(parents=True, exist_ok=True)
@@ -215,17 +215,18 @@ class ReleaseLayoutTests(unittest.TestCase):
                 patch.object(build_all, "RELEASE_DIR", root / "release"),
                 patch.object(build_all.subprocess, "run", return_value=type("Result", (), {"returncode": 0, "stdout": "commit123\n"})()),
             ):
-                build_all.write_checksum_manifest("1.4.2", setup, launcher)
                 build_all.write_build_manifest("1.4.2", setup, launcher, signed=False)
+                build_all.write_checksum_manifest("1.4.2", setup, launcher)
             manifest = json.loads((root / "release" / "build-manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["git_commit"], "commit123")
             self.assertEqual(manifest["version"], "1.4.2")
             self.assertFalse(manifest["authenticode_verified"])
-            self.assertEqual(len(manifest["artifacts"]), 3)
+            self.assertEqual(len(manifest["artifacts"]), 2)
             self.assertTrue(all(not Path(entry["path"]).is_absolute() for entry in manifest["artifacts"]))
             checksums = (root / "release" / "SHA256SUMS.txt").read_text(encoding="utf-8")
             self.assertIn(setup.name, checksums)
-            self.assertIn(launcher.name, checksums)
+            self.assertNotIn(launcher.name, checksums)
+            self.assertIn("build-manifest.json", checksums)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 ```
 
-기본 동작은 검사 → 앱 빌드·서명 → Inno Setup 컴파일·서명 → 공개용 별칭 복사·검증 →
+기본 동작은 검사 → 앱 빌드·서명 → Inno Setup 컴파일·서명 → 단일 설치 파일 검증 →
 무결성/메타데이터 생성 → `release/` 반영입니다. `scripts/sign.ps1`을 직접 실행해도 같은 경로입니다.
 `-BuildLauncher`는 선택적 런처도 빌드·서명합니다. `-Overwrite`는 로컬 산출물 교체만 허용하며
 GitHub의 기존 버전을 덮어쓰지 않습니다. 이전 로컬 세트는 `tools/_local/previous-release-*`에 보존합니다.
@@ -41,15 +41,16 @@ Python `scripts/build_all.py`는 공통 구현이고 `scripts/sign_and_release.p
 
 ## 필수 배포 세트
 
-- `App05_FileOps-Setup_vX.Y.Z.exe`
-- `FileOps-Setup.vX.Y.Z.exe`
+- `App05_FileOps_Setup_vX.Y.Z.exe`
 - `SHA256SUMS.txt`
 - `build-manifest.json`
 
-선택적으로 `App05_FileOps_Launcher_vX.Y.Z.exe`를 추가합니다. 두 설치 파일은 같은 서명된
-바이트를 복사한 것이므로 SHA-256도 같습니다. 앱은 `dist/App05_FileOps.exe`입니다.
-체크섬은 두 설치 파일과 메타데이터, 선택적 런처를 포함하고 체크섬 파일 자신은 제외합니다.
-메타데이터에는 소스 커밋·작업 트리 상태·버전·파일 크기/해시·서명 여부를 기록합니다.
+새 공식 폴더는 위 세 파일만 허용합니다. 과거 `App05_FileOps-Setup_v...`,
+`FileOps-Setup.v...` 이름은 updater/launcher 읽기 호환으로 유지하며 새 별칭은 생성하지 않습니다.
+내부 앱은 `dist/App05_FileOps.exe`이고 manifest에 내부 앱과 설치 파일을 기록합니다.
+체크섬은 설치 파일과 `build-manifest.json`을 포함하고 체크섬 자신은 제외합니다.
+`-BuildLauncher`는 선택 런처를 생성/서명하지만 공식 세트에는 추가하지 않습니다.
+기존 공개 v1.4.2와 이전 서명 장부는 보존합니다.
 실제 앱과 배포 EXE는 SignTool `/pa /all /v`, Authenticode `Valid`, 타임스탬프 및 지정 서명자를
 모두 통과해야 합니다. 플래그만 있는 메타데이터는 서명 증거로 인정하지 않습니다.
 

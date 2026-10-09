@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.app_identity import APP_EXE, INSTALL_DIR, asset_path, installer_names_for_tag, user_data_dir
+from src.app_identity import APP_EXE, INSTALL_DIR, asset_path, installer_filenames, installer_names_for_tag, user_data_dir
 from src.utils.config_manager import ConfigManager
 from src.core.updater import installer_names_for_tag as updater_names
 from src.utils import logger as app_logger
@@ -84,6 +84,14 @@ class AppIdentityTests(unittest.TestCase):
         self.assertTrue(asset_path("icon.ico").is_file())
         with patch.object(sys, "_MEIPASS", "C:/frozen/app", create=True):
             self.assertEqual(asset_path("icon.ico"), Path("C:/frozen/app/assets/icon.ico"))
+
+    def test_single_generated_name_and_historical_reader_compatibility(self):
+        self.assertEqual(installer_filenames("1.4.3"), ("App05_FileOps_Setup_v1.4.3.exe",))
+        accepted = installer_names_for_tag("v1.4.3")
+        self.assertEqual(accepted[0], "App05_FileOps_Setup_v1.4.3.exe")
+        self.assertIn("App05_FileOps-Setup_v1.4.3.exe", accepted)
+        self.assertIn("FileOps-Setup.v1.4.3.exe", accepted)
+        self.assertEqual(len(accepted), len(set(accepted)))
 
     def test_update_contract_rejects_launcher_assets_and_invalid_tags(self):
         for tag in ("v1.3.0", "v1.4.1", "v1.4.2"):

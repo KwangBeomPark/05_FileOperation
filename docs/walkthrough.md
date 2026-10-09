@@ -182,3 +182,8 @@ Settings now use a unique sibling temporary file and replace the original only a
 
 The canonical application spec is installer/App05_FileOps.spec. Its scripts/ compatibility entry point resolves identical sources, icon, product identity and version resource. Public roles and backup boundaries are documented in CODE_MAP.md and USER_DATA.md; isolated backup checks run with the build's test gate. See STANDARDIZATION_PHASE3_5_REVIEW.md for regression evidence and native/manual limits. Actual settings, signed release files and publication are untouched.
 Final cross-review also blocked writes over externally corrupted running settings, verified corruption-recovery copies, and propagated preset persistence failure to the existing import-error UI. The final isolated regression suite passed 244 tests.
+
+
+## Single installer preparation — 2026-10-09
+
+Current preparation generates only App05_FileOps_Setup_v<version>.exe and validates a three-file official set with manifest/checksums. Historical installer names remain reader compatibility. Existing user build_all.py changes were retained while checksum generation was aligned with verification. Version 1.4.3 had no local/remote tag or GitHub release at inspection. Current isolated regressions: 250 passed; backup safety: 32 passed; lint/diff checks passed. Signing, native startup/DPAPI/install checks, committing and publication were not performed by this preparation task. See [release checklist](../RELEASE_CHECKLIST.md).

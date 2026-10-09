@@ -108,8 +108,8 @@ class App05LauncherTests(unittest.TestCase):
     def test_new_installer_is_selected_and_pre_141_launcher_is_not(self):
         import json
 
-        for version in ("1.2.3", "1.4.1", "1.4.2"):
-            setup_name = f"App05_FileOps-Setup_v{version}.exe"
+        for version in ("1.2.3", "1.4.1", "1.4.2", "1.4.3"):
+            setup_name = f"App05_FileOps{'_' if version == '1.4.3' else '-'}Setup_v{version}.exe"
             payload = json.dumps({"tag_name": f"v{version}", "assets": [
                 {"name": setup_name, "browser_download_url": "https://github.com/a/setup.exe", "digest": "sha256:" + "a" * 64},
                 {"name": f"App05_FileOps_v{version}.exe", "browser_download_url": "https://github.com/a/old.exe", "digest": "sha256:" + "b" * 64},

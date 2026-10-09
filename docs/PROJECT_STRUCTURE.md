@@ -38,8 +38,8 @@
 | 역할 | 이름 |
 | --- | --- |
 | 설치된 앱 | `App05_FileOps.exe` |
-| 사내 설치 프로그램 | `App05_FileOps-Setup_vX.Y.Z.exe` |
-| 공개 설치 프로그램 (동일 바이트·서명) | `FileOps-Setup.vX.Y.Z.exe` |
+| 단일 공식 설치 프로그램 | `App05_FileOps_Setup_vX.Y.Z.exe` |
+| 과거 설치 이름 | updater 읽기 호환만 유지하고 새 별칭을 만들지 않음 |
 | 선택적 설치 확인·실행 런처 | `App05_FileOps_Launcher_vX.Y.Z.exe` |
 | 공식 배포 체크섬 | `SHA256SUMS.txt` |
 | 빌드 기록 | `build-manifest.json` |

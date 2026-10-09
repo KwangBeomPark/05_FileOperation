@@ -71,3 +71,11 @@ Existing signing/publication tasks and protected release-folder permissions rema
 - [x] Add backup/restore documentation and connect isolated backup safety checks to the build gate.
 - [x] Run isolated source and failure-injection regressions; record evidence in STANDARDIZATION_PHASE3_5_REVIEW.md.
 - [ ] Same-user DPAPI/native workflow, locked installed settings and signed install/upgrade checks remain release gates.
+
+
+# Single-installer release preparation (2026-10-09)
+
+- [x] Preserve user build_all.py changes and keep unused version 1.4.3 after read-only tag/release checks.
+- [x] Generate App05_FileOps_Setup_v<version>.exe once, retain historical reader names, and align installer/manifest checksum production with validation.
+- [x] Run 250 isolated regression tests, 32 backup safety assertions and lint/diff checks; see RELEASE_CHECKLIST.md.
+- [ ] Approved clean source commit, actual KSP signing, native startup/DPAPI/upgrade/uninstall checks and publication remain separate gates.

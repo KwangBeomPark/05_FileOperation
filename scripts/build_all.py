@@ -78,7 +78,7 @@ def setup_exe_path(app_version: str) -> Path:
 
 
 def public_setup_exe_path(app_version: str) -> Path:
-    return RELEASE_DIR / installer_filenames(app_version)[1]
+    return RELEASE_DIR / f"FileOps-Setup.v{app_version}.exe"
 
 
 def launcher_exe_path(app_version: str) -> Path:
@@ -430,29 +430,19 @@ def sign_artifact(path: Path, required: bool) -> None:
 def write_checksum_manifest(app_version: str, setup_exe: Path | None, launcher_exe: Path | None = None) -> None:
     if not setup_exe:
         return
-    artifacts = [setup_exe]
-    public_setup = public_setup_exe_path(app_version)
-    if public_setup.is_file():
-        artifacts.append(public_setup)
-    if APP_EXE.parent == RELEASE_DIR and APP_EXE.is_file():
-        artifacts.append(APP_EXE)  # Development app lives in this isolated staging set.
-    if launcher_exe and launcher_exe.exists():
-        artifacts.append(launcher_exe)
-    build_manifest = RELEASE_DIR / "build-manifest.json"
-    if build_manifest.is_file():
-        artifacts.append(build_manifest)
-    content = "".join(f"{sha256(path)}  {path.name}\n" for path in artifacts)
+    manifest = RELEASE_DIR / "build-manifest.json"
+    require_file(manifest)
+    content = "".join(f"{sha256(path)}  {path.name}\n" for path in (setup_exe, manifest))
     (RELEASE_DIR / "SHA256SUMS.txt").write_text(content, encoding="utf-8")
     print(f"Checksum manifest: {RELEASE_DIR / 'SHA256SUMS.txt'}")
 
 
-def write_build_manifest(app_version: str, setup_exe: Path | None, launcher_exe: Path | None, *, signed: bool) -> None:
+def write_build_manifest(app_version: str, setup_exe: Path | None, launcher_exe: Path | None = None, *, signed: bool) -> None:
     """Record the commit, version, and artifacts without personal absolute paths."""
     git_result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True)
     git_status = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True)
     artifacts = []
-    public_setup = public_setup_exe_path(app_version) if setup_exe else None
-    for path in (APP_EXE, setup_exe, public_setup, launcher_exe):
+    for path in (APP_EXE, setup_exe):
         if path is not None and path.is_file():
             artifacts.append({
                 "path": (path.relative_to(ROOT).as_posix() if path == APP_EXE else f"release/{path.name}"),
@@ -503,10 +493,8 @@ def validate_release_payload(folder: Path, app_version: str, *, commit: str | No
     """Check the complete signed set before promotion or publication; no mutations."""
     if folder.is_symlink() or not folder.is_dir():
         raise ValueError("Unsafe release directory.")
-    names = [*installer_filenames(app_version), "build-manifest.json"]
-    launcher_name = f"{LAUNCHER_BASENAME}_v{app_version}.exe"
-    if (folder / launcher_name).exists():
-        names.append(launcher_name)
+    canonical_setup = f"{INSTALLER_BASENAME}_v{app_version}.exe"
+    names = [canonical_setup, "build-manifest.json"]
     if {path.name for path in folder.iterdir()} != set(names) | {"SHA256SUMS.txt"}:
         raise ValueError("Release must contain only the current complete release set.")
     paths = [folder / name for name in names]
@@ -531,8 +519,6 @@ def validate_release_payload(folder: Path, app_version: str, *, commit: str | No
     for path in paths:
         if sums[path.name].upper() != sha256(path):
             raise ValueError(f"Release checksum mismatch: {path.name}")
-    if sha256(paths[0]) != sha256(paths[1]):
-        raise ValueError("Dual installer aliases must be identical.")
     entries = manifest.get("artifacts", [])
     recorded = {Path(item["path"]).name: item for item in entries}
     executables = [APP_EXE, *(path for path in paths if path.suffix == ".exe")]
@@ -632,16 +618,10 @@ def main() -> int:
     setup_exe = build_installer(args.skip_installer, app_version, args.overwrite)
     if setup_exe and signing_requested:
         sign_artifact(setup_exe, required=True)
-    if setup_exe:
-        public_setup = prepare_public_alias(app_version, setup_exe)
-        if signing_requested:
-            thumbprint = os.environ["FILEOPS_SIGN_CERT_SHA1"].replace(" ", "")
-            run([find_signtool(), "verify", "/pa", "/all", "/v", str(public_setup)])
-            run(authenticode_verification_command(public_setup, thumbprint))
-    write_build_manifest(app_version, setup_exe, launcher_exe, signed=signing_requested)
-    write_checksum_manifest(app_version, setup_exe, launcher_exe)
+    write_build_manifest(app_version, setup_exe, launcher_exe=None, signed=signing_requested)
+    write_checksum_manifest(app_version, setup_exe)
     if signing_requested and setup_exe:
-        promote_verified_release(app_version, launcher_exe, overwrite=args.overwrite)
+        promote_verified_release(app_version, launcher_exe=None, overwrite=args.overwrite)
     print("\nBuild checks completed.")
     return 0
 
