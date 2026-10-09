@@ -24,10 +24,20 @@ def command(args: list[str]) -> str:
     env.pop("http_proxy", None)
     env.pop("HTTPS_PROXY", None)
     env.pop("HTTP_PROXY", None)
-    result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True, env=env)
+    result = subprocess.run(
+        args,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
     if result.returncode:
-        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"Command failed: {args[0]}")
-    return result.stdout.strip()
+        raise RuntimeError(stderr.strip() or stdout.strip() or f"Command failed: {args[0]}")
+    return stdout.strip()
 
 
 def validate_release(folder: Path, version: str, commit: str) -> tuple[dict, list[Path]]:
