@@ -11,11 +11,25 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$taskProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$taskBuildScript = Join-Path $PSScriptRoot 'build_all.py'
+if (-not $CertificateThumbprint) {
+    $taskNow = Get-Date
+    $taskCertificates = @(Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Where-Object {
+        $_.HasPrivateKey -and $_.NotBefore -le $taskNow -and $_.NotAfter -gt $taskNow -and
+        $_.Subject -ne $_.Issuer
+    })
+    if ($taskCertificates.Count -eq 1) {
+        $CertificateThumbprint = $taskCertificates[0].Thumbprint
+    } elseif ($taskCertificates.Count -eq 0) {
+        throw 'No valid code-signing certificate found in Cert:\CurrentUser\My.'
+    } else {
+        throw 'Multiple certificates found. Specify -CertificateThumbprint for the intended public code-signing certificate.'
+    }
+}
 if ($Publish -and -not $CertificateThumbprint) {
     throw 'Publishing requires an explicit public CertificateThumbprint (parameter or FILEOPS_SIGN_CERT_SHA1).'
 }
-$taskProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$taskBuildScript = Join-Path $PSScriptRoot 'build_all.py'
 if (-not $SkipSmartCardService) {
     $taskCardService = Get-Service -Name SCardSvr -ErrorAction Stop
     if ($taskCardService.Status -ne 'Running') {
@@ -27,17 +41,6 @@ if (-not $SkipSmartCardService) {
         Start-Service -Name SCardSvr -ErrorAction Stop
         $taskCardService.WaitForStatus('Running', [TimeSpan]::FromSeconds(15))
     }
-}
-if (-not $CertificateThumbprint) {
-    $taskNow = Get-Date
-    $taskCertificates = @(Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Where-Object {
-        $_.HasPrivateKey -and $_.NotBefore -le $taskNow -and $_.NotAfter -gt $taskNow -and
-        $_.Subject -ne $_.Issuer
-    })
-    if ($taskCertificates.Count -ne 1) {
-        throw 'Specify -CertificateThumbprint for the intended public code-signing certificate.'
-    }
-    $CertificateThumbprint = $taskCertificates[0].Thumbprint
 }
 if (-not $SignToolPath) {
     $taskLocalSignTool = Join-Path $taskProjectRoot 'tools\_local\signing-tools\signtool.exe'
