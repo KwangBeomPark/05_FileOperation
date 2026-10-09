@@ -19,7 +19,12 @@ REPO = f"{DEFAULT_GITHUB_OWNER}/{DEFAULT_GITHUB_REPOSITORY}"
 
 
 def command(args: list[str]) -> str:
-    result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True)
+    env = os.environ.copy()
+    env.pop("https_proxy", None)
+    env.pop("http_proxy", None)
+    env.pop("HTTPS_PROXY", None)
+    env.pop("HTTP_PROXY", None)
+    result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True, env=env)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"Command failed: {args[0]}")
     return result.stdout.strip()
