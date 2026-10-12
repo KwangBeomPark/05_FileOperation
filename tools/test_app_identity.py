@@ -88,10 +88,11 @@ class AppIdentityTests(unittest.TestCase):
     def test_single_generated_name_and_historical_reader_compatibility(self):
         self.assertEqual(installer_filenames("1.4.3"), ("App05_FileOps_Setup_v1.4.3.exe",))
         self.assertEqual(installer_filenames("1.4.4"), ("App05_FileOps_Setup_v1.4.4.exe",))
-        accepted = installer_names_for_tag("v1.4.4")
-        self.assertEqual(accepted[0], "App05_FileOps_Setup_v1.4.4.exe")
-        self.assertIn("App05_FileOps-Setup_v1.4.4.exe", accepted)
-        self.assertIn("FileOps-Setup.v1.4.4.exe", accepted)
+        self.assertEqual(installer_filenames("1.4.5"), ("App05_FileOps_Setup_v1.4.5.exe",))
+        accepted = installer_names_for_tag("v1.4.5")
+        self.assertEqual(accepted[0], "App05_FileOps_Setup_v1.4.5.exe")
+        self.assertIn("App05_FileOps-Setup_v1.4.5.exe", accepted)
+        self.assertIn("FileOps-Setup.v1.4.5.exe", accepted)
         self.assertEqual(len(accepted), len(set(accepted)))
 
     def test_update_contract_rejects_launcher_assets_and_invalid_tags(self):

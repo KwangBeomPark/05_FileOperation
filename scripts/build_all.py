@@ -390,7 +390,7 @@ def build_installer(skip_installer: bool, app_version: str, allow_overwrite: boo
     setup_exe = setup_exe_path(app_version)
     ensure_output_available(setup_exe, allow_overwrite)
     LOCAL_BUILD_DIR.mkdir(parents=True, exist_ok=True)
-    (LOCAL_BUILD_DIR / "legacy_shortcuts.iss").write_text(legacy_shortcut_entries() + "\n", encoding="utf-8")
+    (LOCAL_BUILD_DIR / "legacy_shortcuts.iss").write_text(legacy_shortcut_entries() + "\n", encoding="utf-8-sig")
     run(installer_command(iscc, app_version))
     require_file(setup_exe)
     print(f"\nBuilt installer: {setup_exe}")

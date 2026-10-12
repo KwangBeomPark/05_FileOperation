@@ -58,6 +58,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
 
+[LangOptions]
+korean.LanguageCodePage=0
+korean.DialogFontName=Segoe UI
+korean.DialogFontSize=9
+polish.LanguageCodePage=0
+polish.DialogFontName=Segoe UI
+polish.DialogFontSize=9
+
 [Files]
 Source: "{#AppExeSource}"; DestDir: "{app}"; DestName: "{#AppProductId}.exe"; Flags: ignoreversion; BeforeInstall: EnsureUpgradeReady
 
@@ -252,9 +260,11 @@ begin
     DetectLegacyMigration;
     if MigrationCandidate <> '' then begin
       MigrationValidateRoots(MigrationCandidate, ExpandConstant('{app}'));
-      { Stop conflicts before [InstallDelete] can remove any old shortcuts. }
-      if not MigrationEmptyDirectory(ExpandConstant('{app}\UserSetting')) then
-        RaiseException(CustomMessage('MigrationConflict'));
+      { If the target UserSetting already contains files, keep them and skip legacy migration. }
+      if not MigrationEmptyDirectory(ExpandConstant('{app}\UserSetting')) then begin
+        Log('Target UserSetting already exists; preserving existing settings and skipping legacy migration.');
+        MigrationCandidate := '';
+      end;
     end;
   except
     Result := GetExceptionMessage;
@@ -342,7 +352,8 @@ begin
         Probe := TFileStream.Create(Target, fmOpenReadWrite or fmShareExclusive);
         Probe.Free;
       except
-        RaiseException(CustomMessage('UpgradeBlocked'));
+        MsgBox(CustomMessage('UpgradeBlocked'), mbError, MB_OK);
+        Abort;
       end;
       end;
     end;

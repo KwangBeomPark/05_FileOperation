@@ -1,4 +1,4 @@
-{ Shared, dependency-free Pascal migration engine. The fixture tests compile this
+﻿{ Shared, dependency-free Pascal migration engine. The fixture tests compile this
   exact code, but never run the production installer against real user folders. }
 var
   MigrationSourceRoot, MigrationStage, MigrationDataRoot, MigrationTargetRoot, MigrationRootConfig: String;

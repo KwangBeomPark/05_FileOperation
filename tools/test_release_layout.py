@@ -36,7 +36,7 @@ class ReleaseLayoutTests(unittest.TestCase):
             payload = folder / "App05_FileOps.exe"
             payload.write_bytes(b"unsigned-payload-fixture")
             (folder / "legacy_shortcuts.iss").write_text(
-                build_all.legacy_shortcut_entries(), encoding="utf-8",
+                build_all.legacy_shortcut_entries(), encoding="utf-8-sig",
             )
             with (
                 patch.object(build_all, "APP_EXE", payload),
