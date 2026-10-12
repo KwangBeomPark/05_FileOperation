@@ -33,6 +33,7 @@ TRUSTED_DOWNLOAD_HOSTS = frozenset({
 })
 SHA256_PATTERN = re.compile(r"^sha256:([0-9a-f]{64})$", re.IGNORECASE)
 MAX_INSTALLER_BYTES = 1024 * 1024 * 1024
+PYINSTALLER_RESET_ENVIRONMENT = "PYINSTALLER_RESET_ENVIRONMENT"
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,24 @@ def is_trusted_download_url(url: str) -> bool:
         return False
     host = (parsed.hostname or "").lower()
     return host in TRUSTED_DOWNLOAD_HOSTS
+
+
+def detach_frozen_environment(environ=os.environ) -> None:
+    """Stop child processes from inheriting this onefile runtime's private _MEI folder.
+
+    The installer relaunches the replaced EXE at the same path. With inherited _PYI_*
+    variables it would reuse our _MEI folder, which is deleted when this app exits,
+    and fail with "Failed to load Python DLL ... python3xx.dll".
+    """
+    for key in [key for key in environ if key.upper().startswith("_PYI_") or key.upper() == "_MEIPASS2"]:
+        del environ[key]
+    environ[PYINSTALLER_RESET_ENVIRONMENT] = "1"
+
+
+def launch_installer(installer_path: str) -> None:
+    """Start the downloaded installer as an independent process, not a frozen-app child."""
+    detach_frozen_environment()
+    os.startfile(installer_path)
 
 
 def installer_name_for_tag(tag_name: str) -> str | None:

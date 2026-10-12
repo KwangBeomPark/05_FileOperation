@@ -126,6 +126,19 @@ var
 
 #include "legacy_migration.iss"
 
+function SetEnvironmentVariable(Name, Value: String): Boolean;
+  external 'SetEnvironmentVariableW@kernel32.dll stdcall';
+
+function InitializeSetup: Boolean;
+begin
+  { v1.4.5 and older start setup with their PyInstaller _PYI_* variables. Without a
+    reset, the [Run] relaunch reuses that app's deleted _MEI folder and fails to load
+    python3xx.dll. }
+  if not SetEnvironmentVariable('PYINSTALLER_RESET_ENVIRONMENT', '1') then
+    Log('PyInstaller environment reset could not be requested.');
+  Result := True;
+end;
+
 function PreviousInstallLocation: String;
 var
   Key: String;

@@ -199,6 +199,15 @@ class ReleaseLayoutTests(unittest.TestCase):
         self.assertIn('polish.MigrationConflict=', text)
         self.assertNotIn('\ufffd', text)
 
+    def test_installer_relaunch_never_reuses_the_old_app_runtime(self):
+        text = build_all.SETUP_SCRIPT.read_text(encoding='utf-8-sig')
+        initialize = text[text.index('function InitializeSetup'):text.index('function PreviousInstallLocation')]
+        self.assertIn("external 'SetEnvironmentVariableW@kernel32.dll stdcall'", text)
+        self.assertIn("SetEnvironmentVariable('PYINSTALLER_RESET_ENVIRONMENT', '1')", initialize)
+        main_window = (ROOT / 'src' / 'ui' / 'main_window.py').read_text(encoding='utf-8')
+        self.assertIn('launch_installer(result)', main_window)
+        self.assertNotIn('os.startfile(', main_window)
+
     def test_migration_activation_requires_new_payload_hash_and_successful_install(self):
         text = build_all.SETUP_SCRIPT.read_text(encoding='utf-8-sig')
         start = text.index('if (CurStep = ssPostInstall)')

@@ -31,7 +31,7 @@ from src.ui.settings_dialog import SettingsDialog
 from src.ui.manual_dialog import ManualDialog
 from src.ui.i18n import choose, get_app_language, localize_widget_tree, tr
 from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSITORY, releases_page_url
-from src.core.updater import AutoUpdater
+from src.core.updater import AutoUpdater, launch_installer
 from src.version import APP_VERSION_TAG
 from src.utils.config_manager import ConfigManager
 from src.utils.logger import get_logger
@@ -812,8 +812,8 @@ class MainWindow(QMainWindow):
                         if not result.lower().endswith('.exe'):
                             raise PermissionError(choose(self.language, "Only executable installer files (.exe) can be launched.", "실행 가능한 설치 파일(.exe)만 바로 실행할 수 있습니다.", "Można uruchamiać tylko pliki instalatora wykonywalnego (.exe)."))
                             
-                        # 설치 파일 실행
-                        os.startfile(result)
+                        # 설치 파일 실행 (PyInstaller 임시 폴더 환경을 물려주지 않음)
+                        launch_installer(result)
                         
                         # 모든 작업 강제 중단 후 즉시 종료 (인스톨러가 바로 덮어쓸 수 있도록)
                         self.task_tab.stop_all()

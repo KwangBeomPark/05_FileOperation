@@ -10,7 +10,13 @@ from src.core.release_config import (
     latest_release_api_url,
     releases_page_url,
 )
-from src.core.updater import AutoUpdater, MAX_INSTALLER_BYTES, is_trusted_download_url
+from src.core.updater import (
+    AutoUpdater,
+    MAX_INSTALLER_BYTES,
+    detach_frozen_environment,
+    is_trusted_download_url,
+    launch_installer,
+)
 
 
 class FakeResponse:
@@ -79,6 +85,27 @@ class UpdaterTests(unittest.TestCase):
             releases_page_url("owner", "repository", "v1.2.0"),
             "https://github.com/owner/repository/releases/tag/v1.2.0",
         )
+
+    def test_installer_launch_does_not_hand_over_the_onefile_runtime(self):
+        environ = {
+            "_PYI_ARCHIVE_FILE": r"C:\Programs\FileOps\App05_FileOps.exe",
+            "_PYI_APPLICATION_HOME_DIR": r"C:\Temp\_MEI32162",
+            "_PYI_PARENT_PROCESS_LEVEL": "1",
+            "_MEIPASS2": r"C:\Temp\_MEI32162",
+            "PATH": r"C:\Windows",
+        }
+        detach_frozen_environment(environ)
+        self.assertEqual(environ, {"PATH": r"C:\Windows", "PYINSTALLER_RESET_ENVIRONMENT": "1"})
+
+        calls = []
+        with patch.dict(os.environ, {"_PYI_APPLICATION_HOME_DIR": r"C:\Temp\_MEI32162"}), \
+                patch("src.core.updater.os.startfile", create=True,
+                      side_effect=lambda path: calls.append((path, dict(os.environ)))):
+            launch_installer(r"C:\Temp\setup.exe")
+        path, launch_environ = calls[0]
+        self.assertEqual(path, r"C:\Temp\setup.exe")
+        self.assertNotIn("_PYI_APPLICATION_HOME_DIR", launch_environ)
+        self.assertEqual(launch_environ["PYINSTALLER_RESET_ENVIRONMENT"], "1")
 
     def test_version_comparison(self):
         updater = AutoUpdater(current_version="v1.0.0")
