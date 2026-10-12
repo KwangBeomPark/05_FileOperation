@@ -1,4 +1,4 @@
 """Single source of truth for the application release version."""
 
-APP_VERSION = "1.4.5"
+APP_VERSION = "1.4.6"
 APP_VERSION_TAG = f"v{APP_VERSION}"
