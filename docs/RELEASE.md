@@ -58,9 +58,11 @@ Python `scripts/build_all.py`는 공통 구현이고 `scripts/sign_and_release.p
 
 Windows Sandbox 또는 별도 PC에서 설치·업그레이드·바로가기·트레이 자동 시작·제거·Office/OCR/EML을
 확인합니다. 기본 설치 경로는 `%LOCALAPPDATA%\Programs\FileOps`, 데이터는 그 안의 `UserSetting`입니다.
-기존 `UserSetting`은 업그레이드와 제거 시 보존하며 다른 외부 구형 데이터는 자동 가져오지 않습니다.
-업그레이드는 기존 설치 폴더를 기본값으로 유지합니다. 신규 설치의 기본값만 Programs/FileOps입니다.
-이름이 바뀐 이전 EXE와 옛 바로가기는 현재 설치 폴더에서만 정리합니다. 오래된 작업표시줄
+기존 `UserSetting`은 업그레이드와 제거 시 보존합니다. 다음 설치 파일은 Programs/FileOps를
+기본값으로 쓰며 알려진 예전 폴더의 설정만 검증해서 이전한 후 확인된 구형 파일을 정리합니다.
+새 설정과의 충돌·복사 실패·복수 구형 폴더는 자동 덮어쓰기를 하지 않습니다.
+범위·실패 복구·검수 한계는 [USER_DATA.md](USER_DATA.md)의 자동 정리 계약을 참조하세요.
+이미 공개한 v1.4.3에는 이 변경이 없으므로 새 버전으로 서명·검수해야 합니다. 오래된 작업표시줄
 고정 아이콘은 새 FileOps Hub 바로가기로 다시 고정해 주세요.
 단위 테스트와 컴파일 성공만으로 이 수동 검수를 완료했다고 표현하지 않습니다.
 

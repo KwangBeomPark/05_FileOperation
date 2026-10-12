@@ -41,6 +41,11 @@ In collaborative business environments, teams maintain different versions of mas
 3. Run the installer. It installs cleanly into `%LOCALAPPDATA%\Programs\FileOps` without requiring UAC administrator elevation.
 4. Optionally enable **Start FileOps Hub automatically when Windows starts** for silent background tray scheduling (`--tray`).
 
+The next installer defaults to Programs/FileOps even when a legacy installation exists.
+It verifies and copies only legacy UserSetting (or the old settings JSON) before cleaning up known
+old program files. Existing destination settings are never overwritten; unrelated files are retained.
+This change is not in the already-published v1.4.3 installer. See [migration and recovery](docs/USER_DATA.md).
+
 ---
 
 ## 📄 License

@@ -10,9 +10,11 @@
 - 설정: 설치 폴더의 `UserSetting\settings.json`
 - 로그·예약 이력: `UserSetting\logs`, `UserSetting\reports`
 - 설치 폴더를 직접 바꾸면 해당 폴더의 UserSetting을 사용합니다.
-- 이전 IntegratedDataTool 또는 LocalAppData/FileOps 데이터를 자동으로 가져오지 않습니다.
-  현재 UserSetting이 없는 첫 설치에서는 언어·작업 그룹·예약·메일을 지정하고 수동 실행부터 확인하세요.
-  기존 UserSetting이 있으면 설정과 예약 상태를 보존합니다.
+- 다음 설치 파일부터 알려진 예전 폴더의 UserSetting 또는 setting_integrated.json을 검증 복사합니다.
+  새 설정이 있거나 예전 폴더가 여러 개면 설치를 중단하며 기존 자료를 삭제하지 않습니다.
+  검증 후 확인된 예전 프로그램과 복사된 설정만 정리하고 관련 없는 파일은 남깁니다.
+  [USER_DATA.md](USER_DATA.md)의 이전 범위와 복구 안내를 확인하세요. 공개된 v1.4.3은 변경하지 않습니다.
+  이전된 설정의 예약 상태도 보존되므로 작업·예약·메일을 확인하고 수동 실행부터 점검하세요.
 - UserSetting은 설치 패키지에 넣지 않으며 프로그램 제거 시에도 남습니다.
 
 ## 배포와 개발 빌드

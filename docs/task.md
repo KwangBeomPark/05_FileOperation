@@ -1,3 +1,16 @@
+# Legacy install migration (user authorized 2026-10-12)
+
+- [x] 1. Default to Programs/FileOps and identify only known legacy folders. Copy UserSetting or the old setting_integrated.json; never merge conflicting settings.
+- [x] 2. Implement staging, SHA-256 verification and post-install activation/cleanup. Remove only known unchanged old leaves; keep unrelated files, changed files, and failure sources. Actual production-user folders were not mutated.
+- [x] 3. Add UTF-8 BOM and Korean/English/Polish setup messages, migration documentation and 15 native fixture scenarios. Production/fixture Inno compilation passed; 254 regression tests, 32 backup assertions, Ruff/compile/dependency checks passed.
+- [ ] 4. Execute native fixture migrations and inspect the rendered Korean installer in a signed or policy-approved isolated Windows environment. Here Application Control WinError 4551 blocks unsigned execution (one test class skipped; its 15 scenarios are NOT claimed passed). Do this before releasing a new installer.
+
+This changes future installers only. Do not move/delete actual user folders while testing,
+or replace the published v1.4.3 installer. Signing/publication remain separate actions.
+The existing Windows PowerShell backup gate initially could not auto-load Get-FileHash.
+The build wrapper now explicitly imports the built-in Utility module from PSHOME;
+the actual Windows PowerShell 5.1 backup gate passed again without changing policy.
+
 # v1.4.3 signed publication (user authorized 2026-10-07)
 
 - [x] 1. Set v1.4.3 and document App05 naming, preserved UserSetting, and the one-time manual v1.4.2 upgrade.

@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
 from src.app_identity import (
     APP_EXE as APP_EXE_NAME, APP_EXE_NAMES, DISPLAY_NAME, INSTALL_DIR, INSTALLER_APP_ID,
     INSTALLER_BASENAME, LAUNCHER_BASENAME, PRODUCT_ID, WINDOWS_APP_ID,
-    LEGACY_SHORTCUT_NAMES, installer_filenames,
+    LEGACY_SHORTCUT_NAMES, LEGACY_INSTALL_DIRS, LEGACY_CONFIG_FILENAMES, installer_filenames,
 )
 
 SRC = ROOT / "src"
@@ -246,7 +246,10 @@ def run_static_checks(skip_ruff: bool, skip_tests: bool) -> None:
                 env=test_environment,
             )
             run(
-                [windows_powershell_path(), "-NoProfile", "-File", str(ROOT / "scripts" / "test_user_data_backup.ps1")],
+                [windows_powershell_path(), "-NoProfile", "-Command",
+                 "$ErrorActionPreference = 'Stop'; "
+                 "Import-Module ([IO.Path]::Combine($PSHOME, 'Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1')) -ErrorAction Stop; "
+                 "& '" + str(ROOT / "scripts" / "test_user_data_backup.ps1").replace("'", "''") + "'"],
                 env=test_environment,
             )
 
@@ -355,6 +358,9 @@ def installer_command(iscc: str, app_version: str) -> list[str]:
         f"/DAppInstallerId={{{INSTALLER_APP_ID}",
         f"/DAppWindowsId={WINDOWS_APP_ID}",
         f"/DAppCloseApplications={','.join(APP_EXE_NAMES)}",
+        f"/DLegacyInstallDirs={','.join((*LEGACY_INSTALL_DIRS, INSTALL_DIR))}",
+        f"/DLegacyConfigNames={','.join(LEGACY_CONFIG_FILENAMES)}",
+        f"/DLegacyShortcutNames={','.join((*LEGACY_SHORTCUT_NAMES, DISPLAY_NAME))}",
         f"/DLegacyShortcutsFile={LOCAL_BUILD_DIR / 'legacy_shortcuts.iss'}",
         str(SETUP_SCRIPT),
     ]
@@ -364,9 +370,9 @@ def legacy_shortcut_entries() -> str:
     entries = []
     for name in LEGACY_SHORTCUT_NAMES:
         entries.extend((
-            f'Type: files; Name: "{{userdesktop}}\\{name}.lnk"',
-            f'Type: files; Name: "{{userprograms}}\\{name}\\{name}.lnk"',
-            f'Type: files; Name: "{{userstartup}}\\{name}.lnk"',
+            f'Type: files; Name: "{{userdesktop}}\\{name}.lnk"; Check: CanCleanLegacyShortcutsBeforeInstall',
+            f'Type: files; Name: "{{userprograms}}\\{name}\\{name}.lnk"; Check: CanCleanLegacyShortcutsBeforeInstall',
+            f'Type: files; Name: "{{userstartup}}\\{name}.lnk"; Check: CanCleanLegacyShortcutsBeforeInstall',
         ))
     # Executables are retained until successful installation and payload verification.
     # setup.iss uses the same APP_EXE_NAMES filter for post-install leaf cleanup.

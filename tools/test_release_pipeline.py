@@ -219,7 +219,7 @@ class ReleasePipelineTests(unittest.TestCase):
                 configure.assert_not_called()
 
     def test_user_setting_is_never_in_installer_payload_or_uninstall_cleanup(self):
-        setup = (Path(__file__).resolve().parents[1] / "installer" / "setup.iss").read_text()
+        setup = (Path(__file__).resolve().parents[1] / "installer" / "setup.iss").read_text(encoding="utf-8-sig")
         self.assertIn('Name: "{app}\\UserSetting"; Flags: uninsneveruninstall', setup)
         self.assertNotIn('Type: filesandordirs; Name: "{app}\\UserSetting', setup)
 

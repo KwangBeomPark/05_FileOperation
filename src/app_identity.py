@@ -15,6 +15,7 @@ INSTALL_DIR = "FileOps"
 LEGACY_EXE_NAMES = ("App005_FileOps.exe", "IntegratedDataTool.exe", "FileOps.exe")
 APP_EXE_NAMES = (APP_EXE, *LEGACY_EXE_NAMES)
 LEGACY_INSTALL_DIRS = ("App005_FileOps", "App05_FileOps", "IntegratedDataTool", "FileOps Hub")
+LEGACY_CONFIG_FILENAMES = ("setting_integrated.json",)
 USER_SETTING_DIR = "UserSetting"
 CONFIG_FILENAME = "settings.json"
 INSTALLER_APP_ID = "{2A0D58B7-8D1D-44B1-9C3A-2B33F4F3DF11}"

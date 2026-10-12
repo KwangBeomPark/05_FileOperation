@@ -60,6 +60,8 @@ class ReleaseLayoutTests(unittest.TestCase):
         self.assertNotEqual(test_call["env"]["APPDATA"], build_all.os.environ.get("APPDATA"))
         backup_call = next(kw for cmd, kw in calls if any("test_user_data_backup.ps1" in part for part in cmd))
         self.assertEqual(backup_call["env"], test_call["env"])
+        backup_command = next(cmd for cmd, _ in calls if any("test_user_data_backup.ps1" in part for part in cmd))
+        self.assertIn("Microsoft.PowerShell.Utility.psd1", backup_command[-1])
         self.assertEqual(build_all.os.environ.get("LOCALAPPDATA"), before)
 
     def test_signing_verifies_all_signatures_and_windows_trust_before_returning(self):
@@ -153,10 +155,12 @@ class ReleaseLayoutTests(unittest.TestCase):
         self.assertIn('Parameters: "--tray"', setup_text)
         self.assertIn('Tasks: startup', setup_text)
 
-    def test_new_install_default_is_programs_and_upgrade_keeps_existing_data_location(self):
+    def test_installer_defaults_to_programs_and_migrates_legacy_settings(self):
         setup_text = (ROOT / "installer" / "setup.iss").read_text(encoding="utf-8")
         self.assertIn('DefaultDirName={localappdata}\\Programs\\{#AppInstallDir}', setup_text)
-        self.assertIn('UsePreviousAppDir=yes', setup_text)
+        self.assertIn('UsePreviousAppDir=no', setup_text)
+        self.assertIn('MigrationPrepare(MigrationCandidate', setup_text)
+        self.assertIn('MigrationActivate(ExpandConstant', setup_text)
         self.assertIn('DisableDirPage=no', setup_text)
         self.assertIn('PrivilegesRequired=lowest', setup_text)
         self.assertIn('Filename: "{app}\\{#AppProductId}.exe"', setup_text)
@@ -178,6 +182,41 @@ class ReleaseLayoutTests(unittest.TestCase):
         freeze_index = main_text.index("multiprocessing.freeze_support()")
         qt_index = main_text.index("from PyQt6.QtWidgets")
         self.assertLess(freeze_index, qt_index)
+
+    def test_migration_names_are_injected_from_the_identity_contract(self):
+        command = build_all.installer_command("iscc", "1.4.3")
+        from src.app_identity import LEGACY_INSTALL_DIRS, LEGACY_CONFIG_FILENAMES, INSTALL_DIR
+        self.assertIn('/DLegacyInstallDirs=' + ','.join((*LEGACY_INSTALL_DIRS, INSTALL_DIR)), command)
+        self.assertIn('/DLegacyConfigNames=' + ','.join(LEGACY_CONFIG_FILENAMES), command)
+
+    def test_setup_messages_are_utf8_bom_and_language_specific(self):
+        setup = ROOT / 'installer' / 'setup.iss'
+        self.assertTrue(setup.read_bytes().startswith(b'\xef\xbb\xbf'))
+        text = setup.read_text(encoding='utf-8-sig')
+        self.assertIn('compiler:Languages\\Korean.isl', text)
+        self.assertIn('compiler:Languages\\Polish.isl', text)
+        self.assertIn('korean.MigrationConflict=새 위치에 설정이 있거나', text)
+        self.assertIn('polish.MigrationConflict=', text)
+        self.assertNotIn('\ufffd', text)
+
+    def test_migration_activation_requires_new_payload_hash_and_successful_install(self):
+        text = build_all.SETUP_SCRIPT.read_text(encoding='utf-8-sig')
+        start = text.index('if (CurStep = ssPostInstall)')
+        verification = text.index('GetSHA256OfFile', start)
+        activation = text.index('MigrationActivate(', start)
+        cleanup = text.index('MigrationCleanup;', start)
+        self.assertLess(verification, activation)
+        self.assertLess(activation, cleanup)
+        self.assertIn('MigrationEmptyDirectory', text[text.index('function PrepareToInstall'):start])
+        self.assertIn('Check: CanCleanLegacyShortcutsBeforeInstall', build_all.legacy_shortcut_entries())
+
+    def test_migration_never_recursively_deletes_unrelated_data(self):
+        engine = (ROOT / 'installer' / 'legacy_migration.iss').read_text(encoding='utf-8')
+        self.assertNotIn('DelTree(', engine)
+        self.assertIn('FILE_ATTRIBUTE_REPARSE_POINT', engine)
+        self.assertIn('MigrationProgramHashes', engine)
+        self.assertIn('GetSHA256OfFile(AddBackslash(MigrationTargetRoot)', engine)
+        self.assertIn('RenameFile(MigrationStage, Target)', engine)
 
     def test_app_and_launcher_version_resources_have_distinct_names(self):
         resources = []

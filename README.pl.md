@@ -41,6 +41,11 @@ Gdy nad projektami pracuje kilka działów, łatwo o powstawanie duplikatów pli
 3. Uruchom instalator (instalacja do profilu użytkownika, nie wymaga uprawnień administratora UAC).
 4. Dostępna jest opcja autostartu przy uruchomieniu systemu Windows (`--tray`) do bezobsługowej pracy w tle.
 
+Następny instalator domyślnie używa `%LOCALAPPDATA%\Programs\FileOps`, także przy starej instalacji.
+Kopiuje i weryfikuje tylko dawny UserSetting (lub JSON ustawień), zanim usunie rozpoznane stare pliki programu.
+Nie nadpisuje nowych ustawień ani nie usuwa obcych plików. Opublikowana wersja v1.4.3 nie zawiera tej zmiany.
+[Zakres migracji i odzyskiwanie](docs/USER_DATA.md) opisano w dokumentacji.
+
 ---
 
 ## 📄 Licencja
