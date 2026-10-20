@@ -10,7 +10,7 @@ from src.core.task_contracts import SourceDisposition
 
 class BypassConverterSafetyTests(unittest.TestCase):
     @staticmethod
-    def _successful_pdf_conversion(_src, target, _extension):
+    def _successful_pdf_conversion(_src, target, _extension, **_kwargs):
         with open(target, "wb") as output:
             output.write(b"converted")
         return True, "ok"
@@ -71,7 +71,7 @@ class BypassConverterSafetyTests(unittest.TestCase):
             with open(source, "wb") as file:
                 file.write(b"source")
             converter = BypassConverter()
-            converter._convert_pdf = lambda *_args: (True, "ok")
+            converter._convert_pdf = lambda *_args, **_kwargs: (True, "ok")
 
             success, message = converter.convert_file(
                 source,
@@ -346,6 +346,81 @@ class BypassConverterSafetyTests(unittest.TestCase):
             self.assertTrue(message.startswith("SOURCE_RECYCLED_WARNING|"))
             self.assertEqual(remove.call_count, 1)
             self.assertFalse(os.path.exists(source))
+
+
+    def test_pdf_with_html_viewer_generation_creates_both_zip_and_html(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = os.path.join(temp_dir, "document.pdf")
+            target = os.path.join(temp_dir, "document.zip")
+            expected_html = os.path.join(temp_dir, "document.html")
+            with open(source, "wb") as file:
+                file.write(b"%PDF-1.4\nTest PDF content\n%%EOF")
+
+            converter = BypassConverter()
+            success, message = converter.convert_file(
+                source,
+                target,
+                ".zip",
+                generate_pdf_html=True,
+            )
+
+            self.assertTrue(success)
+            self.assertEqual(message, "SOURCE_KEPT")
+            self.assertTrue(os.path.exists(source))
+            self.assertTrue(os.path.exists(target))
+            self.assertTrue(os.path.exists(expected_html))
+            with open(expected_html, "r", encoding="utf-8") as hf:
+                content = hf.read()
+            self.assertIn("<!DOCTYPE html>", content)
+            self.assertIn("document.pdf", content)
+            self.assertIn("URL.createObjectURL", content)
+            self.assertIn("PDF 다운로드", content)
+
+    def test_pdf_html_generation_failure_does_not_replace_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = os.path.join(temp_dir, "document.pdf")
+            target = os.path.join(temp_dir, "document.zip")
+            with open(source, "wb") as file:
+                file.write(b"%PDF-1.4\nTest PDF content\n%%EOF")
+
+            converter = BypassConverter()
+            with patch.object(BypassConverter, "_generate_pdf_html_viewer", return_value=(False, "simulated html fail")):
+                success, message = converter.convert_file(
+                    source,
+                    target,
+                    ".zip",
+                    source_disposition=SourceDisposition.REPLACE,
+                    generate_pdf_html=True,
+                )
+
+            self.assertFalse(success)
+            self.assertIn("simulated html fail", message)
+            self.assertTrue(os.path.exists(source))
+
+    def test_html_validation_in_validate_replacement_output(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            valid_html = os.path.join(temp_dir, "valid.html")
+            invalid_html = os.path.join(temp_dir, "invalid.html")
+            empty_html = os.path.join(temp_dir, "empty.html")
+
+            with open(valid_html, "w", encoding="utf-8") as f:
+                f.write("<!DOCTYPE html><html><body>Test</body></html>")
+            with open(invalid_html, "w", encoding="utf-8") as f:
+                f.write("Just raw text without html tags")
+            with open(empty_html, "w", encoding="utf-8") as f:
+                pass
+
+            converter = BypassConverter()
+            ok, _ = converter._validate_replacement_output(valid_html, ".html")
+            self.assertTrue(ok)
+
+            bad_ok, bad_err = converter._validate_replacement_output(invalid_html, ".html")
+            self.assertFalse(bad_ok)
+            self.assertIn("OUTPUT_FORMAT_INVALID", bad_err)
+
+            empty_ok, empty_err = converter._validate_replacement_output(empty_html, ".html")
+            self.assertFalse(empty_ok)
+            self.assertIn("OUTPUT_EMPTY", empty_err)
 
 
 if __name__ == "__main__":

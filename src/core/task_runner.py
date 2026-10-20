@@ -514,6 +514,7 @@ class TaskRunner:
                     target_ext=task.ext,
                     preserve_meta=task.preserve_meta,
                     source_disposition=task.source_disposition,
+                    generate_pdf_html=getattr(task, "generate_pdf_html", False),
                 )
                 if success:
                     success_count += 1

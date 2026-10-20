@@ -148,6 +148,7 @@ class BypassFileConfig:
     ext: str
     preserve_meta: bool
     source_disposition: SourceDisposition = SourceDisposition.KEEP
+    generate_pdf_html: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_disposition", SourceDisposition(self.source_disposition))
@@ -162,6 +163,7 @@ class BypassFileConfig:
             # Source replacement is carried by source_disposition. Keep the
             # ambiguous legacy flag false so old workers never delete a source.
             "delete_original": False,
+            "generate_pdf_html": self.generate_pdf_html,
         }
 
 
@@ -169,6 +171,8 @@ class BypassFileConfig:
 class BypassRunConfig:
     tasks: list[BypassFileConfig]
     source_disposition: SourceDisposition = SourceDisposition.KEEP
+    recursive_scan: bool = False
+    generate_pdf_html: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_disposition", SourceDisposition(self.source_disposition))
@@ -178,6 +182,8 @@ class BypassRunConfig:
             "tasks": [task.to_legacy_dict() for task in self.tasks],
             "source_disposition": self.source_disposition.value,
             "delete_original": False,
+            "recursive_scan": self.recursive_scan,
+            "generate_pdf_html": self.generate_pdf_html,
         }
 
 

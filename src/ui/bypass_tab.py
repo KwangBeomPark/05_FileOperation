@@ -1,10 +1,11 @@
 import os
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QProgressBar,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QProgressBar,
     QFileDialog, QMessageBox, QGroupBox, QTextEdit, QComboBox, QCheckBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QRadioButton, QButtonGroup
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl
+from PyQt6.QtGui import QDesktopServices
 
 from src.ui.workflow_widget import WorkflowWidget
 from src.ui.toast_notification import show_toast
@@ -28,7 +29,7 @@ class BypassConvertWorker(QThread):
     progress = pyqtSignal(int, int, str)  # current, total, status_msg
     file_completed = pyqtSignal(str, str, bool, str)  # src, tgt, success, message
     finished = pyqtSignal(bool, str)      # success, message
-    
+
     def __init__(self, tasks, converter, language="en"):
         super().__init__()
         self.tasks = tasks
@@ -41,29 +42,30 @@ class BypassConvertWorker(QThread):
 
     def _msg(self, key, **values):
         return tr(key, self.language, **values)
-        
+
     def stop(self):
         self.is_running = False
-        
+
     def run(self):
         total = len(self.tasks)
         success_count = 0
-        
+
         try:
             for idx, task in enumerate(self.tasks):
                 if not self.is_running:
                     self.finished.emit(False, self._msg("bypass_stopped_by_user"))
                     return
-                    
+
                 src = task["src"]
                 tgt = task["tgt"]
                 ext = task["ext"]
                 preserve_meta = task["preserve_meta"]
                 source_disposition = task.get("source_disposition", SourceDisposition.KEEP.value)
-                
+                generate_pdf_html = task.get("generate_pdf_html", False)
+
                 filename = os.path.basename(src)
                 self.progress.emit(idx, total, self._msg("bypass_converting_file", filename=filename))
-                
+
                 # 변환 수행
                 success, msg = self.converter.convert_file(
                     src_path=src,
@@ -71,20 +73,21 @@ class BypassConvertWorker(QThread):
                     target_ext=ext,
                     preserve_meta=preserve_meta,
                     source_disposition=source_disposition,
+                    generate_pdf_html=generate_pdf_html,
                 )
-                
+
                 if success:
                     success_count += 1
                     self.file_completed.emit(src, tgt, True, msg)
                 else:
                     self.file_completed.emit(src, tgt, False, msg)
-                    
+
             self.progress.emit(total, total, self._msg("bypass_progress_complete", success=success_count, total=total))
             self.finished.emit(
                 success_count == total,
                 self._msg("bypass_result_complete", success=success_count, total=total)
             )
-            
+
         except Exception as e:
             logger.error(f"Error in BypassConvertWorker: {e}")
             self.finished.emit(False, self._msg("bypass_worker_error", detail=str(e)))
@@ -95,12 +98,13 @@ class BypassTab(QWidget):
         super().__init__(parent)
         self.config_manager = config_manager
         self.converter = BypassConverter()
-        
-        self.scanned_files = []      # 스캔된 원본 파일 리스트
+
+        self.scanned_files = []
+        self._discovered_files = []      # 스캔된 원본 파일 리스트
         self.worker = None
         self.is_running = False
         self._ui_locked = False
-        
+
         self.init_ui()
         self.setAcceptDrops(True)
 
@@ -362,6 +366,32 @@ class BypassTab(QWidget):
                 "Przejrzyj / przywróć Original Backup",
             )
         )
+        self.check_backup_orig.setText(self._t(
+            "Move source to 'Original Backup' after conversion",
+            "변환 완료 후 원본을 'Original Backup' 폴더로 이동",
+            "Przenieś plik źródłowy do 'Original Backup' po konwersji",
+        ))
+        self.check_preserve_meta.setText(self._t(
+            "Preserve file timestamps (Created/Modified/Accessed)",
+            "파일 메타정보(생성/수정/액세스 날짜) 보존 (Preserve Meta)",
+            "Zachowaj znaczniki czasu pliku",
+        ))
+        self.check_recursive_scan.setText(self._t(
+            "Include subfolders (Recursive scan)",
+            "하위 폴더 포함 스캔 (Recursive Scan)",
+            "Uwzględnij podfoldery (Skanowanie rekurencyjne)",
+        ))
+        if hasattr(self, "open_folder_btn"):
+            self.open_folder_btn.setText(self._t(
+                "Open Output Folder",
+                "결과 폴더 열기",
+                "Otwórz folder wyjściowy",
+            ))
+        self.check_pdf_html.setText(self._t(
+            "Also generate HTML viewer (.html) for PDFs",
+            "PDF 브라우저 열람용 HTML(.html) 동시 생성",
+            "Generuj także podgląd HTML (.html) dla plików PDF",
+        ))
         self._update_source_action_ui()
         if not self.scanned_files:
             source_prompts = ("드래그 앤 드롭", "Drag a folder", "Przeciągnij folder")
@@ -378,20 +408,20 @@ class BypassTab(QWidget):
                     "저장할 우회 폴더를 선택하세요.",
                     "Wybierz folder zapisu przekonwertowanych plików.",
                 ))
-        
+
     def init_ui(self):
         layout = QVBoxLayout()
         self.setLayout(layout)
-        
+
         # 1. 워크플로우 인디케이터
         self.workflow_widget = WorkflowWidget(steps=["1. Scan Files", "2. Run Conversion", "3. Complete"])
         layout.addWidget(self.workflow_widget)
-        
+
         # 2. 소스 및 대상 폴더 선택 패널
         folder_group = QGroupBox("Directory Configuration")
         folder_layout = QVBoxLayout()
         folder_group.setLayout(folder_layout)
-        
+
         # 소스 폴더
         src_layout = QHBoxLayout()
         src_label = QLabel("Source Folder:")
@@ -407,13 +437,13 @@ class BypassTab(QWidget):
         src_layout.addWidget(self.src_entry, 1)
         src_layout.addWidget(src_btn)
         folder_layout.addLayout(src_layout)
-        
+
         # 대상 폴더 옵션
         tgt_option_layout = QHBoxLayout()
         self.radio_inplace = QRadioButton("원본 교체: 변환 성공 후 기존 원본을 휴지통으로 이동 (In-place)")
-        
+
         self.radio_custom = QRadioButton("특정 저장용 폴더에 우회 보관 (Target)")
-        
+
         self.bg_group = QButtonGroup()
         self.bg_group.addButton(self.radio_inplace)
         self.bg_group.addButton(self.radio_custom)
@@ -423,7 +453,7 @@ class BypassTab(QWidget):
         self.radio_inplace.setChecked(output_mode != "custom")
         self.radio_inplace.toggled.connect(self.toggle_target_mode)
         self.radio_custom.toggled.connect(self.toggle_target_mode)
-        
+
         tgt_option_layout.addWidget(self.radio_inplace)
         tgt_option_layout.addWidget(self.radio_custom)
         tgt_option_layout.addStretch()
@@ -432,13 +462,13 @@ class BypassTab(QWidget):
         self.source_action_hint = QLabel()
         self.source_action_hint.setWordWrap(True)
         folder_layout.addWidget(self.source_action_hint)
-        
+
         # 대상 폴더 경로 선택기
         self.tgt_layout_widget = QWidget()
         tgt_layout = QHBoxLayout()
         self.tgt_layout_widget.setLayout(tgt_layout)
         self.tgt_layout_widget.setContentsMargins(0, 0, 0, 0)
-        
+
         tgt_label = QLabel("Target Folder:")
         tgt_label.setMinimumWidth(100)
         self.tgt_entry = QLabel("저장할 우회 폴더를 선택하세요.")
@@ -453,47 +483,70 @@ class BypassTab(QWidget):
         tgt_layout.addWidget(tgt_btn)
         folder_layout.addWidget(self.tgt_layout_widget)
         self.tgt_layout_widget.setVisible(self.radio_custom.isChecked())
-        
+
         layout.addWidget(folder_group)
-        
+
         # 3. 우회 포맷 및 규칙 매핑 패널
         rules_group = QGroupBox("Bypass Rules Mapping & Options")
         rules_layout = QHBoxLayout()
         rules_group.setLayout(rules_layout)
-        
+
         # 콤보박스들 구성
         excel_label = QLabel("Excel (.xlsx/.xls):")
         self.excel_combo = QComboBox()
         self.excel_combo.addItems([".xlsb", ".xlsm", ".xlsx"])
-        
+
         ppt_label = QLabel("PowerPoint (.pptx/.ppt):")
         self.ppt_combo = QComboBox()
         self.ppt_combo.addItems([".pptm", ".pptx"])
-        
+
         word_label = QLabel("Word (.docx/.doc):")
         self.word_combo = QComboBox()
         self.word_combo.addItems([".docm", ".docx"])
-        
+
         pdf_label = QLabel("PDF (.pdf):")
         self.pdf_combo = QComboBox()
-        self.pdf_combo.addItems([".zip", ".pdf"])
-        
+        self.pdf_combo.addItems([".zip + .html", ".zip", ".html", ".pdf"])
+
         # 옵션 체크박스
         self.check_backup_orig = QCheckBox("변환 완료 후 원본을 'Original Backup' 폴더로 이동")
         self.check_preserve_meta = QCheckBox("파일 메타정보(생성/수정/액세스 날짜) 보존 (Preserve Meta)")
-        
+        self.check_recursive_scan = QCheckBox("하위 폴더 포함 스캔 (Recursive Scan)")
+
+        # 하위 호환성을 위해 숨김 체크박스로 유지 (UI에서는 콤보박스로 통합)
+        self.check_pdf_html = QCheckBox("PDF 브라우저 열람용 HTML(.html) 동시 생성")
+        self.check_pdf_html.hide()
+
         # 설정값 반영
         self.excel_combo.setCurrentText(self.config_manager.get("bypass_excel_target", ".xlsb"))
         self.ppt_combo.setCurrentText(self.config_manager.get("bypass_ppt_target", ".pptm"))
         self.word_combo.setCurrentText(self.config_manager.get("bypass_word_target", ".docm"))
-        self.pdf_combo.setCurrentText(self.config_manager.get("bypass_pdf_target", ".zip"))
+
+        saved_pdf_target = self.config_manager.get("bypass_pdf_target", ".zip")
+        saved_pdf_html = self.config_manager.get("bypass_generate_pdf_html", False)
+        if saved_pdf_target in (".zip + .html", ".html"):
+            current_pdf_choice = saved_pdf_target
+        elif saved_pdf_html and saved_pdf_target == ".zip":
+            current_pdf_choice = ".zip + .html"
+        else:
+            current_pdf_choice = saved_pdf_target
+        self.pdf_combo.setCurrentText(current_pdf_choice)
+        self.check_pdf_html.setChecked(current_pdf_choice in (".zip + .html", ".html"))
+
         disposition = self.config_manager.get("bypass_source_disposition", SourceDisposition.KEEP.value)
         self.check_backup_orig.setChecked(disposition == SourceDisposition.BACKUP.value)
         self.check_backup_orig.toggled.connect(self._save_source_disposition)
         self.check_preserve_meta.setChecked(self.config_manager.get("bypass_preserve_meta", True))
-        for combo in (self.excel_combo, self.ppt_combo, self.word_combo, self.pdf_combo):
-            combo.currentTextChanged.connect(self._invalidate_scan)
-        
+        self.check_preserve_meta.toggled.connect(lambda checked: self.config_manager.set("bypass_preserve_meta", checked))
+        self.check_recursive_scan.setChecked(self.config_manager.get("bypass_recursive_scan", False))
+        self.check_recursive_scan.toggled.connect(self._on_recursive_scan_toggled)
+        self.check_pdf_html.toggled.connect(self._on_pdf_html_toggled)
+
+        self.excel_combo.currentTextChanged.connect(self._on_format_combo_changed)
+        self.ppt_combo.currentTextChanged.connect(self._on_format_combo_changed)
+        self.word_combo.currentTextChanged.connect(self._on_format_combo_changed)
+        self.pdf_combo.currentTextChanged.connect(self._on_pdf_combo_changed)
+
         # 레이아웃 배치
         v_combos = QVBoxLayout()
         h_row1 = QHBoxLayout()
@@ -502,7 +555,7 @@ class BypassTab(QWidget):
         h_row1.addWidget(ppt_label)
         h_row1.addWidget(self.ppt_combo)
         v_combos.addLayout(h_row1)
-        
+
         h_row2 = QHBoxLayout()
         h_row2.addWidget(word_label)
         h_row2.addWidget(self.word_combo)
@@ -510,10 +563,11 @@ class BypassTab(QWidget):
         h_row2.addWidget(self.pdf_combo)
         v_combos.addLayout(h_row2)
         rules_layout.addLayout(v_combos, 3)
-        
+
         v_options = QVBoxLayout()
         v_options.addWidget(self.check_backup_orig)
         v_options.addWidget(self.check_preserve_meta)
+        v_options.addWidget(self.check_recursive_scan)
         self.backup_recovery_btn = QPushButton(
             self._t(
                 "Review / Restore Original Backup",
@@ -524,26 +578,29 @@ class BypassTab(QWidget):
         self.backup_recovery_btn.clicked.connect(self.open_backup_recovery)
         v_options.addWidget(self.backup_recovery_btn)
         rules_layout.addLayout(v_options, 2)
-        
+
         layout.addWidget(rules_group)
-        
+
         # 4. 파일 리스트 및 로그 영역 (좌/우 분할)
         main_h_layout = QHBoxLayout()
-        
+
         # 좌측: 스캔 파일 리스트 테이블
         left_panel = QGroupBox("Target Scan Files (Simulation)")
         left_layout = QVBoxLayout()
         left_panel.setLayout(left_layout)
-        
+
         self.file_table = QTableWidget()
         self.file_table.setColumnCount(4)
         self.file_table.setHorizontalHeaderLabels(["File Name", "Original Size", "Target Format", "Status"])
         self.file_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         left_layout.addWidget(self.file_table)
-        
+
         self.summary_label = QLabel("검색된 대상 파일: 0개")
         left_layout.addWidget(self.summary_label)
-        
+
+        self.file_table.setSortingEnabled(True)
+        self.file_table.cellDoubleClicked.connect(self._on_table_row_double_clicked)
+
         # 제어 버튼 레이아웃
         btn_layout = QHBoxLayout()
         self.scan_btn = QPushButton("대상 파일 스캔")
@@ -551,46 +608,181 @@ class BypassTab(QWidget):
         self.start_btn = QPushButton("파일 변환 시작")
         self.start_btn.setProperty("variant", "success")
         self.start_btn.clicked.connect(self.start_conversion)
+        self.open_folder_btn = QPushButton("결과 폴더 열기")
+        self.open_folder_btn.clicked.connect(self.open_output_folder)
+        self.open_folder_btn.setEnabled(False)
         self.stop_btn = QPushButton("중지")
         self.stop_btn.setProperty("variant", "danger")
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_conversion)
-        
+
         btn_layout.addWidget(self.scan_btn)
         btn_layout.addWidget(self.start_btn)
+        btn_layout.addWidget(self.open_folder_btn)
         btn_layout.addWidget(self.stop_btn)
         left_layout.addLayout(btn_layout)
-        
+
         main_h_layout.addWidget(left_panel, 3)
-        
+
         # 우측: 상세 작업 로그 콘솔
         right_panel = QGroupBox("Detailed Activity Log")
         right_layout = QVBoxLayout()
         right_panel.setLayout(right_layout)
-        
+
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
         self.log_area.setStyleSheet("background-color: #1e1e1e; color: #cbd5e1; border: 1px solid #334155; font-family: Consolas;")
         right_layout.addWidget(self.log_area)
-        
+
         main_h_layout.addWidget(right_panel, 2)
         layout.addLayout(main_h_layout)
-        
+
         # 진행 상태 바
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
         layout.addWidget(self.progress_bar)
-        
-        # 복구 폴더 연결
+
+        # 복구 폴더 연결 (시작 시 UI 스레드 동기 스캔 방지)
         last_src = self.config_manager.get("last_bypass_source_directory", "")
         if last_src and os.path.exists(last_src):
-            self.set_source_folder_path(last_src)
-            
+            self.set_source_folder_path(last_src, auto_scan=False)
+
         last_tgt = self.config_manager.get("last_bypass_target_directory", "")
         if last_tgt and os.path.exists(last_tgt):
             self.set_target_folder_path(last_tgt)
         self.tgt_layout_widget.setVisible(self.radio_custom.isChecked())
         self._update_source_action_ui()
+        self._refresh_action_state()
+
+    def _on_recursive_scan_toggled(self, checked):
+        self.config_manager.set("bypass_recursive_scan", checked)
+        if self._source_is_ready():
+            self.scan_source_folder()
+        else:
+            self._invalidate_scan()
+
+    def _on_pdf_html_toggled(self, checked):
+        self.config_manager.set("bypass_generate_pdf_html", checked)
+        if checked and self.pdf_combo.currentText() == ".zip":
+            self.pdf_combo.setCurrentText(".zip + .html")
+        elif not checked and self.pdf_combo.currentText() == ".zip + .html":
+            self.pdf_combo.setCurrentText(".zip")
+        self._update_table_targets_in_memory()
+
+    def _on_format_combo_changed(self, _text):
+        self.config_manager.set("bypass_excel_target", self.excel_combo.currentText())
+        self.config_manager.set("bypass_ppt_target", self.ppt_combo.currentText())
+        self.config_manager.set("bypass_word_target", self.word_combo.currentText())
+        self._update_table_targets_in_memory()
+
+    def _on_pdf_combo_changed(self, text):
+        self.config_manager.set("bypass_pdf_target", text)
+        is_html = text in (".zip + .html", ".html")
+        self.config_manager.set("bypass_generate_pdf_html", is_html)
+        if hasattr(self, "check_pdf_html"):
+            self.check_pdf_html.setChecked(is_html)
+        self._update_table_targets_in_memory()
+
+    def _filter_and_render_files(self):
+        """Discovered files 목록에서 현재 모드 및 타깃 포맷 설정에 맞는 파일만 필터링하여 테이블에 렌더링"""
+        src_dir = self.src_entry.text().strip()
+        if not hasattr(self, "_discovered_files") or not self._discovered_files or not os.path.isdir(src_dir):
+            if not self.scanned_files:
+                self.file_table.setRowCount(0)
+            return 0
+
+        inplace_mode = self.radio_inplace.isChecked()
+        custom_target = ""
+        if self.radio_custom.isChecked():
+            tgt_text = self.tgt_entry.text().strip()
+            if os.path.isdir(tgt_text):
+                custom_target = os.path.normcase(os.path.abspath(tgt_text))
+
+        filtered = []
+        already_target_count = 0
+        for item in self._discovered_files:
+            if isinstance(item, tuple):
+                file_path, size_cached = item
+            else:
+                file_path, size_cached = item, (os.path.getsize(item) if os.path.exists(item) else 0)
+
+            if custom_target:
+                norm_p = os.path.normcase(os.path.abspath(file_path))
+                if norm_p == custom_target or norm_p.startswith(custom_target + os.sep):
+                    continue
+            _, ext = os.path.splitext(file_path.lower())
+            if inplace_mode and ext == self._target_extension_for_source(ext):
+                already_target_count += 1
+                continue
+            filtered.append((file_path, size_cached))
+
+        self.scanned_files = [f[0] for f in filtered]
+
+        # 테이블 채우기 (정렬 비활성화 및 배치 렌더링 최적화)
+        sorting_was_enabled = self.file_table.isSortingEnabled()
+        self.file_table.setSortingEnabled(False)
+        self.file_table.setUpdatesEnabled(False)
+        try:
+            self.file_table.setRowCount(len(filtered))
+            total_src_size = 0
+            pdf_choice = self.pdf_combo.currentText()
+            for idx, (file_path, size_bytes) in enumerate(filtered):
+                filename = os.path.basename(file_path)
+                total_src_size += size_bytes
+                size_kb = f"{size_bytes / 1024:.1f} KB"
+                rel_display = os.path.relpath(file_path, src_dir).replace("\\", "/")
+                _, ext = os.path.splitext(filename.lower())
+                tgt_ext = self._target_extension_for_source(ext)
+                if ext == '.pdf' and pdf_choice == ".zip + .html":
+                    display_tgt_ext = ".zip + .html"
+                else:
+                    display_tgt_ext = tgt_ext
+
+                item_name = QTableWidgetItem(rel_display)
+                item_name.setData(Qt.ItemDataRole.UserRole, file_path)
+                item_name.setToolTip(file_path)
+
+                self.file_table.setItem(idx, 0, item_name)
+                self.file_table.setItem(idx, 1, QTableWidgetItem(size_kb))
+                self.file_table.setItem(idx, 2, QTableWidgetItem(display_tgt_ext))
+                self.file_table.setItem(idx, 3, QTableWidgetItem(self._msg("common_waiting")))
+        finally:
+            self.file_table.setUpdatesEnabled(True)
+            self.file_table.setSortingEnabled(sorting_was_enabled)
+
+        file_count = len(self.scanned_files)
+        formatted_size = self._format_size(total_src_size)
+        self.summary_label.setText(self._t(
+            f"Files found: {file_count} (Total: {formatted_size})",
+            f"검색된 대상 파일: {file_count}개 (총 용량: {formatted_size})",
+            f"Znalezione pliki: {file_count} (Łącznie: {formatted_size})"
+        ))
+        self._refresh_action_state()
+        return already_target_count
+
+    def _update_table_targets_in_memory(self):
+        """콤보박스 변경 시 디스크 재스캔 없이 메모리 상에서 테이블 2열만 즉시 갱신 (0ms 반응성)"""
+        if hasattr(self, "_discovered_files") and self._discovered_files:
+            self._filter_and_render_files()
+            return
+
+        if not self.scanned_files or self.file_table.rowCount() == 0:
+            return
+
+        pdf_choice = self.pdf_combo.currentText()
+        self.file_table.setUpdatesEnabled(False)
+        try:
+            for idx in range(self.file_table.rowCount()):
+                item_0 = self.file_table.item(idx, 0)
+                file_path = item_0.data(Qt.ItemDataRole.UserRole) if hasattr(item_0, "data") else None
+                if not file_path:
+                    continue
+                _, ext = os.path.splitext(file_path.lower())
+                tgt_ext = self._target_extension_for_source(ext)
+                display_ext = pdf_choice if (ext == ".pdf" and pdf_choice == ".zip + .html") else tgt_ext
+                self.file_table.setItem(idx, 2, QTableWidgetItem(display_ext))
+        finally:
+            self.file_table.setUpdatesEnabled(True)
         self._refresh_action_state()
 
     def _save_source_disposition(self, backup_enabled):
@@ -618,25 +810,117 @@ class BypassTab(QWidget):
         if dialog.restored_any and os.path.normcase(dialog.source_folder) == os.path.normcase(current_source):
             self.scan_source_folder()
 
+    def open_output_folder(self):
+        """변환 결과물이 위치한 대상 폴더를 Windows 탐색기로 원클릭 열람"""
+        folder = self.src_entry.text().strip() if self.radio_inplace.isChecked() else self.tgt_entry.text().strip()
+        if os.path.isdir(folder):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(folder)))
+
+    def _on_table_row_double_clicked(self, row, _col):
+        """테이블 행 더블클릭 시 확정된 실제 출력 HTML 뷰어 또는 대상 파일 즉시 실행"""
+        item_0 = self.file_table.item(row, 0)
+        if not item_0:
+            return
+
+        # 1. 실행/완료 시 확정 저장된 실제 출력 경로 우선 열람
+        actual_html = item_0.data(Qt.ItemDataRole.UserRole + 2) if hasattr(item_0, "data") else None
+        if actual_html and os.path.isfile(actual_html):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(actual_html)))
+            return
+
+        actual_tgt = item_0.data(Qt.ItemDataRole.UserRole + 1) if hasattr(item_0, "data") else None
+        if actual_tgt and os.path.isfile(actual_tgt):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(actual_tgt)))
+            return
+
+        # 2. 폴백: 경로 재구성 검사
+        src_path = item_0.data(Qt.ItemDataRole.UserRole) if hasattr(item_0, "data") else None
+        src_dir = self.src_entry.text().strip()
+        if not src_path:
+            rel_name = item_0.text().replace("/", os.sep)
+            src_path = os.path.join(src_dir, rel_name)
+
+        inplace_mode = self.radio_inplace.isChecked()
+        tgt_dir = src_dir if inplace_mode else self.tgt_entry.text().strip()
+        rel_dir = os.path.relpath(os.path.dirname(src_path), src_dir)
+        dest_dir = os.path.dirname(src_path) if inplace_mode else (tgt_dir if rel_dir == "." else os.path.join(tgt_dir, rel_dir))
+
+        raw_base = os.path.basename(src_path)
+        name_no_ext, ext = os.path.splitext(raw_base)
+        ext_lower = ext.lower()
+        tgt_ext = self._target_extension_for_source(ext_lower) if hasattr(self, "_target_extension_for_source") else ""
+
+        # HTML 뷰어 후보 검사
+        pdf_choice = self.pdf_combo.currentText() if hasattr(self, "pdf_combo") else ""
+        if ext_lower == '.pdf' and pdf_choice in (".zip + .html", ".html"):
+            for cand in (
+                os.path.join(dest_dir, f"{name_no_ext}.html"),
+                os.path.join(dest_dir, f"{name_no_ext}_converted.html"),
+            ):
+                if os.path.isfile(cand):
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(cand)))
+                    return
+
+        # 대상 변환 파일 후보 검사
+        if tgt_ext:
+            for cand in (
+                os.path.join(dest_dir, f"{name_no_ext}{tgt_ext}"),
+                os.path.join(dest_dir, f"{name_no_ext}_converted{tgt_ext}"),
+            ):
+                if os.path.isfile(cand):
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(cand)))
+                    return
+
+        # 원본 파일이 아직 남아 있는 경우 열람
+        if os.path.isfile(src_path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(src_path)))
+
     def dragEnterEvent(self, event):
+        if self.is_running or self._ui_locked:
+            event.ignore()
+            return
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            
+
     def dropEvent(self, event):
-        for url in event.mimeData().urls():
+        if self.is_running or self._ui_locked:
+            event.ignore()
+            return
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        selected_path = None
+        for url in urls:
             file_path = os.path.normpath(url.toLocalFile())
             if os.path.isdir(file_path):
-                self.set_source_folder_path(file_path)
-                self.log_area.append(self._msg("bypass_drop_source", path=file_path))
-                self.scan_source_folder()
+                selected_path = file_path
                 break
+            elif os.path.isfile(file_path):
+                parent_dir = os.path.dirname(file_path)
+                if os.path.isdir(parent_dir):
+                    selected_path = parent_dir
+                    break
+
+        if selected_path:
+            self.set_source_folder_path(selected_path, auto_scan=True)
+            self.log_area.append(self._msg("bypass_drop_source", path=selected_path))
+            if len(urls) > 1:
+                ignored_count = len(urls) - 1
+                self.log_area.append(self._t(
+                    f"Note: Only the first valid folder was selected. {ignored_count} other dropped items were safely ignored.",
+                    f"참고: 첫 번째 유효 폴더가 선택되었으며, 나머지 {ignored_count}개 항목은 안전하게 제외되었습니다.",
+                    f"Uwaga: Wybrano pierwszy prawidłowy folder, pozostałe {ignored_count} elementów zostało zignorowanych."
+                ))
 
     def toggle_target_mode(self):
         is_custom = self.radio_custom.isChecked()
         self.tgt_layout_widget.setVisible(is_custom)
         self.config_manager.set("bypass_output_mode", "custom" if is_custom else "inplace")
         self._update_source_action_ui()
-        self._invalidate_scan()
+        if hasattr(self, "_discovered_files") and self._discovered_files:
+            self._filter_and_render_files()
+        else:
+            self._invalidate_scan()
 
     def _update_source_action_ui(self):
         if not hasattr(self, "source_action_hint"):
@@ -680,23 +964,20 @@ class BypassTab(QWidget):
             )
             self.check_backup_orig.setToolTip("")
             self.start_btn.setText(self._t("Start File Conversion", "파일 변환 시작", "Rozpocznij konwersję plików"))
-        
+
     def select_source_folder(self):
         initial = self.config_manager.get("last_bypass_source_directory", "")
         folder = QFileDialog.getExistingDirectory(self, self._msg("bypass_select_source"), initial)
         if folder:
-            self.set_source_folder_path(os.path.normpath(folder))
-            self.scan_source_folder()
-            
+            self.set_source_folder_path(os.path.normpath(folder), auto_scan=True)
+
     def select_target_folder(self):
         initial = self.config_manager.get("last_bypass_target_directory", "")
         folder = QFileDialog.getExistingDirectory(self, self._msg("bypass_select_target"), initial)
         if folder:
             self.set_target_folder_path(os.path.normpath(folder))
-            
-    def set_source_folder_path(self, path):
-        if self.src_entry.text() != path:
-            self._invalidate_scan()
+
+    def set_source_folder_path(self, path, auto_scan=True):
         self.src_entry.setText(path)
         self.src_entry.setStyleSheet(
             "background-color: #1e1e1e; color: #cbd5e1; border: 1px solid #334155; "
@@ -704,7 +985,9 @@ class BypassTab(QWidget):
         )
         self.config_manager.set("last_bypass_source_directory", path)
         self._refresh_action_state()
-        
+        if auto_scan and os.path.isdir(path):
+            self.scan_source_folder()
+
     def set_target_folder_path(self, path):
         self.tgt_entry.setText(path)
         self.tgt_entry.setStyleSheet(
@@ -712,6 +995,8 @@ class BypassTab(QWidget):
             "padding: 8px; border-radius: 4px; font-weight: bold;"
         )
         self.config_manager.set("last_bypass_target_directory", path)
+        if hasattr(self, "_discovered_files") and self._discovered_files:
+            self._filter_and_render_files()
         self._refresh_action_state()
 
     def _source_is_ready(self):
@@ -729,11 +1014,16 @@ class BypassTab(QWidget):
         if source_ext in ('.docx', '.doc', '.docm'):
             return self.word_combo.currentText()
         if source_ext == '.pdf':
-            return self.pdf_combo.currentText()
+            choice = self.pdf_combo.currentText()
+            if choice == ".zip + .html":
+                return ".zip"
+            return choice
         return ""
 
     def _invalidate_scan(self, *_args):
         self.scanned_files.clear()
+        if hasattr(self, "_discovered_files"):
+            self._discovered_files.clear()
         if hasattr(self, "file_table"):
             self.file_table.setRowCount(0)
             self.summary_label.setText(self._t("Files found: 0", "검색된 대상 파일: 0개", "Znalezione pliki: 0"))
@@ -771,49 +1061,85 @@ class BypassTab(QWidget):
         if not os.path.exists(src_dir) or src_dir.startswith(("드래그 앤 드롭", "Drag a folder", "Przeciągnij folder")):
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("Select a valid source folder first.", "올바른 소스 폴더를 먼저 선택해 주세요.", "Najpierw wybierz prawidłowy folder źródłowy."))
             return
-            
+
         self.scanned_files.clear()
+        if hasattr(self, "_discovered_files"):
+            self._discovered_files.clear()
         self.file_table.setRowCount(0)
         self.log_area.clear()
         self.progress_bar.setValue(0)
         self.workflow_widget.reset()
-        
+
         self.log_area.append(self._msg("bypass_scanning"))
-        
+
         target_extensions = ('.xlsx', '.xls', '.xlsm', '.pptx', '.ppt', '.pptm', '.docx', '.doc', '.docm', '.pdf')
         already_target_count = 0
-        
+
         try:
-            # 1단계 직계 파일만 검색 (Spaghetti 방지 및 간단성 유지)
-            for file_name in os.listdir(src_dir):
-                file_path = os.path.join(src_dir, file_name)
-                if os.path.isfile(file_path):
-                    _, ext = os.path.splitext(file_name.lower())
-                    if ext in target_extensions:
-                        if self.radio_inplace.isChecked() and ext == self._target_extension_for_source(ext):
-                            already_target_count += 1
+            recursive = self.check_recursive_scan.isChecked()
+            EXCLUDE_DIR_NAMES = {"original backup", "$recycle.bin", ".git", "__pycache__", ".svn", "node_modules"}
+            is_junction_fn = getattr(os.path, 'isjunction', lambda p: False)
+            src_real = os.path.realpath(src_dir)
+            src_prefix = src_real if src_real.endswith(os.sep) else src_real + os.sep
+
+            custom_target = ""
+            if self.radio_custom.isChecked():
+                tgt_text = self.tgt_entry.text().strip()
+                if os.path.isdir(tgt_text):
+                    custom_target = os.path.normcase(os.path.abspath(tgt_text))
+
+            discovered = []
+            if recursive:
+                for root, dirs, files in os.walk(src_dir, followlinks=False):
+                    pruned_dirs = []
+                    for d in dirs:
+                        if d.lower() in EXCLUDE_DIR_NAMES:
                             continue
-                        self.scanned_files.append(file_path)
-                        
-            # 테이블 채우기
-            self.file_table.setRowCount(len(self.scanned_files))
-            for idx, file_path in enumerate(self.scanned_files):
-                filename = os.path.basename(file_path)
-                size_bytes = os.path.getsize(file_path)
-                size_kb = f"{size_bytes / 1024:.1f} KB"
-                
-                # 원본 종류 판별 및 우회 종류 매칭
-                _, ext = os.path.splitext(filename.lower())
-                tgt_ext = self._target_extension_for_source(ext)
-                
-                # 테이블 열 세팅
-                self.file_table.setItem(idx, 0, QTableWidgetItem(filename))
-                self.file_table.setItem(idx, 1, QTableWidgetItem(size_kb))
-                self.file_table.setItem(idx, 2, QTableWidgetItem(tgt_ext))
-                self.file_table.setItem(idx, 3, QTableWidgetItem(self._msg("common_waiting")))
-                
-            file_count = len(self.scanned_files)
-            self.summary_label.setText(self._t(f"Files found: {file_count}", f"검색된 대상 파일: {file_count}개", f"Znalezione pliki: {file_count}"))
+                        full_d = os.path.join(root, d)
+                        if os.path.islink(full_d) or is_junction_fn(full_d):
+                            continue
+                        real_d = os.path.realpath(full_d)
+                        if not (real_d == src_real or real_d.startswith(src_prefix)):
+                            continue
+                        norm_dir = os.path.normcase(os.path.abspath(full_d))
+                        if custom_target and (norm_dir == custom_target or norm_dir.startswith(custom_target + os.sep)):
+                            continue
+                        pruned_dirs.append(d)
+                    dirs[:] = pruned_dirs
+
+                    for file_name in files:
+                        full_f = os.path.join(root, file_name)
+                        if os.path.islink(full_f):
+                            continue
+                        real_f = os.path.realpath(full_f)
+                        if not (real_f == src_real or real_f.startswith(src_prefix)):
+                            continue
+                        norm_f = os.path.normcase(os.path.abspath(full_f))
+                        if custom_target and (norm_f == custom_target or norm_f.startswith(custom_target + os.sep)):
+                            continue
+                        _, ext = os.path.splitext(file_name.lower())
+                        if ext in target_extensions:
+                            size_b = os.path.getsize(full_f) if os.path.exists(full_f) else 0
+                            discovered.append((full_f, size_b))
+            else:
+                for file_name in os.listdir(src_dir):
+                    file_path = os.path.join(src_dir, file_name)
+                    if os.path.islink(file_path):
+                        continue
+                    if os.path.isfile(file_path):
+                        real_f = os.path.realpath(file_path)
+                        if not (real_f == src_real or real_f.startswith(src_prefix)):
+                            continue
+                        norm_f = os.path.normcase(os.path.abspath(file_path))
+                        if custom_target and (norm_f == custom_target or norm_f.startswith(custom_target + os.sep)):
+                            continue
+                        _, ext = os.path.splitext(file_name.lower())
+                        if ext in target_extensions:
+                            size_b = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                            discovered.append((file_path, size_b))
+
+            self._discovered_files = discovered
+            already_target_count = self._filter_and_render_files()
             self.log_area.append(self._msg("bypass_scan_complete", count=len(self.scanned_files)))
             if already_target_count:
                 self.log_area.append(self._t(
@@ -823,8 +1149,13 @@ class BypassTab(QWidget):
                 ))
             self.workflow_widget.set_active_step(1)
             self._refresh_action_state()
-            
+
         except Exception as e:
+            if hasattr(self, "_discovered_files"):
+                self._discovered_files.clear()
+            self.scanned_files.clear()
+            self.file_table.setRowCount(0)
+            self._refresh_action_state()
             self.log_area.append(self._msg("bypass_scan_failed_log", detail=str(e)))
             QMessageBox.critical(self, self._msg("common_error"), self._msg("bypass_scan_failed", detail=str(e)))
 
@@ -832,7 +1163,10 @@ class BypassTab(QWidget):
         if not self.scanned_files:
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No files are ready. Scan the source folder first.", "변환할 대상 파일이 없습니다. 스캔을 먼저 실행해 주세요.", "Brak plików gotowych do konwersji. Najpierw przeskanuj folder źródłowy."))
             return
-            
+
+        self._pre_conversion_src_size = sum(
+            os.path.getsize(f) for f in self.scanned_files if os.path.exists(f)
+        )
         # 설정값 실시간 캐시 동기화
         self.config_manager.set("bypass_excel_target", self.excel_combo.currentText())
         self.config_manager.set("bypass_ppt_target", self.ppt_combo.currentText())
@@ -843,7 +1177,7 @@ class BypassTab(QWidget):
         self.config_manager.set("bypass_output_mode", "inplace" if self.radio_inplace.isChecked() else "custom")
         self.config_manager.set("bypass_delete_original", False)
         self.config_manager.set("bypass_preserve_meta", self.check_preserve_meta.isChecked())
-        
+
         try:
             run_config = self.build_run_config()
         except TaskValidationError as exc:
@@ -882,28 +1216,28 @@ class BypassTab(QWidget):
             return
 
         tasks = [task.to_legacy_dict() for task in run_config.tasks]
-            
+
         self.is_running = True
         self._refresh_action_state()
         self.stop_btn.setEnabled(True)
         self.progress_bar.setValue(0)
-        
+
         self.log_area.append(self._msg("bypass_starting"))
         self.workflow_widget.set_active_step(1)
-        
+
         # 워커 실행
         self.worker = BypassConvertWorker(tasks, self.converter, self.language)
         self.worker.progress.connect(self.update_progress)
         self.worker.file_completed.connect(self.on_file_completed)
         self.worker.finished.connect(self.on_finished)
         self.worker.start()
-        
+
     def stop_conversion(self):
         if self.worker:
             self.worker.stop()
             self.stop_btn.setEnabled(False)
             self.log_area.append(self._msg("bypass_stop_requested"))
-            
+
     def stop_all(self):
         """MainWindow 종료 시 바인딩"""
         if self.worker and self.worker.isRunning():
@@ -917,13 +1251,29 @@ class BypassTab(QWidget):
         if parent_win := self.window():
             if hasattr(parent_win, 'status_bar'):
                 parent_win.status_bar.showMessage(status_msg)
-                
+
     def on_file_completed(self, src_path, tgt_path, success, message):
         filename = os.path.basename(src_path)
         tgt_name = os.path.basename(tgt_path)
-        
+        src_norm = os.path.normcase(os.path.abspath(src_path))
+        src_dir_text = self.src_entry.text().strip()
+        rel_display = ""
+        if os.path.isdir(src_dir_text):
+            try:
+                rel_display = os.path.relpath(src_path, src_dir_text).replace("\\", "/")
+            except ValueError:
+                pass
+
         for idx in range(self.file_table.rowCount()):
-            if self.file_table.item(idx, 0).text() == filename:
+            item_0 = self.file_table.item(idx, 0)
+            stored_path = item_0.data(Qt.ItemDataRole.UserRole)
+            matched = False
+            if stored_path and os.path.normcase(os.path.abspath(stored_path)) == src_norm:
+                matched = True
+            elif item_0.text() == rel_display or item_0.text() == filename:
+                matched = True
+
+            if matched:
                 if success:
                     self.file_table.setItem(idx, 3, QTableWidgetItem(self._msg("common_completed")))
                     self.file_table.item(idx, 3).setForeground(Qt.GlobalColor.green)
@@ -935,63 +1285,133 @@ class BypassTab(QWidget):
                     self.file_table.item(idx, 3).setForeground(Qt.GlobalColor.red)
                     self.log_area.append(self._msg("bypass_log_failed", filename=filename, detail=message))
                 break
-                
+
         self.workflow_widget.set_active_step(2)
 
     def on_finished(self, success, message):
         self.is_running = False
         self.stop_btn.setEnabled(False)
-        
+        if hasattr(self, "open_folder_btn"):
+            self.open_folder_btn.setEnabled(True)
+
+        # 전체 용량 변경 전/후 합산 (Capacity Impact - 오류 발생 시에도 완료 처리 보장)
+        capacity_str = ""
+        try:
+            total_src_size = getattr(self, "_pre_conversion_src_size", 0)
+            total_tgt_size = 0
+            if hasattr(self, "worker") and self.worker and hasattr(self.worker, "tasks"):
+                for t in self.worker.tasks:
+                    src_p = t.get("src", "")
+                    tgt_p = t.get("tgt", "")
+                    try:
+                        if total_src_size == 0 and os.path.exists(src_p):
+                            total_src_size += os.path.getsize(src_p)
+                    except OSError:
+                        pass
+                    try:
+                        if os.path.exists(tgt_p):
+                            total_tgt_size += os.path.getsize(tgt_p)
+                    except OSError:
+                        pass
+                    if t.get("generate_pdf_html", False):
+                        html_p = os.path.splitext(tgt_p)[0] + ".html"
+                        try:
+                            if os.path.exists(html_p):
+                                total_tgt_size += os.path.getsize(html_p)
+                        except OSError:
+                            pass
+
+            if total_src_size > 0 and total_tgt_size > 0:
+                diff_bytes = total_tgt_size - total_src_size
+                if diff_bytes < 0:
+                    pct = (abs(diff_bytes) / total_src_size) * 100
+                    delta_str = f"▼ {self._format_size(abs(diff_bytes))} (-{pct:.1f}%)"
+                else:
+                    pct = (diff_bytes / total_src_size) * 100
+                    delta_str = f"▲ {self._format_size(diff_bytes)} (+{pct:.1f}%)"
+                capacity_str = f" [{self._format_size(total_src_size)} → {self._format_size(total_tgt_size)} ({delta_str})]"
+        except Exception as e:
+            logger.debug(f"Capacity impact calculation skipped due to error: {e}")
+
+        # 백그라운드 완료 알림 (창이 비활성 상태일 때만 작업 표시줄 깜빡임 & 시스템 차임벨)
+        is_background = not self.isActiveWindow()
+        if is_background:
+            try:
+                QApplication.alert(self, 0)
+            except Exception as e:
+                logger.debug(f"Taskbar alert skipped: {e}")
+
+            try:
+                import winsound
+                if success:
+                    winsound.MessageBeep(winsound.MB_ICONASTERISK)
+                else:
+                    winsound.MessageBeep(winsound.MB_ICONHAND)
+            except Exception as e:
+                logger.debug(f"Audio beep skipped: {e}")
+
         if success:
-            self.log_area.append(f"\n✅ {message}")
+            full_msg = f"{message}{capacity_str}"
+            self.log_area.append(f"\n✅ {full_msg}")
             show_toast(self, self._msg("bypass_completed"), "success")
-            QMessageBox.information(self, self._msg("common_completed"), message)
+            QMessageBox.information(self, self._msg("common_completed"), full_msg)
         else:
             self.workflow_widget.reset()
             message = self._error_text(message)
             self.log_area.append(self._msg("bypass_operation_stopped", detail=message))
             show_toast(self, self._msg("bypass_operation_failed", detail=message), "error")
             QMessageBox.critical(self, self._msg("common_error"), self._msg("bypass_operation_error", detail=message))
-            
-        # 스캔 리스트 리프레시 (원본 파일이 백업 폴더로 이동했을 수 있으므로)
-        self.scan_source_folder()
+
         if success:
+            for idx in range(self.file_table.rowCount()):
+                self.file_table.setItem(idx, 3, QTableWidgetItem("✅ " + self._msg("common_completed")))
+            if hasattr(self, "open_folder_btn"):
+                self.open_folder_btn.setEnabled(True)
+            if capacity_str:
+                self.summary_label.setText(self.summary_label.text() + f" |{capacity_str}")
+            # 변환 완료 후 이미 교체/이동된 파일 재실행 방지 및 스캔 버튼 상태 복원
+            self.scanned_files.clear()
+            if hasattr(self, "_discovered_files"):
+                self._discovered_files.clear()
+            self._refresh_action_state()
             self.workflow_widget.complete_all()
+        else:
+            self.scan_source_folder()
 
     def build_run_config(self):
         src_dir = self.src_entry.text().strip()
         if not src_dir or src_dir.startswith(("드래그 앤 드롭", "Drag a folder")):
             return None
-            
+
         if not os.path.exists(src_dir):
             raise TaskValidationError(
                 f"파일 변환 원본 폴더가 존재하지 않습니다: {src_dir}",
                 message_key="bypass_source_folder_missing",
                 values={"path": src_dir},
             )
-            
+
         if not self.scanned_files:
             raise TaskValidationError(
                 "파일 변환은 먼저 '대상 파일 스캔'을 실행한 뒤 통합 작업을 시작해 주세요.",
                 message_key="bypass_scan_required",
             )
-            
+
         inplace_mode = self.radio_inplace.isChecked()
         tgt_dir = src_dir if inplace_mode else self.tgt_entry.text().strip()
-        
+
         if not inplace_mode and (not tgt_dir or tgt_dir.startswith(("저장할 우회", "Choose the folder"))):
             raise TaskValidationError(
                 "파일 변환 저장 폴더가 지정되지 않았습니다.",
                 message_key="bypass_target_folder_empty",
             )
-            
+
         if not inplace_mode and not os.path.exists(tgt_dir):
             raise TaskValidationError(
                 f"파일 변환 저장 폴더가 존재하지 않습니다: {tgt_dir}",
                 message_key="bypass_target_folder_missing",
                 values={"path": tgt_dir},
             )
-            
+
         # 작업 리스트 작성
         tasks = []
         reserved_targets = set()
@@ -1000,61 +1420,138 @@ class BypassTab(QWidget):
             if inplace_mode
             else SourceDisposition.BACKUP if self.check_backup_orig.isChecked() else SourceDisposition.KEEP
         )
+        generate_pdf_html = getattr(self.check_pdf_html, "isChecked", lambda: False)() if hasattr(self, "check_pdf_html") else False
+        recursive_scan = getattr(self.check_recursive_scan, "isChecked", lambda: False)() if hasattr(self, "check_recursive_scan") else False
+
         for idx in range(self.file_table.rowCount()):
-            filename = self.file_table.item(idx, 0).text()
-            src_file = os.path.join(src_dir, filename)
+            item_name = self.file_table.item(idx, 0)
+            src_file = item_name.data(Qt.ItemDataRole.UserRole) if hasattr(item_name, "data") else None
+            if not src_file and hasattr(item_name, "text"):
+                filename_rel = item_name.text().replace("/", os.sep)
+                src_file = os.path.normpath(os.path.join(src_dir, filename_rel))
+
             if not os.path.exists(src_file):
                 raise TaskValidationError(
                     f"파일 변환 원본 파일이 존재하지 않습니다: {src_file}",
                     message_key="bypass_source_file_missing",
                     values={"path": src_file},
                 )
-            
-            tgt_ext = self.file_table.item(idx, 2).text()
-            name_no_ext, _ = os.path.splitext(filename)
+
+            # 원본 파일이 현재 소스 폴더 하위에 존재하는지 엄격 검증 (Stale Cache 방어)
+            norm_src_dir = os.path.normcase(os.path.abspath(src_dir))
+            norm_src_file = os.path.normcase(os.path.abspath(src_file))
+            try:
+                common_src = os.path.commonpath([norm_src_dir, norm_src_file])
+                is_sub = (common_src == norm_src_dir)
+            except ValueError:
+                is_sub = False
+
+            if not is_sub:
+                raise TaskValidationError(
+                    f"파일 변환 원본 파일이 현재 소스 폴더 외부에 있습니다: {src_file}",
+                    message_key="bypass_source_file_outside",
+                    values={"path": src_file},
+                )
+
+            raw_base_name = os.path.basename(src_file)
+            name_no_ext, src_ext_curr = os.path.splitext(raw_base_name)
+            src_ext_curr = src_ext_curr.lower()
+            if hasattr(self, "_target_extension_for_source") and callable(self._target_extension_for_source):
+                tgt_ext = self._target_extension_for_source(src_ext_curr)
+            else:
+                table_ext_item = self.file_table.item(idx, 2) if hasattr(self.file_table, "item") else None
+                table_ext_text = table_ext_item.text().strip() if hasattr(table_ext_item, "text") else ""
+                tgt_ext = table_ext_text.partition(" +")[0].strip()
+
+            pdf_choice = self.pdf_combo.currentText() if hasattr(self, "pdf_combo") and hasattr(self.pdf_combo, "currentText") else ""
+            has_check_html = hasattr(self, "check_pdf_html") and hasattr(self.check_pdf_html, "isChecked") and self.check_pdf_html.isChecked()
+            is_pdf_dual = (src_ext_curr == '.pdf' and (pdf_choice == ".zip + .html" or (pdf_choice == ".zip" and has_check_html) or getattr(self, "generate_pdf_html", False)))
+
+            # 대상 디렉터리 산출 (Custom 모드 시 상대 경로 트리 미러링)
+            if inplace_mode:
+                dest_dir = os.path.dirname(src_file)
+            else:
+                rel_dir = os.path.relpath(os.path.dirname(src_file), src_dir)
+                dest_dir = tgt_dir if rel_dir == "." else os.path.join(tgt_dir, rel_dir)
+                norm_tgt_dir = os.path.normcase(os.path.abspath(tgt_dir))
+                norm_dest_dir = os.path.normcase(os.path.abspath(dest_dir))
+                try:
+                    common_tgt = os.path.commonpath([norm_tgt_dir, norm_dest_dir])
+                    tgt_sub = (common_tgt == norm_tgt_dir)
+                except ValueError:
+                    tgt_sub = False
+                if not tgt_sub:
+                    raise TaskValidationError(
+                        f"대상 출력 경로가 지정된 타깃 폴더를 벗어났습니다: {dest_dir}",
+                        message_key="bypass_target_path_escaped",
+                        values={"path": dest_dir},
+                    )
+
             tgt_filename = f"{name_no_ext}{tgt_ext}"
-            tgt_file = os.path.join(tgt_dir, tgt_filename)
+            tgt_file = os.path.join(dest_dir, tgt_filename)
+
+            def target_collides(cand_file, source_ext=src_ext_curr):
+                norm_cand = os.path.normcase(os.path.abspath(cand_file))
+                if os.path.exists(cand_file) or norm_cand in reserved_targets:
+                    return True
+                if generate_pdf_html and source_ext.lower() == '.pdf':
+                    cand_html = os.path.splitext(cand_file)[0] + ".html"
+                    norm_html = os.path.normcase(os.path.abspath(cand_html))
+                    if os.path.exists(cand_html) or norm_html in reserved_targets:
+                        return True
+                return False
 
             normalized_target = os.path.normcase(os.path.abspath(tgt_file))
             normalized_source = os.path.normcase(os.path.abspath(src_file))
             same_as_source = normalized_target == normalized_source
             if same_as_source:
                 tgt_filename = f"{name_no_ext}_converted{tgt_ext}"
-                tgt_file = os.path.join(tgt_dir, tgt_filename)
-                normalized_target = os.path.normcase(os.path.abspath(tgt_file))
+                tgt_file = os.path.join(dest_dir, tgt_filename)
                 suffix = "_converted"
                 counter = 1
-                while os.path.exists(tgt_file) or normalized_target in reserved_targets:
+                while target_collides(tgt_file):
                     tgt_filename = f"{name_no_ext}{suffix}_{counter}{tgt_ext}"
-                    tgt_file = os.path.join(tgt_dir, tgt_filename)
-                    normalized_target = os.path.normcase(os.path.abspath(tgt_file))
+                    tgt_file = os.path.join(dest_dir, tgt_filename)
                     counter += 1
-            elif os.path.exists(tgt_file) or normalized_target in reserved_targets:
+            elif target_collides(tgt_file):
                 counter = 1
                 while True:
                     tgt_filename = f"{name_no_ext}_{counter}{tgt_ext}"
-                    tgt_file = os.path.join(tgt_dir, tgt_filename)
-                    normalized_target = os.path.normcase(os.path.abspath(tgt_file))
-                    if not os.path.exists(tgt_file) and normalized_target not in reserved_targets:
+                    tgt_file = os.path.join(dest_dir, tgt_filename)
+                    if not target_collides(tgt_file):
                         break
                     counter += 1
 
-            reserved_targets.add(normalized_target)
-                    
+            reserved_targets.add(os.path.normcase(os.path.abspath(tgt_file)))
+            if is_pdf_dual:
+                reserved_targets.add(os.path.normcase(os.path.abspath(os.path.splitext(tgt_file)[0] + ".html")))
+
             tasks.append(BypassFileConfig(
                 src=src_file,
                 tgt=tgt_file,
                 ext=tgt_ext,
                 preserve_meta=self.check_preserve_meta.isChecked(),
                 source_disposition=source_disposition,
+                generate_pdf_html=is_pdf_dual,
             ))
-            
-        return BypassRunConfig(tasks=tasks, source_disposition=source_disposition)
+            if hasattr(item_name, "setData"):
+                item_name.setData(Qt.ItemDataRole.UserRole + 1, tgt_file)
+                if is_pdf_dual:
+                    item_name.setData(Qt.ItemDataRole.UserRole + 2, os.path.splitext(tgt_file)[0] + ".html")
+                elif tgt_ext == '.html':
+                    item_name.setData(Qt.ItemDataRole.UserRole + 2, tgt_file)
+
+        return BypassRunConfig(
+            tasks=tasks,
+            source_disposition=source_disposition,
+            recursive_scan=recursive_scan,
+            generate_pdf_html=generate_pdf_html,
+        )
 
     def get_task_info(self):
         config = self.build_run_config()
         return config.to_legacy_dict() if config else None
-        
+
     def set_ui_locked(self, locked):
         self._ui_locked = locked
         for btn in self.findChildren(QPushButton):
@@ -1069,5 +1566,9 @@ class BypassTab(QWidget):
         self.pdf_combo.setEnabled(not locked)
         self.check_backup_orig.setEnabled(not locked and self.radio_custom.isChecked())
         self.check_preserve_meta.setEnabled(not locked)
+        self.check_recursive_scan.setEnabled(not locked)
+        self.check_pdf_html.setEnabled(not locked)
+        if hasattr(self, "open_folder_btn"):
+            self.open_folder_btn.setEnabled(not locked and self._target_is_ready())
         self._update_source_action_ui()
         self._refresh_action_state()

@@ -4,7 +4,8 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QTableWidgetItem
 
 from src.ui.bypass_tab import BypassTab
 from src.ui.eml_tab import EMLTab
@@ -76,16 +77,24 @@ class GuidedWorkflowTests(unittest.TestCase):
             self.assertFalse(sync.sync_btn.isEnabled())
         sync.close()
 
-    def test_convert_files_invalidates_scan_when_target_format_changes(self):
+    def test_convert_files_updates_targets_in_memory_when_target_format_changes(self):
         with tempfile.TemporaryDirectory() as source:
             bypass = BypassTab(FakeConfig())
             bypass.set_source_folder_path(source)
-            bypass.scanned_files = [os.path.join(source, "book.xlsx")]
+            file_path = os.path.join(source, "book.xlsx")
+            bypass.scanned_files = [file_path]
+            bypass.file_table.setRowCount(1)
+            item = QTableWidgetItem("book.xlsx")
+            item.setData(Qt.ItemDataRole.UserRole, file_path)
+            bypass.file_table.setItem(0, 0, item)
+            bypass.file_table.setItem(0, 2, QTableWidgetItem(".xlsb"))
             bypass._refresh_action_state()
             self.assertTrue(bypass.start_btn.isEnabled())
-            bypass.excel_combo.setCurrentText(".xlsx")
-            self.assertEqual(bypass.scanned_files, [])
-            self.assertFalse(bypass.start_btn.isEnabled())
+
+            bypass.excel_combo.setCurrentText(".xlsm")
+            self.assertEqual(bypass.scanned_files, [file_path])
+            self.assertEqual(bypass.file_table.item(0, 2).text(), ".xlsm")
+            self.assertTrue(bypass.start_btn.isEnabled())
             bypass.close()
 
     def test_convert_files_makes_source_replacement_visible_and_separates_backup_option(self):
