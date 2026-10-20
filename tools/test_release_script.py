@@ -160,11 +160,27 @@ class ReleaseScriptTests(unittest.TestCase):
             mock_verify.assert_called_once()
             mock_admin.assert_not_called()
 
-    def test_check_git_publish_readiness_rejects_non_main(self):
+    def test_check_git_publish_readiness_rejects_dirty_tree(self):
         with patch("scripts.release.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(stdout="release/v1.5.0\n")
+            mock_run.return_value = MagicMock(stdout=" M src/version.py\n")
             ready = check_git_publish_readiness()
             self.assertFalse(ready)
+
+    def test_check_git_publish_readiness_auto_merges_non_main_branch(self):
+        def mock_git(cmd, **kwargs):
+            if cmd == ["git", "status", "--porcelain"]:
+                return MagicMock(stdout="")
+            if cmd == ["git", "branch", "--show-current"]:
+                return MagicMock(stdout="release/v1.5.0\n")
+            if cmd == ["git", "checkout", "main"]:
+                return MagicMock(returncode=0)
+            if cmd == ["git", "merge", "release/v1.5.0"]:
+                return MagicMock(returncode=0)
+            return MagicMock(returncode=0, stdout="")
+
+        with patch("scripts.release.subprocess.run", side_effect=mock_git):
+            ready = check_git_publish_readiness()
+            self.assertTrue(ready)
 
     def test_run_release_pipeline_publish_flag_handling(self):
         with patch("scripts.release.read_app_version", return_value="1.5.0"), \

@@ -36,5 +36,5 @@
 
 ## 품질 검증
 
-- 단위 회귀 테스트 전체 통과 (총 299개: 298 passed, 1 skipped, 실패 0).
+- 단위 회귀 테스트 전체 통과 (총 300개: 299 passed, 1 skipped, 실패 0).
 - Codex Sol 6.1 CLI 및 Claude Opus 5.5 CLI 실측 릴레이 검수 및 안전성 검증 완료.

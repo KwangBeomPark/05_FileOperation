@@ -238,24 +238,10 @@ def run_unit_tests() -> bool:
 
 
 def check_git_publish_readiness() -> bool:
-    """Ensure Git worktree is clean and branch is main when --publish is enabled."""
+    """Ensure Git worktree is clean and branch is automatically merged/switched to main for publication."""
     print(">> Checking Git status for official publication...")
     try:
-        branch_proc = subprocess.run(
-            ["git", "branch", "--show-current"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=True,
-            cwd=str(ROOT),
-        )
-        branch = branch_proc.stdout.strip()
-        if branch != "main":
-            print(f"!! [ERROR] Official publication requires 'main' branch, but current branch is '{branch}'.")
-            print("   Merge this release branch into 'main' before running with --publish.")
-            return False
-
+        # 1. Check for uncommitted changes first
         status_proc = subprocess.run(
             ["git", "status", "--porcelain"],
             capture_output=True,
@@ -272,6 +258,35 @@ def check_git_publish_readiness() -> bool:
             for line in dirty[:5]:
                 print(f"     {line}")
             return False
+
+        # 2. Check current branch and auto-merge/switch to main if needed
+        branch_proc = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+            cwd=str(ROOT),
+        )
+        current_branch = branch_proc.stdout.strip()
+        if current_branch != "main":
+            print(f">> [AUTO-SYNC] Current branch is '{current_branch}'.")
+            print(">> [AUTO-SYNC] Automatically switching to 'main' and merging changes for release...")
+
+            checkout_res = subprocess.run(["git", "checkout", "main"], cwd=str(ROOT), check=False)
+            if checkout_res.returncode != 0:
+                print("!! [ERROR] Failed to switch to 'main' branch.")
+                return False
+
+            merge_res = subprocess.run(["git", "merge", current_branch], cwd=str(ROOT), check=False)
+            if merge_res.returncode != 0:
+                print(f"!! [ERROR] Failed to merge '{current_branch}' into 'main'. Rolling back...")
+                subprocess.run(["git", "merge", "--abort"], cwd=str(ROOT), check=False)
+                subprocess.run(["git", "checkout", current_branch], cwd=str(ROOT), check=False)
+                return False
+
+            print(f">> [AUTO-SYNC] Successfully merged '{current_branch}' into 'main'!")
 
         print(">> Git repository is clean and on 'main' branch.")
         return True
