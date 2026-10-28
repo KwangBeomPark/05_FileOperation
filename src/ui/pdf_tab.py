@@ -11,7 +11,6 @@ from src.ui.image_preview_dialog import ImagePreviewDialog
 from src.ui.i18n import choose, get_app_language, tr
 
 from src.core.pdf_converter import PDFConverter
-from src.core.file_manager import FileManager
 from src.core.task_contracts import PdfRunConfig, RunPlan, TaskStep, TaskValidationError
 from src.ui.run_summary_dialog import confirm_run_summary
 from src.utils.logger import get_logger
@@ -23,12 +22,11 @@ class PDFConvertWorker(QThread):
     page_converted = pyqtSignal(int, str) # page_num, image_path
     finished = pyqtSignal(bool, str) # success, message
     
-    def __init__(self, pdf_paths, output_folder, pdf_converter, file_manager, language="en"):
+    def __init__(self, pdf_paths, output_folder, pdf_converter, language="en"):
         super().__init__()
         self.pdf_paths = pdf_paths
         self.output_folder = output_folder
         self.pdf_converter = pdf_converter
-        self.file_manager = file_manager
         self.is_running = True
         self.language = language
 
@@ -73,7 +71,6 @@ class PDFTab(QWidget):
         super().__init__(parent)
         self.config_manager = config_manager
         self.pdf_converter = PDFConverter(self.config_manager)
-        self.file_manager = FileManager()
         
         self.selected_pdf_paths = []
         self.image_files = []
@@ -288,7 +285,6 @@ class PDFTab(QWidget):
             pdf_paths=run_config.pdf_paths,
             output_folder=output_folder,
             pdf_converter=self.pdf_converter,
-            file_manager=self.file_manager,
             language=self.language,
         )
         

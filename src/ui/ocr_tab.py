@@ -12,7 +12,6 @@ from src.ui.image_preview_dialog import ImagePreviewDialog
 from src.ui.i18n import choose, get_app_language, tr
 
 from src.core.ocr_processor import OCRProcessor
-from src.core.file_manager import FileManager
 from src.core.task_contracts import OcrRunConfig, RunPlan, TaskStep, TaskValidationError
 from src.ui.run_summary_dialog import confirm_run_summary
 from src.utils.logger import get_logger
@@ -28,7 +27,6 @@ class OCRWorker(QThread):
         self,
         image_paths,
         ocr_processor,
-        file_manager,
         language="en",
         rule_mode="promotion",
         custom_pattern="",
@@ -38,7 +36,6 @@ class OCRWorker(QThread):
         super().__init__()
         self.image_paths = image_paths
         self.ocr_processor = ocr_processor
-        self.file_manager = file_manager
         self.is_running = True
         self.language = language
         self.rule_mode = rule_mode or "promotion"
@@ -163,7 +160,6 @@ class OCRTab(QWidget):
         super().__init__(parent)
         self.config_manager = config_manager
         self.ocr_processor = OCRProcessor(self.config_manager)
-        self.file_manager = FileManager()
         
         self.image_files = []
         self.ocr_results = {}
@@ -464,7 +460,6 @@ class OCRTab(QWidget):
         self.worker = OCRWorker(
             image_paths=run_config.image_paths,
             ocr_processor=self.ocr_processor,
-            file_manager=self.file_manager,
             language=self.language,
             rule_mode=run_config.rule_mode,
             custom_pattern=run_config.custom_pattern,

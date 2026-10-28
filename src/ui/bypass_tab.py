@@ -13,6 +13,7 @@ from src.ui.i18n import choose, get_app_language, tr
 from src.ui.backup_recovery_dialog import BackupRecoveryDialog
 from src.ui.preflight_dialog import run_bounded_preflight
 from src.ui.run_summary_dialog import confirm_run_summary
+from src.core import bypass_planner
 from src.core.bypass_converter import BypassConverter
 from src.core.task_contracts import (
     BypassFileConfig,
@@ -692,30 +693,12 @@ class BypassTab(QWidget):
                 self.file_table.setRowCount(0)
             return 0
 
-        inplace_mode = self.radio_inplace.isChecked()
-        custom_target = ""
-        if self.radio_custom.isChecked():
-            tgt_text = self.tgt_entry.text().strip()
-            if os.path.isdir(tgt_text):
-                custom_target = os.path.normcase(os.path.abspath(tgt_text))
-
-        filtered = []
-        already_target_count = 0
-        for item in self._discovered_files:
-            if isinstance(item, tuple):
-                file_path, size_cached = item
-            else:
-                file_path, size_cached = item, (os.path.getsize(item) if os.path.exists(item) else 0)
-
-            if custom_target:
-                norm_p = os.path.normcase(os.path.abspath(file_path))
-                if norm_p == custom_target or norm_p.startswith(custom_target + os.sep):
-                    continue
-            _, ext = os.path.splitext(file_path.lower())
-            if inplace_mode and ext == self._target_extension_for_source(ext):
-                already_target_count += 1
-                continue
-            filtered.append((file_path, size_cached))
+        filtered, already_target_count = bypass_planner.filter_discovered_files(
+            self._discovered_files,
+            self._target_extension_for_source,
+            inplace_mode=self.radio_inplace.isChecked(),
+            exclude_root=self._custom_target_exclude_root(),
+        )
 
         self.scanned_files = [f[0] for f in filtered]
 
@@ -733,11 +716,9 @@ class BypassTab(QWidget):
                 size_kb = f"{size_bytes / 1024:.1f} KB"
                 rel_display = os.path.relpath(file_path, src_dir).replace("\\", "/")
                 _, ext = os.path.splitext(filename.lower())
-                tgt_ext = self._target_extension_for_source(ext)
-                if ext == '.pdf' and pdf_choice == ".zip + .html":
-                    display_tgt_ext = ".zip + .html"
-                else:
-                    display_tgt_ext = tgt_ext
+                display_tgt_ext = bypass_planner.display_target_extension(
+                    ext, self._target_extension_for_source(ext), pdf_choice
+                )
 
                 item_name = QTableWidgetItem(rel_display)
                 item_name.setData(Qt.ItemDataRole.UserRole, file_path)
@@ -779,8 +760,9 @@ class BypassTab(QWidget):
                 if not file_path:
                     continue
                 _, ext = os.path.splitext(file_path.lower())
-                tgt_ext = self._target_extension_for_source(ext)
-                display_ext = pdf_choice if (ext == ".pdf" and pdf_choice == ".zip + .html") else tgt_ext
+                display_ext = bypass_planner.display_target_extension(
+                    ext, self._target_extension_for_source(ext), pdf_choice
+                )
                 self.file_table.setItem(idx, 2, QTableWidgetItem(display_ext))
         finally:
             self.file_table.setUpdatesEnabled(True)
@@ -843,8 +825,7 @@ class BypassTab(QWidget):
 
         inplace_mode = self.radio_inplace.isChecked()
         tgt_dir = src_dir if inplace_mode else self.tgt_entry.text().strip()
-        rel_dir = os.path.relpath(os.path.dirname(src_path), src_dir)
-        dest_dir = os.path.dirname(src_path) if inplace_mode else (tgt_dir if rel_dir == "." else os.path.join(tgt_dir, rel_dir))
+        dest_dir = bypass_planner.resolve_dest_dir(src_path, src_dir, tgt_dir, inplace_mode)
 
         raw_base = os.path.basename(src_path)
         name_no_ext, ext = os.path.splitext(raw_base)
@@ -1007,19 +988,18 @@ class BypassTab(QWidget):
         return self.radio_inplace.isChecked() or os.path.isdir(self.tgt_entry.text().strip())
 
     def _target_extension_for_source(self, source_ext):
-        source_ext = source_ext.lower()
-        if source_ext in ('.xlsx', '.xls', '.xlsm'):
-            return self.excel_combo.currentText()
-        if source_ext in ('.pptx', '.ppt', '.pptm'):
-            return self.ppt_combo.currentText()
-        if source_ext in ('.docx', '.doc', '.docm'):
-            return self.word_combo.currentText()
-        if source_ext == '.pdf':
-            choice = self.pdf_combo.currentText()
-            if choice == ".zip + .html":
-                return ".zip"
-            return choice
-        return ""
+        return bypass_planner.target_extension_for(
+            source_ext,
+            excel_ext=self.excel_combo.currentText(),
+            ppt_ext=self.ppt_combo.currentText(),
+            word_ext=self.word_combo.currentText(),
+            pdf_choice=self.pdf_combo.currentText(),
+        )
+
+    def _custom_target_exclude_root(self):
+        return bypass_planner.resolve_exclude_root(
+            self.radio_custom.isChecked(), self.tgt_entry.text().strip()
+        )
 
     def _invalidate_scan(self, *_args):
         self.scanned_files.clear()
@@ -1073,73 +1053,12 @@ class BypassTab(QWidget):
 
         self.log_area.append(self._msg("bypass_scanning"))
 
-        target_extensions = ('.xlsx', '.xls', '.xlsm', '.pptx', '.ppt', '.pptm', '.docx', '.doc', '.docm', '.pdf')
-        already_target_count = 0
-
         try:
-            recursive = self.check_recursive_scan.isChecked()
-            EXCLUDE_DIR_NAMES = {"original backup", "$recycle.bin", ".git", "__pycache__", ".svn", "node_modules"}
-            is_junction_fn = getattr(os.path, 'isjunction', lambda p: False)
-            src_real = os.path.realpath(src_dir)
-            src_prefix = src_real if src_real.endswith(os.sep) else src_real + os.sep
-
-            custom_target = ""
-            if self.radio_custom.isChecked():
-                tgt_text = self.tgt_entry.text().strip()
-                if os.path.isdir(tgt_text):
-                    custom_target = os.path.normcase(os.path.abspath(tgt_text))
-
-            discovered = []
-            if recursive:
-                for root, dirs, files in os.walk(src_dir, followlinks=False):
-                    pruned_dirs = []
-                    for d in dirs:
-                        if d.lower() in EXCLUDE_DIR_NAMES:
-                            continue
-                        full_d = os.path.join(root, d)
-                        if os.path.islink(full_d) or is_junction_fn(full_d):
-                            continue
-                        real_d = os.path.realpath(full_d)
-                        if not (real_d == src_real or real_d.startswith(src_prefix)):
-                            continue
-                        norm_dir = os.path.normcase(os.path.abspath(full_d))
-                        if custom_target and (norm_dir == custom_target or norm_dir.startswith(custom_target + os.sep)):
-                            continue
-                        pruned_dirs.append(d)
-                    dirs[:] = pruned_dirs
-
-                    for file_name in files:
-                        full_f = os.path.join(root, file_name)
-                        if os.path.islink(full_f):
-                            continue
-                        real_f = os.path.realpath(full_f)
-                        if not (real_f == src_real or real_f.startswith(src_prefix)):
-                            continue
-                        norm_f = os.path.normcase(os.path.abspath(full_f))
-                        if custom_target and (norm_f == custom_target or norm_f.startswith(custom_target + os.sep)):
-                            continue
-                        _, ext = os.path.splitext(file_name.lower())
-                        if ext in target_extensions:
-                            size_b = os.path.getsize(full_f) if os.path.exists(full_f) else 0
-                            discovered.append((full_f, size_b))
-            else:
-                for file_name in os.listdir(src_dir):
-                    file_path = os.path.join(src_dir, file_name)
-                    if os.path.islink(file_path):
-                        continue
-                    if os.path.isfile(file_path):
-                        real_f = os.path.realpath(file_path)
-                        if not (real_f == src_real or real_f.startswith(src_prefix)):
-                            continue
-                        norm_f = os.path.normcase(os.path.abspath(file_path))
-                        if custom_target and (norm_f == custom_target or norm_f.startswith(custom_target + os.sep)):
-                            continue
-                        _, ext = os.path.splitext(file_name.lower())
-                        if ext in target_extensions:
-                            size_b = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-                            discovered.append((file_path, size_b))
-
-            self._discovered_files = discovered
+            self._discovered_files = bypass_planner.scan_source_files(
+                src_dir,
+                recursive=self.check_recursive_scan.isChecked(),
+                exclude_root=self._custom_target_exclude_root(),
+            )
             already_target_count = self._filter_and_render_files()
             self.log_area.append(self._msg("bypass_scan_complete", count=len(self.scanned_files)))
             if already_target_count:
@@ -1441,25 +1360,9 @@ class BypassTab(QWidget):
                     values={"path": src_file},
                 )
 
-            # 원본 파일이 현재 소스 폴더 하위에 존재하는지 엄격 검증 (Stale Cache 방어)
-            norm_src_dir = os.path.normcase(os.path.abspath(src_dir))
-            norm_src_file = os.path.normcase(os.path.abspath(src_file))
-            try:
-                common_src = os.path.commonpath([norm_src_dir, norm_src_file])
-                is_sub = (common_src == norm_src_dir)
-            except ValueError:
-                is_sub = False
+            bypass_planner.ensure_source_inside(src_file, src_dir)
 
-            if not is_sub:
-                raise TaskValidationError(
-                    f"파일 변환 원본 파일이 현재 소스 폴더 외부에 있습니다: {src_file}",
-                    message_key="bypass_source_file_outside",
-                    values={"path": src_file},
-                )
-
-            raw_base_name = os.path.basename(src_file)
-            name_no_ext, src_ext_curr = os.path.splitext(raw_base_name)
-            src_ext_curr = src_ext_curr.lower()
+            src_ext_curr = os.path.splitext(src_file)[1].lower()
             if hasattr(self, "_target_extension_for_source") and callable(self._target_extension_for_source):
                 tgt_ext = self._target_extension_for_source(src_ext_curr)
             else:
@@ -1469,66 +1372,19 @@ class BypassTab(QWidget):
 
             pdf_choice = self.pdf_combo.currentText() if hasattr(self, "pdf_combo") and hasattr(self.pdf_combo, "currentText") else ""
             has_check_html = hasattr(self, "check_pdf_html") and hasattr(self.check_pdf_html, "isChecked") and self.check_pdf_html.isChecked()
-            is_pdf_dual = (src_ext_curr == '.pdf' and (pdf_choice == ".zip + .html" or (pdf_choice == ".zip" and has_check_html) or getattr(self, "generate_pdf_html", False)))
+            is_pdf_dual = bypass_planner.is_pdf_dual_output(
+                src_ext_curr, pdf_choice, has_check_html, getattr(self, "generate_pdf_html", False)
+            )
 
             # 대상 디렉터리 산출 (Custom 모드 시 상대 경로 트리 미러링)
-            if inplace_mode:
-                dest_dir = os.path.dirname(src_file)
-            else:
-                rel_dir = os.path.relpath(os.path.dirname(src_file), src_dir)
-                dest_dir = tgt_dir if rel_dir == "." else os.path.join(tgt_dir, rel_dir)
-                norm_tgt_dir = os.path.normcase(os.path.abspath(tgt_dir))
-                norm_dest_dir = os.path.normcase(os.path.abspath(dest_dir))
-                try:
-                    common_tgt = os.path.commonpath([norm_tgt_dir, norm_dest_dir])
-                    tgt_sub = (common_tgt == norm_tgt_dir)
-                except ValueError:
-                    tgt_sub = False
-                if not tgt_sub:
-                    raise TaskValidationError(
-                        f"대상 출력 경로가 지정된 타깃 폴더를 벗어났습니다: {dest_dir}",
-                        message_key="bypass_target_path_escaped",
-                        values={"path": dest_dir},
-                    )
+            dest_dir = bypass_planner.resolve_dest_dir(src_file, src_dir, tgt_dir, inplace_mode)
+            if not inplace_mode:
+                bypass_planner.ensure_dest_inside_target(dest_dir, tgt_dir)
 
-            tgt_filename = f"{name_no_ext}{tgt_ext}"
-            tgt_file = os.path.join(dest_dir, tgt_filename)
-
-            def target_collides(cand_file, source_ext=src_ext_curr):
-                norm_cand = os.path.normcase(os.path.abspath(cand_file))
-                if os.path.exists(cand_file) or norm_cand in reserved_targets:
-                    return True
-                if generate_pdf_html and source_ext.lower() == '.pdf':
-                    cand_html = os.path.splitext(cand_file)[0] + ".html"
-                    norm_html = os.path.normcase(os.path.abspath(cand_html))
-                    if os.path.exists(cand_html) or norm_html in reserved_targets:
-                        return True
-                return False
-
-            normalized_target = os.path.normcase(os.path.abspath(tgt_file))
-            normalized_source = os.path.normcase(os.path.abspath(src_file))
-            same_as_source = normalized_target == normalized_source
-            if same_as_source:
-                tgt_filename = f"{name_no_ext}_converted{tgt_ext}"
-                tgt_file = os.path.join(dest_dir, tgt_filename)
-                suffix = "_converted"
-                counter = 1
-                while target_collides(tgt_file):
-                    tgt_filename = f"{name_no_ext}{suffix}_{counter}{tgt_ext}"
-                    tgt_file = os.path.join(dest_dir, tgt_filename)
-                    counter += 1
-            elif target_collides(tgt_file):
-                counter = 1
-                while True:
-                    tgt_filename = f"{name_no_ext}_{counter}{tgt_ext}"
-                    tgt_file = os.path.join(dest_dir, tgt_filename)
-                    if not target_collides(tgt_file):
-                        break
-                    counter += 1
-
-            reserved_targets.add(os.path.normcase(os.path.abspath(tgt_file)))
-            if is_pdf_dual:
-                reserved_targets.add(os.path.normcase(os.path.abspath(os.path.splitext(tgt_file)[0] + ".html")))
+            tgt_file = bypass_planner.allocate_target_path(
+                src_file, dest_dir, tgt_ext, reserved_targets, check_pdf_html=generate_pdf_html
+            )
+            bypass_planner.reserve_target(reserved_targets, tgt_file, include_html=is_pdf_dual)
 
             tasks.append(BypassFileConfig(
                 src=src_file,
@@ -1541,7 +1397,7 @@ class BypassTab(QWidget):
             if hasattr(item_name, "setData"):
                 item_name.setData(Qt.ItemDataRole.UserRole + 1, tgt_file)
                 if is_pdf_dual:
-                    item_name.setData(Qt.ItemDataRole.UserRole + 2, os.path.splitext(tgt_file)[0] + ".html")
+                    item_name.setData(Qt.ItemDataRole.UserRole + 2, bypass_planner.html_viewer_path(tgt_file))
                 elif tgt_ext == '.html':
                     item_name.setData(Qt.ItemDataRole.UserRole + 2, tgt_file)
 

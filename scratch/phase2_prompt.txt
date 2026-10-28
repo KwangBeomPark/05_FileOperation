@@ -1,0 +1,23 @@
+당신은 'Claude Opus 5.5' 수석 아키텍트입니다.
+FileOps Hub 프로젝트(`C:\Dev\GitHub\05_FileOperation`)의 **Phase 2 리팩토링 (코어 단일화 및 UI 침투 로직 분리, 데드코드 정리)**을 직접 코드를 수정하여 수행해 주세요.
+(과설계 금지, 기존 동작/기능/UI 100% 동일 유지, 기존 359개 테스트 전체 통과 필수)
+
+[Phase 2 구체적 작업 항목]
+1. `src/core/ocr_processor.py`:
+   - 모듈 레벨 `extract_by_rule()`과 클래스 메서드 `OCRProcessor.extract_by_rule()` 간의 중복과 정규식 불일치를 단일화.
+   - 클래스 메서드가 모듈 레벨의 정제된 함수를 직접 활용하거나, 단일 진실 공급원(SSOT)으로 일원화하여 유지보수성 확보.
+
+2. `src/core/bypass_planner.py` 추출 및 `src/ui/bypass_tab.py` 슬림화:
+   - `BypassTab` 내부의 `scan_source_folder`, `_filter_and_render_files`, `build_run_config` 등에 혼재된 파일 스캔(`os.walk`), 확장자 필터링, 타깃 경로 계산(동일 폴더 모드 / 별도 타깃 폴더 모드 / 하위 디렉터리 구조 유지), 대상 파일 충돌 판정 로직을 `src/core/bypass_planner.py`로 추출.
+   - `BypassTab`은 이 `bypass_planner`의 함수/데이터 구조를 호출하여 테이블 바인딩 및 UI 인터랙션만 처리하도록 경계 분리.
+   - 기존의 모든 UI 동작 및 뷰어 변환 기능이 한 치의 오차도 없이 동일하게 동작하도록 보장.
+
+3. `src/ui/pdf_tab.py`, `src/ui/ocr_tab.py`의 `FileManager` 미사용 잔재 제거:
+   - 두 탭 및 그 내부 워커(`PDFWorker`, `OCRWorker`)에서 인스턴스화되어 파라미터로 넘겨지기만 하고 실제 호출부는 전혀 없는 `FileManager` 의존성 및 미사용 코드 깔끔하게 제거.
+
+4. 검증 및 테스트:
+   - `tools/test_bypass_planner.py` 등을 추가하여 새로 추출된 바이패스 플래너(스캔, 타깃 계산, 충돌 감지)의 단위 테스트 작성.
+   - `python -m unittest discover -s tools -p "test_*.py"` 실행하여 기존 359개 + 신규 테스트 전체 통과 확인.
+   - `ruff check src` 실행하여 신규 린트 오류 없음 확인.
+
+작업이 완료되면 변경한 내용과 테스트 결과를 한국어로 요약 보고해 주세요.

@@ -141,33 +141,15 @@ class OCRProcessor:
             return None
 
     def extract_by_rule(self, text: str, rule_mode: str = "promotion", custom_pattern: str = "") -> str | None:
-        """지정된 추출 규칙(프리셋 또는 커스텀 정규식)에 따라 텍스트에서 핵심 키워드를 추출합니다."""
+        """지정된 추출 규칙(프리셋 또는 커스텀 정규식)에 따라 텍스트에서 핵심 키워드를 추출합니다.
+
+        기본 프로모션 모드는 설정(`promotion_regex`)을 따르고, 그 외 규칙은
+        모듈 레벨 `extract_by_rule()`(단일 구현)에 위임합니다.
+        """
         mode = (rule_mode or "promotion").strip()
         if mode == "promotion" and not custom_pattern:
             return self.find_promotion_number(text)
-
-        if mode == "full_text_txt":
-            return "TEXT_EXTRACTED" if (text and text.strip()) else None
-
-        if mode == "first_line":
-            for line in (text or "").splitlines():
-                token = self.sanitize_filename_token(line, max_len=45)
-                if token:
-                    return token
-            return None
-
-        pattern = custom_pattern.strip() if mode == "custom_regex" and custom_pattern.strip() else self.EXTRACTION_PRESETS.get(mode, custom_pattern.strip() or self.EXTRACTION_PRESETS["promotion"])
-        try:
-            match = re.search(pattern, text or "", re.IGNORECASE)
-        except re.error as e:
-            from src.utils.logger import get_logger
-            get_logger().error(f"Invalid regex pattern '{pattern}' for mode '{mode}': {e}")
-            return None
-
-        if not match:
-            return None
-        raw_val = match.group(1) if match.lastindex and match.lastindex >= 1 else match.group(0)
-        return self.sanitize_filename_token(raw_val) or None
+        return extract_by_rule(text, mode, custom_pattern)
 
     @classmethod
     def format_rename_filename(
@@ -261,7 +243,21 @@ sanitize_filename_token = OCRProcessor.sanitize_filename_token
 export_text_file = OCRProcessor.export_text_file
 
 
+# 설정 없이 호출되는 기본 프로모션 규칙: 정식 번호 + 축약 표기(날짜-일련번호)까지 허용
+PROMOTION_FALLBACK_PATTERN = r"PL-[A-Z]TS[A-Z]-202\d{5}-\d{4}|\b202\d{5}-\d{4}\b|\b\d{6}-\d{2}\b"
+
+
+def _resolve_rule_pattern(mode: str, custom_pattern: str) -> str:
+    custom = (custom_pattern or "").strip()
+    if mode == "promotion" and not custom:
+        return PROMOTION_FALLBACK_PATTERN
+    if mode == "custom_regex" and custom:
+        return custom
+    return EXTRACTION_PRESETS.get(mode, custom or EXTRACTION_PRESETS["promotion"])
+
+
 def extract_by_rule(text: str, rule_mode: str = "promotion", custom_pattern: str = "") -> str | None:
+    """추출 규칙(프리셋/커스텀 정규식/첫 줄/전문)의 단일 구현(SSOT)."""
     mode = (rule_mode or "promotion").strip()
     if mode == "full_text_txt":
         return sanitize_filename_token(" ".join((text or "").split()), max_len=60) if (text and text.strip()) else None
@@ -273,16 +269,12 @@ def extract_by_rule(text: str, rule_mode: str = "promotion", custom_pattern: str
                 return token
         return None
 
-    if mode == "promotion" and not custom_pattern:
-        pattern = r"PL-[A-Z]TS[A-Z]-202\d{5}-\d{4}|\b202\d{5}-\d{4}\b|\b\d{6}-\d{2}\b"
-    elif mode == "custom_regex" and custom_pattern.strip():
-        pattern = custom_pattern.strip()
-    else:
-        pattern = EXTRACTION_PRESETS.get(mode, EXTRACTION_PRESETS["promotion"])
-
+    pattern = _resolve_rule_pattern(mode, custom_pattern)
     try:
         match = re.search(pattern, text or "", re.IGNORECASE)
-    except re.error:
+    except re.error as e:
+        from src.utils.logger import get_logger
+        get_logger().error(f"Invalid regex pattern '{pattern}' for mode '{mode}': {e}")
         return None
 
     if not match:
