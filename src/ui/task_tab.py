@@ -1432,7 +1432,7 @@ class TaskTab(TaskPanelMixin, QWidget):
         self._refresh_start_button_state()
 
         if not success and not report_body:
-            for index, row in enumerate(self.rows):
+            for index, _row in enumerate(self.rows):
                 status_item = self.status_table.item(index, self.COL_STATUS)
                 if status_item.data(Qt.ItemDataRole.UserRole) in {"pending", "running"}:
                     self._set_status_item(status_item, "failed")

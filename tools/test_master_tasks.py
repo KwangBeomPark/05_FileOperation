@@ -620,7 +620,7 @@ class MasterMigrationTests(unittest.TestCase):
 
     def test_legacy_schedule_moves_to_earliest_time_once(self):
         groups = [new_collect_group(str(i)) for i in range(3)]
-        for group, clock in zip(groups, ("17:30", "06:45", "12:00")):
+        for group, clock in zip(groups, ("17:30", "06:45", "12:00"), strict=True):
             group.update(schedule_enabled=True, schedule_time=clock)
         config = MemoryConfig(groups)
         config.values.update(sync_groups=[{"name": "existing", "folders": []}], task_enabled_steps=["sync"])
