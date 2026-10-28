@@ -1,3 +1,15 @@
+# SA Team nested tabs (user authorized 2026-10-25)
+
+- [x] 1. Reorder top tabs to Tasks / Sync / Convert Files / SA Team, nesting EML / PDF / OCR under SA Team. Preserve existing widget instances, settings and execution order.
+- [x] 2. Update localized labels, current-screen/F1 help, diagnostic navigation and nested-tab locking. Nine new layout tests and 24 related manual/i18n/task-selection checks passed. Rendered the real MainWindow with in-memory settings in Korean and reviewed both navigation levels.
+- [x] 3. 349 regression tests OK (one existing native-installer fixture class skipped), 32 backup assertions, Ruff/compileall/pip check and Inno compilation passed. Updated multilingual README/manual/navigation docs. No version bump, signing, installation, GitHub push or publication in this UI-only step. Live Office/scheduled job execution was not performed.
+
+# Run change summary (user authorized 2026-10-22)
+
+- [x] 1. Add a read-only, typed-plan change analyzer using the existing sync dry run. Distinguish copies, conversion inputs, renames, backup moves and permanent deletion; never invent future output counts. 16 isolated analyzer tests passed.
+- [x] 2. Add a shared localized confirmation to manual unified and individual runs. Analyze off the GUI thread with cancellation/timeouts; recheck after confirmation. Scheduled runs log estimates without a popup; unavailable estimates do not change the existing scheduled preflight/consent policy.
+- [x] 3. 340 regression tests OK (one pre-existing native-installer fixture class skipped), 32 backup assertions, Ruff, compileall, pip check and Inno compilation passed. Rendered/reviewed the real Qt dialog in Korean/English/Polish using fictional data. Added close/cancel guards, unknown-count handling and OCR TXT overwrite warnings. No version bump/publication. Live Office/shared-drive performance and packaged frozen execution remain untested. See RUN_CHANGE_SUMMARY.md.
+
 # Legacy install migration (user authorized 2026-10-12)
 
 - [x] 1. Default to Programs/FileOps and identify only known legacy folders. Copy UserSetting or the old setting_integrated.json; never merge conflicting settings.

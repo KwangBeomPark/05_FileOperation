@@ -31,6 +31,7 @@ class SyncManager:
         exclude_patterns: list | None = None,
         include_subfolders: bool = False,
         sync_mode: str = "two_way",
+        observe_scan: bool = False,
     ):
         """
         Args:
@@ -56,6 +57,9 @@ class SyncManager:
         self.include_subfolders = bool(include_subfolders)
         self.sync_mode = sync_mode if sync_mode in ("two_way", "one_way") else "two_way"
         self.is_cancelled = False  # 작업 취소 플래그
+        self.observe_scan = observe_scan
+        self.scan_observations = {}
+        self.scan_errors = []
 
     def cancel(self):
         """동기화 작업을 중간에 취소합니다."""
@@ -135,6 +139,8 @@ class SyncManager:
         if self.is_excluded(rel_path):
             return
         file_stat = os.stat(full_path)
+        if self.observe_scan:
+            self._observe_path(full_path, file_stat)
         mtime = file_stat.st_mtime
         size = file_stat.st_size
         base_item = os.path.basename(rel_path)
@@ -166,6 +172,15 @@ class SyncManager:
             }
             plain_files.setdefault(rel_path, []).append(file_entry)
 
+    def _observe_path(self, path, info=None):
+        """Collect metadata only for a bounded, read-only change preview."""
+        if len(self.scan_observations) >= 100_000:
+            raise OSError("Preview exceeds 100000 observed paths; use a smaller scope.")
+        info = info or os.stat(path)
+        self.scan_observations[os.path.abspath(path)] = (
+            info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino, info.st_mode,
+        )
+
     def scan_files(self) -> tuple:
         """
         대상 폴더들의 직계 최상위 파일들(또는 include_subfolders=True 시 하위 폴더 포함)을 스캔하여
@@ -177,16 +192,22 @@ class SyncManager:
         version_groups = {} # {(base_name, ext): [file_info_dict, ...]}
         plain_files = {}    # {filename_with_ext: [file_info_dict, ...]}
         ignored_dirs = {"to be deleted", self.archive_folder_name.lower()}
+        self.scan_observations.clear()
+        self.scan_errors.clear()
 
         for folder in self.folders:
             if self.is_cancelled:
                 break
                 
             try:
+                if self.observe_scan:
+                    self._observe_path(folder)
                 if self.include_subfolders:
-                    for root, dirs, files in os.walk(folder):
+                    for root, dirs, files in os.walk(folder, onerror=self.scan_errors.append):
                         if self.is_cancelled:
                             break
+                        if self.observe_scan:
+                            self._observe_path(root)
                         dirs[:] = [
                             d for d in dirs
                             if d.lower() not in ignored_dirs and not self.is_excluded(d)
@@ -205,6 +226,7 @@ class SyncManager:
                             continue
                         self._register_scanned_file(folder, item, full_path, version_groups, plain_files)
             except Exception as e:
+                self.scan_errors.append(e)
                 logger.error(f"Error scanning folder '{folder}': {e}")
                 
         return version_groups, plain_files

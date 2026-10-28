@@ -8,7 +8,8 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 
 from src.core.eml_converter import EMLConverter
-from src.core.task_contracts import EmlRunConfig, EmlTaskConfig, TaskValidationError
+from src.core.task_contracts import EmlRunConfig, EmlTaskConfig, RunPlan, TaskStep, TaskValidationError
+from src.ui.run_summary_dialog import confirm_run_summary
 from src.ui.eml_task_dialog import EMLTaskDialog
 from src.ui.toast_notification import show_toast
 from src.ui.i18n import choose, get_app_language, tr
@@ -396,11 +397,21 @@ class EMLTab(QWidget):
             show_toast(self, self._msg("eml_task_deleted"), "success")
             
     def start_conversion(self):
+        if self.is_converting:
+            return
         if not self.tasks:
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No batch tasks are configured. Add a task first.", "등록된 배치 태스크가 없습니다. 태스크를 추가해 주세요.", "Nie skonfigurowano zadań wsadowych. Najpierw dodaj zadanie."))
             return
             
         width = int(self.config_manager.get("eml_output_width", 1024))
+        try:
+            run_config = self.build_run_config()
+        except TaskValidationError as exc:
+            problem = tr(exc.message_key, self.language, **exc.values) if exc.message_key else exc.user_message
+            QMessageBox.warning(self, self._msg("common_warning"), problem)
+            return
+        if run_config is None or not confirm_run_summary(self, RunPlan({TaskStep.EML: run_config}), self.config_manager):
+            return
         
         self.is_converting = True
         self.set_ui_locked(True)
@@ -421,7 +432,7 @@ class EMLTab(QWidget):
                     cell.setBackground(QBrush(QColor("#1e1e1e")))
                     cell.setForeground(QBrush(QColor("#e2e8f0")))
                     
-        self.worker = EMLWorker(self.tasks, self.eml_converter, width=width, language=self.language)
+        self.worker = EMLWorker([task.to_legacy_dict() for task in run_config.tasks], self.eml_converter, width=width, language=self.language)
         self.worker.progress.connect(self.update_progress)
         self.worker.log_signal.connect(self.log)
         self.worker.task_status_changed.connect(self.on_task_status_changed)

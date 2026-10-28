@@ -2,11 +2,17 @@
 
 파일 동기화, PDF·EML·Office 변환과 OCR 작업을 실행하고 결과를 기록하는 앱입니다. 이메일 열람 앱과 제품 역할을 합치지 않습니다.
 
+화면은 작업 실행 / 폴더 동기화 / 파일 변환 / SA Team의 4개 상위 탭입니다.
+SA Team에는 EML 변환 / PDF 변환 / 이미지 읽기 하위 탭이 있습니다.
+`MainWindow.select_feature_tab()`은 진단에서 상·하위 탭을 함께 선택하며 현재 화면 도움말도
+선택한 하위 기능을 따릅니다. 기존 기능 객체·설정 키·통합 처리 순서는 유지합니다.
+
 | 역할 | 진입점 |
 | --- | --- |
 | 실행·무인 작업 | `src/main.py` |
 | 화면·설정 대화상자 | `src/ui/`, `src/ui/settings_dialog.py` |
 | 작업 실행·프리셋·이력 | `src/core/`, `src/core/preset_manager.py`, `src/core/run_journal.py` |
+| 읽기 전용 변경 예상·공통 확인창 | `src/core/run_summary.py`, `src/ui/run_summary_dialog.py` |
 | 제품 식별자·호환 이름·활성 저장소 | `src/app_identity.py` |
 | 설정 우선순위·암호화 | `src/utils/config_manager.py`, `src/utils/security.py` |
 | 완전한 파일 저장 후 교체 | `src/utils/atomic_write.py` |

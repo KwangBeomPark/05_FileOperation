@@ -13,7 +13,8 @@ from src.ui.i18n import choose, get_app_language, tr
 
 from src.core.ocr_processor import OCRProcessor
 from src.core.file_manager import FileManager
-from src.core.task_contracts import OcrRunConfig, TaskValidationError
+from src.core.task_contracts import OcrRunConfig, RunPlan, TaskStep, TaskValidationError
+from src.ui.run_summary_dialog import confirm_run_summary
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -428,6 +429,8 @@ class OCRTab(QWidget):
         self.config_manager.set("ocr_export_txt", export_txt)
 
     def start_ocr(self):
+        if self.is_converting:
+            return
         # 체크된 이미지 경로들 추출
         checked_paths = []
         for idx in range(self.image_list_widget.count()):
@@ -439,6 +442,14 @@ class OCRTab(QWidget):
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("Select at least one image using its checkbox.", "분석을 실행할 이미지 파일을 체크박스에서 먼저 선택해 주세요.", "Zaznacz co najmniej jeden obraz za pomocą pola wyboru."))
             return
             
+        run_config = OcrRunConfig(
+            list(checked_paths), rule_mode=str(self.rule_combo.currentData() or "promotion"),
+            custom_pattern=self.custom_regex_input.text().strip(),
+            rename_template=self.rename_template_input.text().strip() or "{match}",
+            export_txt=self.export_txt_check.isChecked(),
+        )
+        if not confirm_run_summary(self, RunPlan({TaskStep.OCR: run_config}), self.config_manager):
+            return
         self._save_ocr_rule_settings()
         self.is_converting = True
         self.start_btn.setEnabled(False)
@@ -451,14 +462,14 @@ class OCRTab(QWidget):
         self.workflow_widget.set_active_step(1)
         
         self.worker = OCRWorker(
-            image_paths=checked_paths,
+            image_paths=run_config.image_paths,
             ocr_processor=self.ocr_processor,
             file_manager=self.file_manager,
             language=self.language,
-            rule_mode=str(self.rule_combo.currentData() or "promotion"),
-            custom_pattern=self.custom_regex_input.text().strip(),
-            rename_template=self.rename_template_input.text().strip() or "{match}",
-            export_txt=self.export_txt_check.isChecked(),
+            rule_mode=run_config.rule_mode,
+            custom_pattern=run_config.custom_pattern,
+            rename_template=run_config.rename_template,
+            export_txt=run_config.export_txt,
         )
         
         self.worker.progress.connect(self.update_progress)

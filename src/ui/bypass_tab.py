@@ -12,6 +12,7 @@ from src.ui.toast_notification import show_toast
 from src.ui.i18n import choose, get_app_language, tr
 from src.ui.backup_recovery_dialog import BackupRecoveryDialog
 from src.ui.preflight_dialog import run_bounded_preflight
+from src.ui.run_summary_dialog import confirm_run_summary
 from src.core.bypass_converter import BypassConverter
 from src.core.task_contracts import (
     BypassFileConfig,
@@ -1160,6 +1161,8 @@ class BypassTab(QWidget):
             QMessageBox.critical(self, self._msg("common_error"), self._msg("bypass_scan_failed", detail=str(e)))
 
     def start_conversion(self):
+        if self.is_running:
+            return
         if not self.scanned_files:
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No files are ready. Scan the source folder first.", "변환할 대상 파일이 없습니다. 스캔을 먼저 실행해 주세요.", "Brak plików gotowych do konwersji. Najpierw przeskanuj folder źródłowy."))
             return
@@ -1211,7 +1214,8 @@ class BypassTab(QWidget):
             QMessageBox.critical(self, self._msg("bypass_preflight_failed"), preflight.format(include_warnings=False, language=self.language))
             return
 
-        if not self._confirm_source_action(run_config):
+        warnings = preflight.format(language=self.language) if preflight.warnings else ""
+        if not confirm_run_summary(self, RunPlan({TaskStep.BYPASS: run_config}), self.config_manager, warnings=warnings):
             self.log_area.append(self._t("Source action was cancelled.", "원본 처리 작업을 취소했습니다.", "Anulowano akcję na źródłach."))
             return
 

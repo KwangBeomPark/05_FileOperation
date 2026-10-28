@@ -100,6 +100,10 @@ def _run_registered_probe(probe_name: str, payload: dict[str, Any]) -> Any:
         from src.core.backup_recovery import list_backup_entries
 
         return [asdict(entry) for entry in list_backup_entries(str(payload.get("source_folder", "")))]
+    if probe_name == "run_summary":
+        from src.core.run_summary import build_run_summary
+
+        return build_run_summary(payload["plan"])
     if probe_name == "test_sleep":
         # Test-only probe used to verify timeout and cancellation semantics.
         time.sleep(float(payload.get("seconds", 0)))

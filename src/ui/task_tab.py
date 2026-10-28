@@ -24,6 +24,7 @@ from src.core.task_history import merge_run_report_history, normalize_step_histo
 from src.ui.i18n import get_app_language, tr
 from src.ui.diagnostics_dialog import DiagnosticsDialog
 from src.ui.preflight_dialog import run_bounded_preflight
+from src.ui.run_summary_dialog import confirm_run_summary
 from src.ui.run_history_dialog import RunHistoryDialog
 from src.ui.task_worker import TaskWorker
 from src.utils.logger import get_logger
@@ -803,7 +804,9 @@ class TaskTab(QWidget):
             main_win.open_settings()
             return
         if target == "tasks":
-            if hasattr(main_win, "tab_widget"):
+            if hasattr(main_win, "select_feature_tab"):
+                main_win.select_feature_tab(self)
+            elif hasattr(main_win, "tab_widget"):
                 main_win.tab_widget.setCurrentWidget(self)
             return
         try:
@@ -818,8 +821,11 @@ class TaskTab(QWidget):
             TaskStep.BYPASS: getattr(main_win, "bypass_tab", None),
         }
         widget = widgets.get(step)
-        if widget is not None and hasattr(main_win, "tab_widget"):
-            main_win.tab_widget.setCurrentWidget(widget)
+        if widget is not None:
+            if hasattr(main_win, "select_feature_tab"):
+                main_win.select_feature_tab(widget)
+            elif hasattr(main_win, "tab_widget"):
+                main_win.tab_widget.setCurrentWidget(widget)
         
     def log(self, message):
         self.log_area.append(message)
@@ -1028,7 +1034,8 @@ class TaskTab(QWidget):
 
     def check_scheduled_run(self, now=None):
         """Start once per day, retrying only failures that occur before worker start."""
-        if not self.check_schedule.isChecked() or self.is_running or self.is_preflighting:
+        if (not self.check_schedule.isChecked() or self.is_running or self.is_preflighting
+                or getattr(self.window(), "_run_confirmation_active", False)):
             return False
 
         now = now or datetime.now()
@@ -1092,6 +1099,12 @@ class TaskTab(QWidget):
     def start_all_tasks(self, checked=False, scheduled=False):
         """통합 일괄 실행 시작"""
         self.start_failure_reason = ""
+        if self.is_preflighting or getattr(self.window(), "_run_confirmation_active", False):
+            return self._start_rejected(self._text(
+                "Another run is being reviewed. Finish or cancel it first.",
+                "다른 실행을 확인 중입니다. 먼저 확인을 마치거나 취소해 주세요.",
+                "Trwa sprawdzanie innego uruchomienia. Zakończ je lub anuluj.",
+            ))
         if self.is_running:
             return self._start_rejected(tr("task_schedule_already_running", self.language))
             
@@ -1260,20 +1273,15 @@ class TaskTab(QWidget):
                 QMessageBox.critical(self, self._text("Preflight check failed", "사전 점검 실패", "Kontrola wstępna nie powiodła się"), preflight.format(include_warnings=False))
             return self._start_rejected(preflight.format(include_warnings=False, language=self.language))
 
-        if preflight.warnings:
-            warning_text = preflight.format(include_warnings=True)
-            if scheduled:
-                self.log(self._text("[Scheduled run] Preflight warning:\n", "[예약 실행] 사전 점검 경고:\n", "[Harmonogram] Ostrzeżenie kontroli wstępnej:\n") + warning_text)
-            else:
-                reply = QMessageBox.question(
-                    self,
-                    self._text("Preflight warning", "사전 점검 경고", "Ostrzeżenie kontroli wstępnej"),
-                    warning_text + "\n\n" + self._text("Continue anyway?", "계속 진행할까요?", "Czy mimo to kontynuować?"),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No if backup_move_requested else QMessageBox.StandardButton.Yes,
-                )
-                if reply == QMessageBox.StandardButton.No:
-                    return False
+        warning_text = preflight.format(include_warnings=True, language=self.language) if preflight.warnings else ""
+        if scheduled and warning_text:
+            self.log(self._text("[Scheduled run] Preflight warning:\n", "[예약 실행] 사전 점검 경고:\n", "[Harmonogram] Ostrzeżenie kontroli wstępnej:\n") + warning_text)
+        if not confirm_run_summary(self, run_plan, self.config_manager, scheduled=scheduled, warnings=warning_text):
+            return self._start_rejected(self._text(
+                "The change review was not completed. No task was started.",
+                "변경 내용 확인을 완료하지 않아 작업을 시작하지 않았습니다.",
+                "Nie ukończono przeglądu zmian. Nie uruchomiono zadania.",
+            ))
                     
         # UI 및 탭 잠금 처리
         self.is_running = True

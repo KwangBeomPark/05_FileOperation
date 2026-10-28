@@ -444,10 +444,15 @@ class MainWindow(QMainWindow):
 
         self.tab_widget.addTab(self.task_tab, qta.icon('fa5s.rocket', color='white'), tr("tab_tasks", self.language))
         self.tab_widget.addTab(self.sync_tab, qta.icon('fa5s.sync-alt', color='white'), tr("tab_sync", self.language))
-        self.tab_widget.addTab(self.eml_tab, qta.icon('fa5s.envelope', color='white'), tr("tab_eml", self.language))
-        self.tab_widget.addTab(self.pdf_tab, qta.icon('fa5s.file-pdf', color='white'), tr("tab_pdf", self.language))
-        self.tab_widget.addTab(self.ocr_tab, qta.icon('fa5s.search', color='white'), tr("tab_ocr", self.language))
         self.tab_widget.addTab(self.bypass_tab, qta.icon('fa5s.tools', color='white'), tr("tab_bypass", self.language))
+        self.sa_team_tabs = QTabWidget()
+        self.sa_team_tabs.setObjectName("saTeamTabs")
+        self.sa_team_tabs.setDocumentMode(True)
+        self.sa_team_tabs.setAccessibleName(tr("tab_sa_team", self.language))
+        self.sa_team_tabs.addTab(self.eml_tab, qta.icon('fa5s.envelope', color='white'), tr("tab_eml", self.language))
+        self.sa_team_tabs.addTab(self.pdf_tab, qta.icon('fa5s.file-pdf', color='white'), tr("tab_pdf", self.language))
+        self.sa_team_tabs.addTab(self.ocr_tab, qta.icon('fa5s.search', color='white'), tr("tab_ocr", self.language))
+        self.tab_widget.addTab(self.sa_team_tabs, qta.icon('fa5s.users', color='white'), tr("tab_sa_team", self.language))
         
         # 메뉴바 생성
         self.create_menu_bar()
@@ -465,9 +470,23 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(tr("ready", self.language))
 
     def _set_tab_labels(self):
-        tab_labels = ("tab_tasks", "tab_sync", "tab_eml", "tab_pdf", "tab_ocr", "tab_bypass")
-        for index, key in enumerate(tab_labels):
-            self.tab_widget.setTabText(index, tr(key, self.language))
+        for widget, key in ((self.task_tab, "tab_tasks"), (self.sync_tab, "tab_sync"),
+                            (self.bypass_tab, "tab_bypass"), (self.sa_team_tabs, "tab_sa_team")):
+            self.tab_widget.setTabText(self.tab_widget.indexOf(widget), tr(key, self.language))
+        for widget, key in ((self.eml_tab, "tab_eml"), (self.pdf_tab, "tab_pdf"), (self.ocr_tab, "tab_ocr")):
+            self.sa_team_tabs.setTabText(self.sa_team_tabs.indexOf(widget), tr(key, self.language))
+        self.sa_team_tabs.setAccessibleName(tr("tab_sa_team", self.language))
+
+    def select_feature_tab(self, widget):
+        """Reveal a feature by widget identity, including its enclosing SA Team tab."""
+        if self.tab_widget.indexOf(widget) >= 0:
+            self.tab_widget.setCurrentWidget(widget)
+            return True
+        if self.sa_team_tabs.indexOf(widget) >= 0:
+            self.tab_widget.setCurrentWidget(self.sa_team_tabs)
+            self.sa_team_tabs.setCurrentWidget(widget)
+            return True
+        return False
 
     def _current_manual_topic(self):
         topic_by_widget = {
@@ -478,7 +497,10 @@ class MainWindow(QMainWindow):
             self.ocr_tab: "ocr",
             self.bypass_tab: "bypass",
         }
-        return topic_by_widget.get(self.tab_widget.currentWidget(), "getting_started")
+        widget = self.tab_widget.currentWidget()
+        if widget is self.sa_team_tabs:
+            widget = self.sa_team_tabs.currentWidget()
+        return topic_by_widget.get(widget, "getting_started")
 
     def open_manual(self, topic_id="getting_started"):
         dialog = ManualDialog(self.language, topic_id, self)
@@ -861,6 +883,7 @@ class MainWindow(QMainWindow):
     def set_all_tabs_locked(self, locked):
         """통합 태스크 실행 중 모든 탭 바 및 개별 탭 UI를 비활성화"""
         self.tab_widget.tabBar().setEnabled(not locked)
+        self.sa_team_tabs.tabBar().setEnabled(not locked)
         self.sync_tab.set_ui_locked(locked)
         self.eml_tab.set_ui_locked(locked)
         self.pdf_tab.set_ui_locked(locked)
@@ -872,6 +895,10 @@ class MainWindow(QMainWindow):
         self.config_manager.set("window_size", [size.width(), size.height()])
             
     def closeEvent(self, event):
+        if getattr(self, "_run_confirmation_active", False):
+            # Finish/cancel the bounded review before disposing tabs or the Qt loop.
+            event.ignore()
+            return
         if self.tray_icon and self.tray_icon.isVisible() and not self._is_exiting:
             event.ignore()
             self.hide_to_tray()

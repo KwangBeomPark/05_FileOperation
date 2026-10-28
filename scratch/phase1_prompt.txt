@@ -1,0 +1,19 @@
+당신은 'Claude Opus 5.5' 수석 아키텍트입니다.
+FileOps Hub 프로젝트(`C:\Dev\GitHub\05_FileOperation`)의 **Phase 1 리팩토링 (동작 불일치 및 숨은 버그 우선 교정)**을 직접 코드를 수정하여 수행해 주세요.
+(과설계 금지, 기존 설정 호환성 100% 유지, 기존 300+개 테스트 전체 통과 필수)
+
+[Phase 1 구체적 작업 항목]
+1. `src/core/task_runner.py`:
+   - `cancel()` 메서드에 `if hasattr(self, "sync_manager") and hasattr(self.sync_manager, "cancel"): self.sync_manager.cancel()`을 추가하여 동기화 진행 중 취소 요청이 동기화 엔진 내부로 전파되도록 개선.
+2. `src/ui/task_tab.py`:
+   - 4곳(`refresh_readiness`, `open_diagnostics`, `_navigate_diagnostic_target`, `start_all_tasks`)에 중복된 `getattr(main_win, ...)` 탭 딕셔너리 탐색과 `build_run_config()` 수집 로직을 단일 헬퍼 메서드(예: `_collect_step_configs`)로 통합.
+   - `chain_outputs` 활성화 시 빈 `OcrRunConfig`를 허용하는 예외 로직이 `start_all_tasks`뿐 아니라 `refresh_readiness`, `open_diagnostics`에도 일관되게 적용되도록 일원화.
+3. `src/main.py`:
+   - `--run-scheduled` (Headless) 실행 시 `enabled_steps`에 포함된 단계의 config만 `RunPlan(configs=...)`에 담기도록 필터링하여, 선택되지 않은 단계가 `RunPlan.active_steps`에 비의도적으로 추가되는 문제 방지.
+4. `src/utils/config_manager.py`:
+   - `get()` 메서드에서 반환값이 `list` 또는 `dict`인 경우 `copy.deepcopy()`(또는 복사본)를 반환하여 호출 측의 가변 객체 수정이 저장 실패 시 메모리 내 설정을 오염시키지 않도록 방어. (단, 성능/테스트 호환성 유지)
+5. 변경 후:
+   - `python -m unittest discover -s tools -p "test_*.py"`를 실행하여 모든 테스트 통과 확인.
+   - `ruff check src` 실행하여 린트 오류 없음 확인.
+
+작업이 완료되면 변경한 내용과 테스트 결과를 한국어로 요약 보고해 주세요.

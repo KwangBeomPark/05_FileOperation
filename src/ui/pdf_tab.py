@@ -12,7 +12,8 @@ from src.ui.i18n import choose, get_app_language, tr
 
 from src.core.pdf_converter import PDFConverter
 from src.core.file_manager import FileManager
-from src.core.task_contracts import PdfRunConfig, TaskValidationError
+from src.core.task_contracts import PdfRunConfig, RunPlan, TaskStep, TaskValidationError
+from src.ui.run_summary_dialog import confirm_run_summary
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -253,6 +254,8 @@ class PDFTab(QWidget):
         self.start_btn.setToolTip(reason)
             
     def start_conversion(self):
+        if self.is_converting:
+            return
         if not self.selected_pdf_paths:
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("Add at least one PDF file first.", "변환할 PDF 파일을 먼저 추가해 주세요.", "Najpierw dodaj co najmniej jeden plik PDF."))
             return
@@ -262,6 +265,9 @@ class PDFTab(QWidget):
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("Select an output folder.", "출력 저장 폴더를 지정해 주세요.", "Wybierz folder wyjściowy."))
             return
             
+        run_config = PdfRunConfig(list(self.selected_pdf_paths), output_folder)
+        if not confirm_run_summary(self, RunPlan({TaskStep.PDF: run_config}), self.config_manager):
+            return
         os.makedirs(output_folder, exist_ok=True)
         self.config_manager.set("output_folder", output_folder)
         
@@ -279,7 +285,7 @@ class PDFTab(QWidget):
         
         # 백그라운드 Worker 스레드 구동
         self.worker = PDFConvertWorker(
-            pdf_paths=self.selected_pdf_paths,
+            pdf_paths=run_config.pdf_paths,
             output_folder=output_folder,
             pdf_converter=self.pdf_converter,
             file_manager=self.file_manager,

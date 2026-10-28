@@ -25,6 +25,10 @@ Gdy nad projektami pracuje kilka działów, łatwo o powstawanie duplikatów pli
 
 ## Główne moduły i funkcje
 
+Karty główne: **Uruchom zadania → Synchronizuj foldery → Konwertuj pliki → SA Team**.
+**Konwertuj EML, Konwertuj PDF i Odczytaj obrazy** znajdują się wewnątrz SA Team.
+Kolejność przetwarzania i zapisane ustawienia pozostają bez zmian.
+
 1. **Tasks (Zadania i harmonogram)**: Sekwencyjne wykonywanie skonfigurowanych operacji w ramach planu `RunPlan` z automatyczną weryfikacją wstępną. Codzienne automatyczne uruchamianie w tle i raportowanie e-mail przez SMTP.
 2. **Sync (Synchronizacja folderów)**: Dwukierunkowa synchronizacja lub jednokierunkowa dystrybucja z filtrowaniem podfolderów, wykluczeniami i bezpieczną kopią zapasową nadpisywanych wersji.
 3. **EML (Renderowanie wiadomości e-mail)**: Konwersja plików e-mail `.eml` do obrazów PNG przy użyciu silnika Chromium, z automatycznym pomijaniem niezmienionych plików.

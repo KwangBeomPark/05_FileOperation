@@ -9,10 +9,10 @@ TOPIC_ORDER = (
     "getting_started",
     "tasks",
     "sync",
+    "bypass",
     "eml",
     "pdf",
     "ocr",
-    "bypass",
     "settings",
 )
 
@@ -31,6 +31,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "tips": [
                 "A disabled button means an earlier requirement is missing. Point to it to see what is needed.",
                 "Run Diagnostics checks paths and required programs without changing source files.",
+                "Top tabs are Run Tasks, Sync Folders, Convert Files and SA Team. Open SA Team for Convert EML, Convert PDF and Read Images.",
             ],
             "cautions": [
                 "Keep FileOps Hub running in the notification area for scheduled tasks.",
@@ -49,6 +50,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
                 "Click Run Diagnostics when a dependency such as Office, OCR, or a network folder is uncertain.",
                 "Open Run History to review earlier manual and scheduled reports.",
                 "The schedule status records the start time, end time, duration, and result of the latest scheduled run.",
+                "Before a manual run, review the change summary and destinations. Risky actions require acknowledgement; Cancel changes no files. Scheduled runs log an estimate without a popup.",
             ],
             "cautions": [
                 "The application must remain running for a daily schedule to start.",
@@ -174,6 +176,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "tips": [
                 "버튼이 비활성화되어 있으면 앞 단계의 필수 입력이 부족한 상태입니다. 마우스를 올리면 필요한 내용을 확인할 수 있습니다.",
                 "진단 및 복구는 원본 파일을 변경하지 않고 경로와 필수 프로그램을 검사합니다.",
+                "상위 탭은 작업 실행·폴더 동기화·파일 변환·SA Team입니다. EML 변환·PDF 변환·이미지 읽기는 SA Team 안의 하위 탭에서 사용합니다.",
             ],
             "cautions": [
                 "예약 작업을 사용하려면 FileOps Hub가 알림 영역에서 계속 실행 중이어야 합니다.",
@@ -192,6 +195,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
                 "Office, OCR, 브라우저 또는 네트워크 폴더가 의심되면 진단 및 복구를 실행하세요.",
                 "실행 이력에서 이전 수동·예약 실행의 상세 보고서를 확인할 수 있습니다.",
                 "예약 상태 영역에는 최근 예약 실행의 시작 시각, 종료 시각, 소요 시간과 결과가 함께 기록됩니다.",
+                "수동 실행 전 변경 요약에서 대상과 저장·이동 위치를 확인하세요. 위험한 작업은 확인 체크가 필요하며 취소해도 파일은 바뀌지 않습니다. 예약 실행은 팝업 없이 예상 요약을 로그에 남깁니다.",
             ],
             "cautions": [
                 "매일 자동 실행은 프로그램이 실행 중일 때만 시작됩니다.",
@@ -309,14 +313,14 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "title": "Pierwsze kroki",
             "summary": "FileOps Hub łączy powtarzalne operacje na plikach. Najpierw skonfiguruj i sprawdź funkcję, a potem uruchom ją bezpośrednio lub z karty Zadań.",
             "steps": ["Otwórz potrzebną kartę i dodaj foldery lub pliki.", "Sprawdź podgląd, zaznaczone pliki lub listę zadań.", "Za pierwszym razem uruchom funkcję bezpośrednio i sprawdź wynik.", "Dla pracy cyklicznej wybierz funkcję w Zadań i opcjonalnie ustaw harmonogram."],
-            "tips": ["Wyłączony przycisk oznacza brak wcześniejszego wymagania. Najedź na niego, aby zobaczyć wyjaśnienie.", "Diagnostyka sprawdza ścieżki i wymagane programy bez zmiany plików źródłowych."],
+            "tips": ["Wyłączony przycisk oznacza brak wcześniejszego wymagania. Najedź na niego, aby zobaczyć wyjaśnienie.", "Diagnostyka sprawdza ścieżki i wymagane programy bez zmiany plików źródłowych.", "Główne karty: Uruchom zadania, Synchronizuj foldery, Konwertuj pliki i SA Team. W SA Team znajdują się Konwertuj EML, Konwertuj PDF i Odczytaj obrazy."],
             "cautions": ["Dla zadań zaplanowanych FileOps Hub musi działać w obszarze powiadomień."],
         },
         "tasks": {
             "title": "Uruchamianie zadań",
             "summary": "Uruchamiaj kilka skonfigurowanych funkcji po kolei, ręcznie lub raz dziennie.",
             "steps": ["Skonfiguruj każdą funkcję na jej karcie.", "W kolumnie Uruchom wybierz tylko potrzebne funkcje.", "Sprawdź gotowość i popraw pozycje Wymaga konfiguracji.", "Uruchom zadania teraz albo włącz harmonogram i wybierz godzinę."],
-            "tips": ["Użyj Diagnostyki, gdy nie masz pewności co do Office, OCR, przeglądarki lub folderu sieciowego.", "Historia uruchomień zawiera wcześniejsze raporty.", "Stan harmonogramu zapisuje czas rozpoczęcia, zakończenia, czas trwania i wynik ostatniego zaplanowanego uruchomienia."],
+            "tips": ["Użyj Diagnostyki, gdy nie masz pewności co do Office, OCR, przeglądarki lub folderu sieciowego.", "Historia uruchomień zawiera wcześniejsze raporty.", "Stan harmonogramu zapisuje czas rozpoczęcia, zakończenia, czas trwania i wynik ostatniego zaplanowanego uruchomienia.", "Przed uruchomieniem ręcznym sprawdź podsumowanie zmian i lokalizacje. Ryzykowne operacje wymagają potwierdzenia; anulowanie nie zmienia plików. Harmonogram zapisuje szacunek w dzienniku bez okna potwierdzenia."],
             "cautions": ["Harmonogram działa tylko wtedy, gdy aplikacja jest uruchomiona.", "Zaplanowane przenoszenie źródeł wymaga osobnej zgody."],
         },
         "sync": {
@@ -362,6 +366,13 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "cautions": ["Jeśli dostawca poczty tego wymaga, użyj hasła aplikacji."],
         },
     },
+}
+
+
+# Present the existing topic IDs in the same feature order as the navigation.
+MANUAL_CONTENT = {
+    language: {topic_id: topics[topic_id] for topic_id in TOPIC_ORDER}
+    for language, topics in MANUAL_CONTENT.items()
 }
 
 

@@ -9,7 +9,8 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QFont
 
 from src.core.sync_manager import SyncManager
-from src.core.task_contracts import SyncGroupConfig, SyncRunConfig, TaskValidationError
+from src.core.task_contracts import RunPlan, SyncGroupConfig, SyncRunConfig, TaskStep, TaskValidationError
+from src.ui.run_summary_dialog import confirm_run_summary
 from src.ui.i18n import choose, get_app_language, tr
 from src.ui.toast_notification import show_toast
 from src.ui.workflow_widget import WorkflowWidget
@@ -712,6 +713,8 @@ class SyncTab(QWidget):
             QMessageBox.information(self, self._t("Information", "정보", "Informacja"), self._t("All group folders are already synchronized.", "모든 그룹의 파일들이 이미 최신 동기화 상태입니다.", "Wszystkie foldery grup są już zsynchronizowane."))
             
     def start_sync_execution(self):
+        if self.is_running:
+            return
         valid_groups = self._valid_groups()
         if not valid_groups:
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No group contains at least two folders.", "최소 2개 이상의 폴더가 등록된 그룹이 하나도 없습니다.", "Żadna grupa nie zawiera co najmniej dwóch folderów."))
@@ -724,15 +727,13 @@ class SyncTab(QWidget):
             )
             return
             
-        reply = QMessageBox.question(
-            self,
-            self._msg("sync_run_title"),
-            self._msg("sync_run_confirm"),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply != QMessageBox.StandardButton.Yes:
+        try:
+            run_config = self.build_run_config()
+        except TaskValidationError as exc:
+            problem = tr(exc.message_key, self.language, **exc.values) if exc.message_key else exc.user_message
+            QMessageBox.warning(self, self._msg("common_warning"), problem)
+            return
+        if run_config is None or not confirm_run_summary(self, RunPlan({TaskStep.SYNC: run_config}), self.config_manager):
             return
             
         self.is_running = True
@@ -742,7 +743,7 @@ class SyncTab(QWidget):
         self.progress_bar.setFormat("0%")
         self.plan_summary_label.setText(self._msg("sync_running"))
         
-        self.worker = SyncWorker(self.sync_groups, self.config_manager, is_dry_run=False)
+        self.worker = SyncWorker(run_config.to_legacy_dict()["sync_groups"], self.config_manager, is_dry_run=False)
         self.worker.progress.connect(self.update_progress)
         self.worker.finished.connect(self.on_sync_finished)
         self.worker.start()
