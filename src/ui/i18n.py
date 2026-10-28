@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import locale
 import os
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -981,6 +982,13 @@ def choose(language: str, english: str, korean: str, polish: str | None = None) 
     if selected == "pl" and polish:
         return polish
     return english
+
+
+def replace_phrases(text: str, replacements: Mapping[str, str]) -> str:
+    """Replace known source phrases, longest first so a short phrase never splits a longer one."""
+    for source in sorted(replacements, key=len, reverse=True):
+        text = text.replace(source, replacements[source])
+    return text
 
 
 def localize_static_text(text: str, language: str) -> str:

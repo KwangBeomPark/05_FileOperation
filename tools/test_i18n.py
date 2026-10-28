@@ -4,7 +4,7 @@ import unittest
 from string import Formatter
 from pathlib import Path
 
-from src.ui.i18n import FEATURE_MESSAGES, MESSAGES, STATIC_TEXT, detect_system_language, localize_static_text, normalize_language, tr
+from src.ui.i18n import FEATURE_MESSAGES, MESSAGES, STATIC_TEXT, detect_system_language, localize_static_text, normalize_language, replace_phrases, tr
 
 
 class LocalizationTests(unittest.TestCase):
@@ -105,6 +105,12 @@ class LocalizationTests(unittest.TestCase):
         )
         self.assertEqual(tr("diagnostics_cancel", "ko"), "취소")
         self.assertEqual(tr("diagnostics_cancelled", "pl"), "Diagnostyka została anulowana. Pliki źródłowe nie zostały zmienione.")
+
+    def test_replace_phrases_prefers_the_longest_source_phrase(self):
+        replacements = {"변환 중 오류": "Conversion error", "PDF 변환 중 오류 발생": "PDF conversion error"}
+        self.assertEqual(replace_phrases("PDF 변환 중 오류 발생: x.pdf", replacements), "PDF conversion error: x.pdf")
+        self.assertEqual(replace_phrases("변환 중 오류", replacements), "Conversion error")
+        self.assertEqual(replace_phrases("unchanged", replacements), "unchanged")
 
     def test_qt_static_widget_retranslation_keeps_the_original_source_text(self):
         import os

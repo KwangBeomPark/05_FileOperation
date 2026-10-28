@@ -1,0 +1,21 @@
+당신은 'Claude Opus 5.5' 수석 아키텍트입니다.
+FileOps Hub 프로젝트(`C:\Dev\GitHub\05_FileOperation`)의 **Phase 4 리팩토링 (데드코드 완전 삭제, 다국어 i18n 안전화, 최종 정리)**을 직접 코드를 수정하여 수행해 주세요.
+(과설계 금지, 기존 동작/기능/UI 100% 동일 유지, 기존 386개 테스트 전체 통과 필수)
+
+[Phase 4 구체적 작업 항목]
+1. `src/core/file_manager.py` 영구 삭제:
+   - Phase 2에서 이미 모든 참조가 제거되어 프로젝트 전체에서 호출되지 않는 `src/core/file_manager.py`를 삭제.
+   - 삭제 후에도 모든 테스트 및 임포트에 영향이 없는지 확인.
+
+2. 다국어(i18n) 현지화 로직 안전화 및 가독성 개선:
+   - `src/ui/main_window.py`, `src/ui/sync_tab.py`, `src/ui/ocr_tab.py`, `src/ui/bypass_tab.py` 등에서 런타임 오류/상태 문자열을 번역하는 `_runtime_error_text` 및 다국어 치환 로직 점검.
+   - 동작 변경 없이 안전하게 예외 처리(`isinstance(value, str)` 등) 및 가독성을 개선.
+
+3. 최종 코드 정리:
+   - 관련 파일들의 불필요한 미사용 import 정리 및 주석 정돈.
+
+4. 검증 및 테스트:
+   - `python -m unittest discover -s tools -p "test_*.py"` 실행하여 전체 386개 테스트 통과 확인.
+   - `ruff check src` 실행하여 신규 린트 오류 없음 확인.
+
+작업이 완료되면 변경한 내용과 테스트 결과를 한국어로 요약 보고해 주세요.

@@ -9,7 +9,7 @@ from PyQt6.QtGui import QDesktopServices
 
 from src.ui.workflow_widget import WorkflowWidget
 from src.ui.toast_notification import show_toast
-from src.ui.i18n import choose, get_app_language, tr
+from src.ui.i18n import choose, get_app_language, replace_phrases, tr
 from src.ui.backup_recovery_dialog import BackupRecoveryDialog
 from src.ui.preflight_dialog import run_bounded_preflight
 from src.ui.run_summary_dialog import confirm_run_summary
@@ -96,6 +96,19 @@ class BypassConvertWorker(QThread):
 
 
 class BypassTab(QWidget):
+    ERROR_DETAIL_KEYS = (
+        "bypass_detail_source_missing",
+        "bypass_detail_file_in_use",
+        "bypass_detail_unsupported_type",
+        "bypass_detail_unknown_failure",
+        "bypass_detail_source_delete_failed",
+        "bypass_detail_com_unavailable",
+        "bypass_detail_conversion_error",
+        "bypass_detail_compression_error",
+        "bypass_detail_copy_error",
+        "bypass_detail_success",
+    )
+
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
@@ -121,24 +134,10 @@ class BypassTab(QWidget):
         return tr(key, self.language, **values)
 
     def _error_text(self, message):
+        """Translate Korean detail phrases produced by ``BypassConverter`` for non-Korean UIs."""
         if self.language == "ko" or not isinstance(message, str):
             return message
-        keys = (
-            "bypass_detail_source_missing",
-            "bypass_detail_file_in_use",
-            "bypass_detail_unsupported_type",
-            "bypass_detail_unknown_failure",
-            "bypass_detail_source_delete_failed",
-            "bypass_detail_com_unavailable",
-            "bypass_detail_conversion_error",
-            "bypass_detail_compression_error",
-            "bypass_detail_copy_error",
-            "bypass_detail_success",
-        )
-        translated = message
-        for key in keys:
-            translated = translated.replace(tr(key, "ko"), self._msg(key))
-        return translated
+        return replace_phrases(message, {tr(key, "ko"): self._msg(key) for key in self.ERROR_DETAIL_KEYS})
 
     def _converter_message(self, message):
         if not isinstance(message, str):

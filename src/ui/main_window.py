@@ -29,7 +29,7 @@ from src.ui.bypass_tab import BypassTab
 from src.ui.task_tab import TaskTab
 from src.ui.settings_dialog import SettingsDialog
 from src.ui.manual_dialog import ManualDialog
-from src.ui.i18n import choose, get_app_language, localize_widget_tree, tr
+from src.ui.i18n import choose, get_app_language, localize_widget_tree, replace_phrases, tr
 from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSITORY, releases_page_url
 from src.core.updater import AutoUpdater, launch_installer
 from src.version import APP_VERSION_TAG
@@ -37,6 +37,16 @@ from src.utils.config_manager import ConfigManager
 from src.utils.logger import get_logger
 
 logger = get_logger()
+
+_UPDATE_ERROR_REPLACEMENTS = {
+    "신뢰할 수 없는 다운로드 주소입니다": "The download address is not trusted",
+    "업데이트 파일 SHA-256 digest 형식이 올바르지 않습니다": "The update SHA-256 digest is invalid",
+    "신뢰할 수 없는 최종 다운로드 주소입니다": "The final download address is not trusted",
+    "업데이트 파일이 허용 크기를 초과했습니다": "The update file exceeds the allowed size",
+    "불완전한 다운로드 감지": "Incomplete download",
+    "수신됨": "received",
+    "업데이트 파일 SHA-256 검증에 실패했습니다": "Update SHA-256 verification failed",
+}
 
 APP_STYLESHEET = """
 QMainWindow, QDialog, QMessageBox, QInputDialog {
@@ -385,21 +395,11 @@ class MainWindow(QMainWindow):
             self.trigger_update_check(silent=True)
 
     def _runtime_error_text(self, value):
+        """Translate the Korean messages raised by ``AutoUpdater`` for non-Korean UIs."""
         text = str(value)
         if self.language == "ko":
             return text
-        replacements = {
-            "신뢰할 수 없는 다운로드 주소입니다": "The download address is not trusted",
-            "업데이트 파일 SHA-256 digest 형식이 올바르지 않습니다": "The update SHA-256 digest is invalid",
-            "신뢰할 수 없는 최종 다운로드 주소입니다": "The final download address is not trusted",
-            "업데이트 파일이 허용 크기를 초과했습니다": "The update file exceeds the allowed size",
-            "불완전한 다운로드 감지": "Incomplete download",
-            "수신됨": "received",
-            "업데이트 파일 SHA-256 검증에 실패했습니다": "Update SHA-256 verification failed",
-        }
-        for korean, english in replacements.items():
-            text = text.replace(korean, english)
-        return text
+        return replace_phrases(text, _UPDATE_ERROR_REPLACEMENTS)
         
     def init_ui(self):
         self.setWindowTitle(tr("app_title", self.language, version=self.current_version))

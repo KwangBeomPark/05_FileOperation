@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from src.core.email_sender import send_email
 from src.core.notifier import build_webhook_payload, send_webhook
+from src.ui.i18n import replace_phrases
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -38,9 +39,7 @@ def localize_runtime_error(value, language: str) -> str:
     text = str(value)
     if language == "ko":
         return text
-    for korean, english in _RUNTIME_ERROR_REPLACEMENTS.items():
-        text = text.replace(korean, english)
-    return text
+    return replace_phrases(text, _RUNTIME_ERROR_REPLACEMENTS)
 
 
 @dataclass(frozen=True)

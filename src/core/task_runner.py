@@ -25,9 +25,27 @@ from src.core.task_contracts import (
     SyncRunConfig,
     TaskStep,
 )
-from src.ui.i18n import get_app_language, tr
+from src.ui.i18n import get_app_language, replace_phrases, tr
 
 logger = logging.getLogger(__name__)
+
+_RUNTIME_TEXT_REPLACEMENTS = {
+    "프로모션 번호를 찾을 수 없습니다": "Promotion number not found",
+    "원본 파일을 찾을 수 없습니다": "Source file not found",
+    "파일이 이미 다른 프로그램에서 사용 중입니다": "The file is open in another application",
+    "지원하지 않는 원본 파일 형식입니다": "Unsupported source file type",
+    "변환 실패": "Conversion failed",
+    "변환 중 오류": "Conversion error",
+    "압축 중 오류": "Compression error",
+    "복제 오류": "Copy error",
+    "PDF 파일을 찾을 수 없습니다": "PDF file not found",
+    "PDF 변환 중 오류 발생": "PDF conversion error",
+    "to_be_deleted이동": "move to 'to be deleted'",
+    "충돌 보존 백업": "preserve conflict backup",
+    "복사": "copy",
+    "Playwright 브라우저 드라이버": "Playwright browser driver",
+    "네트워크 연결 상태를 확인해 주세요": "Check the network connection",
+}
 
 
 @dataclass
@@ -71,26 +89,7 @@ class TaskRunner:
         text = str(value)
         if self.language == "ko":
             return text
-        replacements = {
-            "프로모션 번호를 찾을 수 없습니다": "Promotion number not found",
-            "원본 파일을 찾을 수 없습니다": "Source file not found",
-            "파일이 이미 다른 프로그램에서 사용 중입니다": "The file is open in another application",
-            "지원하지 않는 원본 파일 형식입니다": "Unsupported source file type",
-            "변환 실패": "Conversion failed",
-            "변환 중 오류": "Conversion error",
-            "압축 중 오류": "Compression error",
-            "복제 오류": "Copy error",
-            "PDF 파일을 찾을 수 없습니다": "PDF file not found",
-            "PDF 변환 중 오류 발생": "PDF conversion error",
-            "to_be_deleted이동": "move to 'to be deleted'",
-            "충돌 보존 백업": "preserve conflict backup",
-            "복사": "copy",
-            "Playwright 브라우저 드라이버": "Playwright browser driver",
-            "네트워크 연결 상태를 확인해 주세요": "Check the network connection",
-        }
-        for korean, english in replacements.items():
-            text = text.replace(korean, english)
-        return text
+        return replace_phrases(text, _RUNTIME_TEXT_REPLACEMENTS)
 
     def _bypass_message(self, value: object) -> str:
         text = str(value)

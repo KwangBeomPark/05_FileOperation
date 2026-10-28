@@ -11,7 +11,7 @@ from PyQt6.QtGui import QColor, QBrush, QFont
 from src.core.sync_manager import SyncManager
 from src.core.task_contracts import RunPlan, SyncGroupConfig, SyncRunConfig, TaskStep, TaskValidationError
 from src.ui.run_summary_dialog import confirm_run_summary
-from src.ui.i18n import choose, get_app_language, tr
+from src.ui.i18n import choose, get_app_language, replace_phrases, tr
 from src.ui.toast_notification import show_toast
 from src.ui.workflow_widget import WorkflowWidget
 from src.utils.logger import get_logger
@@ -192,10 +192,7 @@ class SyncTab(QWidget):
             "동기화 완료": self._t("Synchronization completed", "동기화 완료", "Synchronizacja zakończona"),
             "처리 중": self._t("Processing", "처리 중", "Przetwarzanie"),
         }
-        translated = value
-        for korean, english in replacements.items():
-            translated = translated.replace(korean, english)
-        return translated
+        return replace_phrases(value, replacements)
 
     def _display_group_name(self, stored_name):
         if stored_name in DEFAULT_SYNC_GROUP_NAMES:

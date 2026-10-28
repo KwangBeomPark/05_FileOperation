@@ -9,7 +9,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from src.ui.workflow_widget import WorkflowWidget
 from src.ui.toast_notification import show_toast
 from src.ui.image_preview_dialog import ImagePreviewDialog
-from src.ui.i18n import choose, get_app_language, tr
+from src.ui.i18n import choose, get_app_language, replace_phrases, tr
 
 from src.core.ocr_processor import OCRProcessor
 from src.core.task_contracts import OcrRunConfig, RunPlan, TaskStep, TaskValidationError
@@ -22,7 +22,14 @@ class OCRWorker(QThread):
     progress = pyqtSignal(int, int, str)  # current, total, status_msg
     ocr_completed = pyqtSignal(str, str, str, bool, str)  # original_path, new_path, promo_num, success, ocr_text
     finished = pyqtSignal(bool, str)      # success, message
-    
+
+    DETAIL_KEYS = (
+        "ocr_detail_promotion_missing",
+        "ocr_detail_extraction_failed",
+        "ocr_detail_tesseract_failed",
+        "ocr_detail_windows_failed",
+    )
+
     def __init__(
         self,
         image_paths,
@@ -50,16 +57,11 @@ class OCRWorker(QThread):
         return tr(key, self.language, **values)
 
     def _detail(self, value):
+        """Translate Korean OCR detail phrases produced by ``OCRProcessor`` for non-Korean UIs."""
         text = str(value)
-        if self.language != "ko":
-            for key in (
-                "ocr_detail_promotion_missing",
-                "ocr_detail_extraction_failed",
-                "ocr_detail_tesseract_failed",
-                "ocr_detail_windows_failed",
-            ):
-                text = text.replace(tr(key, "ko"), self._msg(key))
-        return text
+        if self.language == "ko":
+            return text
+        return replace_phrases(text, {tr(key, "ko"): self._msg(key) for key in self.DETAIL_KEYS})
         
     def stop(self):
         self.is_running = False
