@@ -26,6 +26,7 @@ from src.ui.ocr_tab import OCRTab
 from src.ui.eml_tab import EMLTab
 from src.ui.sync_tab import SyncTab
 from src.ui.bypass_tab import BypassTab
+from src.ui.collect_sync_tab import CollectSyncTab
 from src.ui.task_tab import TaskTab
 from src.ui.settings_dialog import SettingsDialog
 from src.ui.manual_dialog import ManualDialog
@@ -438,12 +439,14 @@ class MainWindow(QMainWindow):
         self.ocr_tab = OCRTab(self.config_manager)
         self.eml_tab = EMLTab(self.config_manager)
         self.sync_tab = SyncTab(self.config_manager)
+        self.collect_sync_tab = CollectSyncTab(self.config_manager)
         self.bypass_tab = BypassTab(self.config_manager)
         
         import qtawesome as qta
 
         self.tab_widget.addTab(self.task_tab, qta.icon('fa5s.rocket', color='white'), tr("tab_tasks", self.language))
         self.tab_widget.addTab(self.sync_tab, qta.icon('fa5s.sync-alt', color='white'), tr("tab_sync", self.language))
+        self.tab_widget.addTab(self.collect_sync_tab, qta.icon('fa5s.folder-plus', color='white'), tr("tab_collect_sync", self.language))
         self.tab_widget.addTab(self.bypass_tab, qta.icon('fa5s.tools', color='white'), tr("tab_bypass", self.language))
         self.sa_team_tabs = QTabWidget()
         self.sa_team_tabs.setObjectName("saTeamTabs")
@@ -461,7 +464,7 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         localize_widget_tree(self.centralWidget(), self.language)
-        for tab in (self.task_tab, self.sync_tab, self.eml_tab, self.pdf_tab, self.ocr_tab, self.bypass_tab):
+        for tab in (self.task_tab, self.sync_tab, self.collect_sync_tab, self.eml_tab, self.pdf_tab, self.ocr_tab, self.bypass_tab):
             if hasattr(tab, "refresh_language"):
                 tab.refresh_language()
         self._set_tab_labels()
@@ -470,8 +473,9 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(tr("ready", self.language))
 
     def _set_tab_labels(self):
-        for widget, key in ((self.task_tab, "tab_tasks"), (self.sync_tab, "tab_sync"),
-                            (self.bypass_tab, "tab_bypass"), (self.sa_team_tabs, "tab_sa_team")):
+        top_level_tabs = (self.task_tab, self.sync_tab, self.collect_sync_tab, self.bypass_tab, self.sa_team_tabs)
+        tab_labels = ("tab_tasks", "tab_sync", "tab_collect_sync", "tab_bypass", "tab_sa_team")
+        for widget, key in zip(top_level_tabs, tab_labels):
             self.tab_widget.setTabText(self.tab_widget.indexOf(widget), tr(key, self.language))
         for widget, key in ((self.eml_tab, "tab_eml"), (self.pdf_tab, "tab_pdf"), (self.ocr_tab, "tab_ocr")):
             self.sa_team_tabs.setTabText(self.sa_team_tabs.indexOf(widget), tr(key, self.language))
@@ -492,6 +496,7 @@ class MainWindow(QMainWindow):
         topic_by_widget = {
             self.task_tab: "tasks",
             self.sync_tab: "sync",
+            self.collect_sync_tab: "collect_sync",
             self.eml_tab: "eml",
             self.pdf_tab: "pdf",
             self.ocr_tab: "ocr",
@@ -835,7 +840,9 @@ class MainWindow(QMainWindow):
                             raise PermissionError(choose(self.language, "Only executable installer files (.exe) can be launched.", "실행 가능한 설치 파일(.exe)만 바로 실행할 수 있습니다.", "Można uruchamiać tylko pliki instalatora wykonywalnego (.exe)."))
                             
                         # 설치 파일 실행 (PyInstaller 임시 폴더 환경을 물려주지 않음)
-                        launch_installer(result)
+                        if not self._launch_update_installer(result):
+                            self.status_bar.showMessage(tr("collect_stopping", self.language))
+                            return
                         
                         # 모든 작업 강제 중단 후 즉시 종료 (인스톨러가 바로 덮어쓸 수 있도록)
                         self.task_tab.stop_all()
@@ -843,6 +850,7 @@ class MainWindow(QMainWindow):
                         self.ocr_tab.stop_all()
                         self.eml_tab.stop_all()
                         self.sync_tab.stop_all()
+                        self.collect_sync_tab.stop_all()
                         self.bypass_tab.stop_all()
                         os._exit(0)
                     except Exception as err:
@@ -853,6 +861,20 @@ class MainWindow(QMainWindow):
                     
         download_worker.finished.connect(on_download_finished)
         download_worker.start()
+
+    def _launch_update_installer(self, result):
+        """Stop collection before launching; restore its schedule if the launch fails."""
+        timer = self.collect_sync_tab.schedule_timer
+        was_active = timer.isActive()
+        if not self.collect_sync_tab.stop_all():
+            return False
+        try:
+            launch_installer(result)
+        except Exception:
+            if was_active:
+                timer.start()
+            raise
+        return True
                 
     def open_settings(self):
         dialog = SettingsDialog(self.config_manager, self)
@@ -868,7 +890,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(tr("app_title", self.language, version=self.current_version))
         self.create_menu_bar()
         localize_widget_tree(self.centralWidget(), self.language)
-        for tab in (self.task_tab, self.sync_tab, self.eml_tab, self.pdf_tab, self.ocr_tab, self.bypass_tab):
+        for tab in (self.task_tab, self.sync_tab, self.collect_sync_tab, self.eml_tab, self.pdf_tab, self.ocr_tab, self.bypass_tab):
             if hasattr(tab, "refresh_language"):
                 tab.refresh_language()
         self._set_tab_labels()
@@ -885,6 +907,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.tabBar().setEnabled(not locked)
         self.sa_team_tabs.tabBar().setEnabled(not locked)
         self.sync_tab.set_ui_locked(locked)
+        self.collect_sync_tab.set_ui_locked(locked)
         self.eml_tab.set_ui_locked(locked)
         self.pdf_tab.set_ui_locked(locked)
         self.ocr_tab.set_ui_locked(locked)
@@ -898,6 +921,12 @@ class MainWindow(QMainWindow):
         if getattr(self, "_run_confirmation_active", False):
             # Finish/cancel the bounded review before disposing tabs or the Qt loop.
             event.ignore()
+            return
+        if self.collect_sync_tab._confirmation_active:
+            # A collection editor/confirmation owns a nested event loop; let it finish first.
+            self._is_exiting = False
+            event.ignore()
+            self.status_bar.showMessage(tr("collect_busy", self.language))
             return
         if self.tray_icon and self.tray_icon.isVisible() and not self._is_exiting:
             event.ignore()
@@ -915,6 +944,8 @@ class MainWindow(QMainWindow):
             active_tasks.append(choose(self.language, "EML conversion", "EML 변환", "Konwersja EML"))
         if self.sync_tab.is_running:
             active_tasks.append(choose(self.language, "Folder synchronization", "폴더 동기화", "Synchronizacja folderów"))
+        if self.collect_sync_tab.is_running:
+            active_tasks.append(tr("tab_collect_sync", self.language))
         if self.bypass_tab.is_running:
             active_tasks.append(choose(self.language, "File conversion", "파일 변환", "Konwersja plików"))
             
@@ -929,6 +960,12 @@ class MainWindow(QMainWindow):
             )
             
             if reply == QMessageBox.StandardButton.Yes:
+                if not self.collect_sync_tab.stop_all():
+                    # A blocked OS copy did not acknowledge cancellation; keep the app alive.
+                    self.status_bar.showMessage(tr("collect_stopping", self.language))
+                    self._is_exiting = False
+                    event.ignore()
+                    return
                 self.task_tab.stop_all()
                 self.pdf_tab.stop_all()
                 self.ocr_tab.stop_all()
@@ -943,6 +980,7 @@ class MainWindow(QMainWindow):
                 self._is_exiting = False
                 event.ignore()
         else:
+            self.collect_sync_tab.stop_all()
             self.save_window_state()
             if self.tray_icon:
                 self.tray_icon.hide()

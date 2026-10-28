@@ -47,19 +47,21 @@ class TabLayoutTests(unittest.TestCase):
             self.window = MainWindow()
         self.window.task_tab.schedule_timer.stop()
         self.window.task_tab.run_health_timer.stop()
+        self.window.collect_sync_tab.schedule_timer.stop()
 
     def tearDown(self):
         self.window.hide()
         self.window.deleteLater()
         self.app.processEvents()
 
-    def test_top_level_has_requested_four_tabs_in_order(self):
+    def test_top_level_has_requested_five_tabs_in_order(self):
         tabs = self.window.tab_widget
-        self.assertEqual(tabs.count(), 4)
-        self.assertEqual([tabs.tabText(index) for index in range(4)],
-                         ["작업 실행", "폴더 동기화", "파일 변환", "SA Team"])
-        self.assertEqual([tabs.widget(index) for index in range(4)],
-                         [self.window.task_tab, self.window.sync_tab, self.window.bypass_tab, self.window.sa_team_tabs])
+        self.assertEqual(tabs.count(), 5)
+        self.assertEqual([tabs.tabText(index) for index in range(5)],
+                         ["작업 실행", "폴더 동기화", "자동 수집 동기화", "파일 변환", "SA Team"])
+        self.assertEqual([tabs.widget(index) for index in range(5)],
+                         [self.window.task_tab, self.window.sync_tab, self.window.collect_sync_tab,
+                          self.window.bypass_tab, self.window.sa_team_tabs])
 
     def test_sa_team_contains_original_feature_widgets_in_order(self):
         tabs = self.window.sa_team_tabs
@@ -75,7 +77,8 @@ class TabLayoutTests(unittest.TestCase):
     def test_feature_navigation_reveals_both_nested_levels(self):
         for widget, topic in ((self.window.eml_tab, "eml"), (self.window.pdf_tab, "pdf"),
                               (self.window.ocr_tab, "ocr"), (self.window.bypass_tab, "bypass"),
-                              (self.window.sync_tab, "sync"), (self.window.task_tab, "tasks")):
+                              (self.window.sync_tab, "sync"), (self.window.collect_sync_tab, "collect_sync"),
+                              (self.window.task_tab, "tasks")):
             with self.subTest(topic=topic):
                 self.assertTrue(self.window.select_feature_tab(widget))
                 self.assertEqual(self.window._current_manual_topic(), topic)
@@ -110,8 +113,9 @@ class TabLayoutTests(unittest.TestCase):
             with self.subTest(language=language):
                 self.config.values["ui_language"] = language
                 self.window.refresh_language()
-                self.assertEqual([self.window.tab_widget.tabText(i) for i in range(4)],
-                                 [tr(key, language) for key in ("tab_tasks", "tab_sync", "tab_bypass", "tab_sa_team")])
+                self.assertEqual([self.window.tab_widget.tabText(i) for i in range(5)],
+                                 [tr(key, language) for key in ("tab_tasks", "tab_sync", "tab_collect_sync",
+                                                                "tab_bypass", "tab_sa_team")])
                 self.assertEqual([self.window.sa_team_tabs.tabText(i) for i in range(3)],
                                  [tr(key, language) for key in ("tab_eml", "tab_pdf", "tab_ocr")])
                 self.assertIs(self.window.tab_widget.currentWidget(), self.window.sa_team_tabs)
@@ -122,8 +126,8 @@ class TabLayoutTests(unittest.TestCase):
         self.window.set_all_tabs_locked(True)
         self.assertFalse(self.window.tab_widget.tabBar().isEnabled())
         self.assertFalse(self.window.sa_team_tabs.tabBar().isEnabled())
-        for tab in (self.window.sync_tab, self.window.eml_tab, self.window.pdf_tab,
-                    self.window.ocr_tab, self.window.bypass_tab):
+        for tab in (self.window.sync_tab, self.window.collect_sync_tab, self.window.eml_tab,
+                    self.window.pdf_tab, self.window.ocr_tab, self.window.bypass_tab):
             self.assertTrue(tab._ui_locked)
         self.window.set_all_tabs_locked(False)
         self.assertTrue(self.window.tab_widget.tabBar().isEnabled())

@@ -31,5 +31,11 @@ def atomic_write_text(path: str | os.PathLike[str], text: str) -> None:
                 pass
 
 
-def atomic_write_json(path: str | os.PathLike[str], value: Any, indent: int = 2) -> None:
-    atomic_write_text(path, json.dumps(value, ensure_ascii=False, indent=indent))
+def atomic_write_json(
+    path: str | os.PathLike[str],
+    value: Any,
+    indent: int = 2,
+    *,
+    ensure_ascii: bool = False,
+) -> None:
+    atomic_write_text(path, json.dumps(value, ensure_ascii=ensure_ascii, indent=indent))

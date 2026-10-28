@@ -8,6 +8,8 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
+from src.ui.collect_sync_text import COLLECT_TEXT
+
 
 SUPPORTED_LANGUAGES = ("en", "ko", "pl")
 WINDOWS_LANGUAGE_IDS = {0x09: "en", 0x12: "ko", 0x15: "pl"}
@@ -849,6 +851,11 @@ FEATURE_MESSAGES = {
 for message_key, translations in FEATURE_MESSAGES.items():
     for language in SUPPORTED_LANGUAGES:
         MESSAGES[language][message_key] = translations[language]
+
+# Collection text is stored as (en, ko, pl) tuples in its own module.
+for message_key, translations in COLLECT_TEXT.items():
+    for language, text in zip(SUPPORTED_LANGUAGES, translations, strict=True):
+        MESSAGES[language][message_key] = text
 
 
 STATIC_TEXT = {

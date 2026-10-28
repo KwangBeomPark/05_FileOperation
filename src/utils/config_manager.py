@@ -44,6 +44,7 @@ class ConfigManager:
         # 폴더 동기화 설정
         "sync_folders": [],             # (구버전 호환용) 단일 동기화 폴더 목록
         "sync_groups": [],              # 다중 동기화 그룹 목록 [{"name": "그룹명", "folders": []}]
+        "collect_sync_groups": [],      # Independent keyword collection groups and daily history
         "sync_last_group_index": 0,     # 마지막으로 선택한 그룹 인덱스
         "sync_move_to_deleted": True,   # 이전 버전 파일 to be deleted로 이동 여부
         

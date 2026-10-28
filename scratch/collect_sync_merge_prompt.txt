@@ -1,0 +1,38 @@
+당신은 'Claude Opus 5.5' 수석 아키텍트입니다.
+FileOps Hub 프로젝트(`C:\Dev\GitHub\05_FileOperation`)에 `feature/collect-sync` 브랜치의 **'파일 수집 동기화(Collect Sync)'** 기능을 최신 main 브랜치로 통합/머지해 주세요.
+(최근 4단계 리팩토링된 클린 아키텍처 구조를 엄격히 따르고, 기존 387개 테스트 + 수집 동기화 테스트 전체 통과 필수)
+
+[구체적 요구사항 및 탭 배치 순서]
+이미 수집 동기화 신규 파일들(`src/core/collect_sync.py`, `src/core/collect_sync_config.py`, `src/core/collect_recovery.py`, `src/ui/collect_sync_tab.py`, `src/ui/collect_recovery_dialog.py`, `src/ui/collect_sync_text.py`, `tools/test_collect_*.py` 등)은 워킹 트리에 체크아웃되어 있습니다.
+
+1. 탭 배치 순서 (사용자 명시 지정):
+   - 1번 탭: `self.task_tab` (통합 작업 / Rocket 아이콘) [유지]
+   - 2번 탭: `self.sync_tab` (폴더 동기화 / Sync 아이콘) [유지]
+   - 3번 탭: `self.collect_sync_tab` (파일 수집 동기화 `CollectSyncTab` / folder-plus 아이콘) [신규 배치]
+   - 4번 탭: `self.bypass_tab` (파일 변환 `BypassTab` / tools 아이콘) [기존 3번에서 4번으로 이동]
+   - 5번 탭: `self.sa_team_tabs` (SA Team 전용 서브탭: EML, PDF, OCR / users 아이콘) [기존 4번에서 5번으로 이동]
+
+2. `src/ui/main_window.py` 통합:
+   - `CollectSyncTab` 생성 및 1~5번 탭 배치 순서 적용
+   - `_set_tab_labels`: `("tab_tasks", "tab_sync", "tab_collect_sync", "tab_bypass", "tab_sa_team")`
+   - `open_current_tab_manual`: `self.collect_sync_tab: "collect_sync"` 매핑
+   - `refresh_language`: `self.collect_sync_tab`의 언어 갱신 포함
+   - `set_tabs_locked`: `self.collect_sync_tab.set_ui_locked(locked)`
+   - `closeEvent`: 앱 종료 시 `collect_sync_tab.stop_all()` 호출 및 `is_busy` / 확인창 활성화 시 종료 거부 방어
+   - `_launch_update_installer`: 업데이트 설치 파일 실행 전 `collect_sync_tab.stop_all()` 연동
+
+3. `src/ui/task_tab.py` 상호 방어 연동:
+   - `check_scheduled_run()` 및 `start_all_tasks()` 시작 시 `collect_sync_tab`이 작업 중(`is_busy`)이면 실행을 거부/대기하는 방어 로직 추가
+
+4. `src/ui/i18n.py` 및 `src/ui/manual_content.py` 등록:
+   - `collect_sync_text.py`의 `COLLECT_TEXT`를 `MESSAGES`에 병합
+   - `collect_sync_text.py`의 `COLLECT_MANUAL`을 `MANUAL_CONTENT`에 병합 (최근 리팩토링된 i18n 구조 유지)
+
+5. `tools/test_tab_layout.py` 및 기존 테스트 업데이트:
+   - 상위 5개 탭 순서(작업 실행, 폴더 동기화, 파일 수집, 파일 변환, SA Team)에 맞게 `test_tab_layout.py` 업데이트
+
+6. 검증:
+   - `python -m unittest discover -s tools -p "test_*.py"` 실행하여 전체 테스트(기존 387개 + 수집 테스트들 포함 430+개) 100% 통과 확인.
+   - `ruff check src` 실행하여 신규 린트 오류 없음 확인.
+
+작업이 완료되면 변경한 내용과 테스트 결과를 한국어로 요약 보고해 주세요.

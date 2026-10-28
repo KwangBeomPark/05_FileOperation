@@ -831,6 +831,10 @@ class TaskTab(QWidget):
         sb = self.log_area.verticalScrollBar()
         sb.setValue(sb.maximum())
 
+    def _collect_sync_busy(self):
+        """Collection shares target folders, so it must not overlap a unified run."""
+        return bool(getattr(getattr(self.window(), "collect_sync_tab", None), "is_busy", False))
+
     def _start_rejected(self, reason):
         self.start_failure_reason = str(reason or "").strip()
         return False
@@ -1033,6 +1037,9 @@ class TaskTab(QWidget):
 
     def check_scheduled_run(self, now=None):
         """Start once per day, retrying only failures that occur before worker start."""
+        if self._collect_sync_busy():
+            # Wait for the next tick; the daily slot is not consumed while collection runs.
+            return False
         if (not self.check_schedule.isChecked() or self.is_running or self.is_preflighting
                 or getattr(self.window(), "_run_confirmation_active", False)):
             return False
@@ -1098,6 +1105,8 @@ class TaskTab(QWidget):
     def start_all_tasks(self, checked=False, scheduled=False):
         """통합 일괄 실행 시작"""
         self.start_failure_reason = ""
+        if self._collect_sync_busy():
+            return self._start_rejected(tr("collect_busy", self.language))
         if self.is_preflighting or getattr(self.window(), "_run_confirmation_active", False):
             return self._start_rejected(self._text(
                 "Another run is being reviewed. Finish or cancel it first.",

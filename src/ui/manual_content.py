@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.ui.collect_sync_text import COLLECT_MANUAL
 from src.ui.i18n import normalize_language
 
 
@@ -9,6 +10,7 @@ TOPIC_ORDER = (
     "getting_started",
     "tasks",
     "sync",
+    "collect_sync",
     "bypass",
     "eml",
     "pdf",
@@ -368,6 +370,10 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
+
+# Collection manual lives beside its UI text; register it before ordering topics.
+for language, topics in MANUAL_CONTENT.items():
+    topics["collect_sync"] = COLLECT_MANUAL[language]
 
 # Present the existing topic IDs in the same feature order as the navigation.
 MANUAL_CONTENT = {
