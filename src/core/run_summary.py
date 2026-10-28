@@ -8,10 +8,16 @@ from dataclasses import asdict, dataclass, field
 
 from src.core.sync_manager import SyncManager
 from src.core.task_contracts import (
-    BypassRunConfig, EmlRunConfig, OcrRunConfig, PdfRunConfig, RunPlan,
-    SourceDisposition, SyncRunConfig, TaskStep,
+    BypassRunConfig,
+    CollectRunConfig,
+    EmlRunConfig,
+    OcrRunConfig,
+    PdfRunConfig,
+    RunPlan,
+    SourceDisposition,
+    SyncRunConfig,
+    TaskStep,
 )
-
 
 DISPLAY_LIMIT = 200
 OBSERVATION_LIMIT = 100_000
@@ -197,6 +203,10 @@ def build_run_summary(plan: RunPlan) -> RunChangeSummary:
         config = plan.get(step)
         if isinstance(config, SyncRunConfig):
             builder.sync(config)
+        elif isinstance(config, CollectRunConfig):
+            for group in config.groups:
+                for source in group.sources:
+                    builder.add(TaskStep.COLLECT_SYNC, group.name, "copy", source, group.target, None)
         elif isinstance(config, EmlRunConfig):
             builder.eml(config)
         elif isinstance(config, PdfRunConfig):

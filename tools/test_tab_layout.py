@@ -47,7 +47,6 @@ class TabLayoutTests(unittest.TestCase):
             self.window = MainWindow()
         self.window.task_tab.schedule_timer.stop()
         self.window.task_tab.run_health_timer.stop()
-        self.window.collect_sync_tab.schedule_timer.stop()
 
     def tearDown(self):
         self.window.hide()
@@ -136,7 +135,7 @@ class TabLayoutTests(unittest.TestCase):
 
     def test_layout_does_not_change_processing_order(self):
         self.assertEqual(self.window.task_tab.STEP_ORDER,
-                         (TaskStep.SYNC, TaskStep.EML, TaskStep.PDF, TaskStep.OCR, TaskStep.BYPASS))
+                         (TaskStep.SYNC, TaskStep.COLLECT_SYNC, TaskStep.EML, TaskStep.PDF, TaskStep.OCR))
 
     def test_unknown_widget_does_not_change_selected_feature(self):
         foreign = QWidget()

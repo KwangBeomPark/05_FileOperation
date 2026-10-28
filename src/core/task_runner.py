@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-import traceback
 from dataclasses import dataclass
 from typing import Callable
 
@@ -14,7 +13,9 @@ from src.core.pdf_converter import PDFConverter
 from src.core.sync_manager import SyncManager
 from src.core.task_contracts import (
     BypassRunConfig,
+    CollectRunConfig,
     EmlRunConfig,
+    ExecutionItem,
     OcrRunConfig,
     PdfRunConfig,
     RunPlan,
@@ -54,6 +55,7 @@ class RunnerCallbacks:
     step_progress: Callable[[int, int, str], None] = lambda _current, _total, _message: None
     total_progress: Callable[[int], None] = lambda _percent: None
     status_changed: Callable[[TaskStep, StepStatus], None] = lambda _step, _status: None
+    item_status_changed: Callable[[str, StepStatus], None] = lambda _key, _status: None
 
 
 class TaskRunner:
@@ -61,6 +63,7 @@ class TaskRunner:
 
     STEP_NAMES = {
         TaskStep.SYNC: "Folder Sync",
+        TaskStep.COLLECT_SYNC: "Collect Sync",
         TaskStep.EML: "EML Image",
         TaskStep.PDF: "PDF Image",
         TaskStep.OCR: "Image OCR",
@@ -169,90 +172,106 @@ class TaskRunner:
         if not active_steps:
             return RunReport({}, "", tr("task_no_selection_body", self.language), False)
 
-        results = {
-            step: StepResult(step=step, status=StepStatus.PENDING)
+        items = self.run_plan.items or [
+            ExecutionItem(step.value, step, self._step_name(step), self.run_plan.get(step))
             for step in active_steps
-        }
-
+        ]
+        item_results = {}
+        results = {}
         callbacks.total_progress(0)
-        callbacks.log("=" * 60)
-        callbacks.log(self._text(
-            "▶ Starting the selected tasks.",
-            "▶ 선택한 작업을 시작합니다.",
-            "▶ Uruchamianie wybranych zadań.",
-        ))
-        callbacks.log(
-            self._text("Selected features", "선택한 기능", "Wybrane funkcje")
-            + f" ({len(active_steps)}): "
-            + ", ".join(self._step_name(step) for step in active_steps)
-        )
-        callbacks.log("=" * 60)
-
-        for index, step in enumerate(active_steps, start=1):
+        for index, item in enumerate(items):
+            result = StepResult(item.step)
+            item_results[item.key] = result
             if not self.is_running:
-                result = results[step]
                 result.status = StepStatus.CANCELLED
-                callbacks.status_changed(step, StepStatus.CANCELLED)
-                return RunReport(
-                    results,
-                    "",
-                    self._text("The tasks were stopped by the user.", "사용자가 작업을 중지했습니다.", "Zadania zostały zatrzymane przez użytkownika."),
-                    False,
-                    cancelled=True,
-                )
+            else:
+                result.status = StepStatus.RUNNING
+                callbacks.status_changed(item.step, result.status)
+                callbacks.item_status_changed(item.key, result.status)
+                callbacks.log(f"\n▶ {item.name}")
+                try:
+                    if item.error:
+                        raise ValueError(item.error)
+                    handlers = {
+                        TaskStep.SYNC: self._run_sync,
+                        TaskStep.COLLECT_SYNC: self._run_collect_sync,
+                        TaskStep.EML: self._run_eml,
+                        TaskStep.PDF: self._run_pdf,
+                        TaskStep.OCR: self._run_ocr,
+                        TaskStep.BYPASS: self._run_bypass,
+                    }
+                    if self.is_running:
+                        handlers[item.step](item.config, result, callbacks)
+                except Exception as exc:
+                    logger.exception("Execution item failed: %s", item.key)
+                    result.status = StepStatus.FAILED
+                    result.error_message = self._runtime_text(exc)
+                    result.details.append(result.error_message)
+                    callbacks.log(result.error_message)
+                if not self.is_running and result.status == StepStatus.RUNNING:
+                    result.status = StepStatus.CANCELLED
+            callbacks.item_status_changed(item.key, result.status)
+            callbacks.status_changed(item.step, result.status)
+            callbacks.total_progress(int((index + 1) / len(items) * 100))
 
-            callbacks.status_changed(step, StepStatus.RUNNING)
-            results[step].status = StepStatus.RUNNING
-
-            try:
-                if step == TaskStep.SYNC:
-                    self._run_sync(self.run_plan.get(step), results[step], callbacks)
-                elif step == TaskStep.EML:
-                    self._run_eml(self.run_plan.get(step), results[step], callbacks)
-                elif step == TaskStep.PDF:
-                    self._run_pdf(self.run_plan.get(step), results[step], callbacks)
-                elif step == TaskStep.OCR:
-                    self._run_ocr(self.run_plan.get(step), results[step], callbacks)
-                elif step == TaskStep.BYPASS:
-                    self._run_bypass(self.run_plan.get(step), results[step], callbacks)
-            except Exception as exc:
-                err_trace = traceback.format_exc()
-                logger.error("Error in %s step: %s\n%s", step.value, exc, err_trace)
-                results[step].status = StepStatus.FAILED
-                results[step].error_message = self._runtime_text(exc)
-                results[step].details.append(
-                    self._text("Fatal error", "치명적 오류", "Błąd krytyczny") + f": {self._runtime_text(exc)}"
-                )
-
-            callbacks.status_changed(step, results[step].status)
-            callbacks.total_progress(int(index / len(active_steps) * 100))
-
-        if not self.is_running:
-            return RunReport(
-                results,
-                "",
-                self._text("The tasks were stopped by the user.", "사용자가 작업을 중지했습니다.", "Zadania zostały zatrzymane przez użytkownika."),
-                False,
-                cancelled=True,
+        for step in active_steps:
+            children = [r for r in item_results.values() if r.step == step]
+            aggregate = StepResult(step)
+            aggregate.success_count = sum(r.success_count for r in children)
+            aggregate.total_count = sum(r.total_count for r in children)
+            aggregate.details = [line for r in children for line in r.details]
+            aggregate.error_message = "; ".join(r.error_message for r in children if r.error_message)
+            statuses = {r.status for r in children}
+            aggregate.status = (
+                StepStatus.CANCELLED if StepStatus.CANCELLED in statuses else
+                StepStatus.COMPLETED if statuses == {StepStatus.COMPLETED} else
+                StepStatus.PARTIAL if statuses & {StepStatus.COMPLETED, StepStatus.PARTIAL} else
+                StepStatus.FAILED
             )
-
-        report_body = self._build_report(results, active_steps)
-        callbacks.total_progress(100)
-        callbacks.log("\n" + "=" * 60)
-        callbacks.log(self._text(
-            "🎉 All selected tasks have finished!",
-            "🎉 선택한 모든 작업이 끝났습니다!",
-            "🎉 Wszystkie wybrane zadania zostały zakończone!",
-        ))
-        callbacks.log("=" * 60)
-
-        overall_success = all(results[step].status == StepStatus.COMPLETED for step in active_steps)
+            results[step] = aggregate
+        cancelled = not self.is_running
+        success = not cancelled and all(r.status == StepStatus.COMPLETED for r in results.values())
         message = (
-            self._text("The selected tasks completed successfully.", "선택한 작업이 완료되었습니다.", "Wybrane zadania zakończyły się pomyślnie.")
-            if overall_success
-            else self._text("The tasks finished, but some items failed. Check the result report.", "작업은 끝났지만 일부 항목이 실패했습니다. 결과 보고서를 확인해 주세요.", "Zadania zakończono, ale niektóre elementy nie powiodły się. Sprawdź raport.")
+            self._text("The tasks were stopped by the user.", "사용자가 작업을 중지했습니다.", "Zadania zostały zatrzymane przez użytkownika.") if cancelled else
+            self._text("The selected tasks completed successfully.", "선택한 작업이 완료되었습니다.", "Wybrane zadania zakończyły się pomyślnie.") if success else
+            self._text("The tasks finished, but some items failed. Check the result report.", "작업은 끝났지만 일부 항목이 실패했습니다. 결과 보고서를 확인해 주세요.", "Zadania zakończono, ale niektóre elementy nie powiodły się. Sprawdź raport.")
         )
-        return RunReport(results, report_body, message, overall_success)
+        body = self._build_report(results, active_steps)
+        for item in items:
+            result = item_results[item.key]
+            body += f"\n\n## {item.name} [{item.key}]\n{self._status_name(result.status)} ({result.success_count}/{result.total_count})\n"
+            body += "\n".join(result.details)
+        return RunReport(results, body, message, success, cancelled, item_results)
+
+    def _run_collect_sync(self, config: CollectRunConfig, result, callbacks):
+        from src.core.collect_report import collect_step_result
+        from src.core.collect_sync import (
+            CollectRecoveryRequired,
+            CollectReport,
+            CollectRunError,
+            CollectStateError,
+            run_collect_groups,
+        )
+        error_code = ""
+        try:
+            report = run_collect_groups(
+                config.groups, config.state_path,
+                configured_groups=config.configured_groups or config.groups,
+                progress_callback=callbacks.step_progress,
+                should_cancel=lambda: not self.is_running,
+            )
+        except (CollectRunError, CollectStateError) as exc:
+            report = exc.report or CollectReport()
+            error_code = ("collect_recovery_required" if isinstance(exc, CollectRecoveryRequired) else
+                          "collect_state_error" if isinstance(exc, CollectStateError) else "collect_error_io")
+        summary = collect_step_result(report, self.language, error_code)
+        result.total_count = summary.total_count
+        result.success_count = summary.success_count
+        result.details = summary.details
+        result.error_message = summary.error_message
+        result.status = summary.status
+        for line in result.details:
+            callbacks.log(line)
 
     def _run_sync(self, config: SyncRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
         callbacks.log("\n[1] " + self._step_name(TaskStep.SYNC))
@@ -317,7 +336,7 @@ class TaskRunner:
                 result.status = StepStatus.CANCELLED
                 return
 
-            if not errors:
+            if not errors and not fail_files:
                 success_count += 1
                 msg = self._text(
                     f"✓ Group [{group.name}] completed (successful: {success_files}, failed: {fail_files})",

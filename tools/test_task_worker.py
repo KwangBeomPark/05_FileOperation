@@ -24,7 +24,7 @@ class TaskWorkerTests(unittest.TestCase):
         worker = TaskWorker(FakeConfig(), RunPlan())
         worker.runner.run = Mock(side_effect=RuntimeError("unexpected"))
         outcomes = []
-        worker.finished.connect(lambda success, message, body: outcomes.append((success, message, body)))
+        worker.outcome_ready.connect(lambda success, message, body: outcomes.append((success, message, body)))
 
         worker.run()
 

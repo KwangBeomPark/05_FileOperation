@@ -7,6 +7,7 @@ from typing import Any
 
 class TaskStep(str, Enum):
     SYNC = "sync"
+    COLLECT_SYNC = "collect_sync"
     EML = "eml"
     PDF = "pdf"
     OCR = "ocr"
@@ -187,7 +188,23 @@ class BypassRunConfig:
         }
 
 
-RunConfig = SyncRunConfig | EmlRunConfig | PdfRunConfig | OcrRunConfig | BypassRunConfig
+@dataclass(frozen=True)
+class CollectRunConfig:
+    groups: tuple
+    state_path: str
+    configured_groups: tuple = ()
+
+
+RunConfig = SyncRunConfig | CollectRunConfig | EmlRunConfig | PdfRunConfig | OcrRunConfig | BypassRunConfig
+
+
+@dataclass(frozen=True)
+class ExecutionItem:
+    key: str
+    step: TaskStep
+    name: str
+    config: RunConfig | None = None
+    error: str = ""
 
 
 @dataclass(frozen=True)
@@ -195,10 +212,13 @@ class RunPlan:
     configs: dict[TaskStep, RunConfig] = field(default_factory=dict)
     step_order: list[TaskStep] = field(default_factory=list)
     chain_outputs: bool = False
+    items: list[ExecutionItem] = field(default_factory=list)
 
     @property
     def active_steps(self) -> list[TaskStep]:
-        default_order = [TaskStep.SYNC, TaskStep.EML, TaskStep.PDF, TaskStep.OCR, TaskStep.BYPASS]
+        if self.items:
+            return list(dict.fromkeys(item.step for item in self.items))
+        default_order = [TaskStep.SYNC, TaskStep.COLLECT_SYNC, TaskStep.EML, TaskStep.PDF, TaskStep.OCR, TaskStep.BYPASS]
         if self.step_order:
             ordered: list[TaskStep] = []
             for item in self.step_order:
@@ -218,7 +238,7 @@ class RunPlan:
         return self.configs.get(step)
 
     def is_empty(self) -> bool:
-        return not self.configs
+        return not self.configs and not self.items
 
 
 @dataclass
@@ -238,3 +258,4 @@ class RunReport:
     message: str
     overall_success: bool
     cancelled: bool = False
+    item_results: dict[str, StepResult] = field(default_factory=dict)

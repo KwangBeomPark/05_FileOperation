@@ -38,6 +38,7 @@ TRANSIENT_KEYS = {
     "task_schedule_last_failure_at",
     "task_schedule_last_failure_reason",
     "task_step_last_results",
+    "task_item_last_results",
     "recent_files",
     "window_size",
 }
@@ -121,11 +122,12 @@ def apply_workflow_preset(
     """
     category_map = {
         "sync": {"sync_groups", "sync_folders", "sync_move_to_deleted"},
+        "collect_sync": {"collect_sync_groups"},
         "eml": {"eml_tasks", "eml_incremental", "eml_output_width", "offline_chromium_path"},
         "pdf": {"dpi_large", "dpi_small", "dpi_threshold", "document_types", "search_depth", "settlement_working_folder"},
         "ocr": {"ocr_rule_mode", "ocr_custom_pattern", "ocr_rename_template", "ocr_export_txt", "promotion_regex", "tesseract_path"},
         "bypass": {"bypass_excel_target", "bypass_ppt_target", "bypass_word_target", "bypass_pdf_target", "bypass_output_mode", "bypass_source_disposition", "bypass_preserve_meta"},
-        "schedule": {"task_schedule_enabled", "task_schedule_time", "task_schedule_mode", "task_schedule_interval_minutes", "task_schedule_weekdays", "task_chain_outputs", "task_enabled_steps", "task_folder_watch_enabled", "task_watch_folders", "task_watch_debounce_seconds", "task_watch_patterns"},
+        "schedule": {"task_schedule_enabled", "task_schedule_time", "task_schedule_mode", "task_schedule_interval_minutes", "task_schedule_weekdays", "task_chain_outputs", "task_enabled_steps", "task_enabled_items", "task_folder_watch_enabled", "task_watch_folders", "task_watch_debounce_seconds", "task_watch_patterns"},
     }
 
     allowed_keys: set[str] | None = None

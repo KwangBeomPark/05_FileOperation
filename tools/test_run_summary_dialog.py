@@ -271,6 +271,9 @@ class SummaryEntryPointTests(unittest.TestCase):
         window.setCentralWidget(tab)
         self.output.mkdir()
         window.sync_tab = self.keep(SyncTab(self.config))
+        tab.rebuild_status_table()
+        # Groups created after task setup now require explicit opt-in.
+        tab.step_checks[TaskStep.SYNC].setChecked(True)
         config = SyncRunConfig([SyncGroupConfig("daily", [str(self.source), str(self.output)])])
         with (patch.object(window.sync_tab, "build_run_config", return_value=config),
               patch("src.ui.task_tab.run_bounded_preflight", return_value=(PreflightReport(language="en"), "", False)),

@@ -1,17 +1,40 @@
+import copy
 import os
 from datetime import datetime
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QProgressBar,
-    QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, QGroupBox, QHeaderView,
-    QComboBox, QInputDialog, QCheckBox, QLineEdit
-)
+
 from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QFont
+from PyQt6.QtGui import QBrush, QColor, QFont
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.core.sync_manager import SyncManager
-from src.core.task_contracts import RunPlan, SyncGroupConfig, SyncRunConfig, TaskStep, TaskValidationError
-from src.ui.run_summary_dialog import confirm_run_summary
+from src.core.task_contracts import (
+    RunPlan,
+    SyncGroupConfig,
+    SyncRunConfig,
+    TaskStep,
+    TaskValidationError,
+)
+from src.core.task_items import ensure_sync_ids
 from src.ui.i18n import choose, get_app_language, replace_phrases, tr
+from src.ui.run_summary_dialog import confirm_run_summary
 from src.ui.toast_notification import show_toast
 from src.ui.workflow_widget import WorkflowWidget
 from src.utils.logger import get_logger
@@ -435,16 +458,23 @@ class SyncTab(QWidget):
         saved_groups = self.config_manager.get("sync_groups", None)
         
         if saved_groups is not None:
-            self.sync_groups = saved_groups
+            self.sync_groups = copy.deepcopy(saved_groups)
         elif old_folders is not None:
             # 하위 호환성 마이그레이션
             self.sync_groups = [{"name": "Default Sync Group", "folders": old_folders}]
-            self.config_manager.set("sync_groups", self.sync_groups)
         else:
             self.sync_groups = [{"name": "Default Sync Group", "folders": []}]
             
         if not self.sync_groups: # 만약 비어있다면 최소 1개 보장
             self.sync_groups = [{"name": "Default Sync Group", "folders": []}]
+
+        ensure_sync_ids(self.sync_groups)
+        if self.sync_groups != saved_groups:
+            try:
+                if self.config_manager.set("sync_groups", self.sync_groups) is False:
+                    raise OSError("Could not persist synchronization group identities.")
+            except OSError as exc:
+                logger.warning("Could not save synchronization group identities: %s", exc)
             
         # 콤보박스 채우기
         self.group_combo.blockSignals(True)
@@ -463,8 +493,22 @@ class SyncTab(QWidget):
         self.on_group_changed(self.group_combo.currentIndex())
 
     def save_data(self):
-        self.config_manager.set("sync_groups", self.sync_groups)
-        self.config_manager.set("sync_last_group_index", self.current_group_idx)
+        ensure_sync_ids(self.sync_groups)
+        try:
+            if self.config_manager.get("task_selection_migrated", False):
+                selected = dict(self.config_manager.get("task_enabled_items", {}) or {})
+                for group in self.sync_groups:
+                    selected.setdefault(f"sync:{group['id']}", False)
+                if self.config_manager.set("task_enabled_items", selected) is False:
+                    raise OSError("Could not save synchronization task selection.")
+            if self.config_manager.set("sync_groups", self.sync_groups) is False:
+                raise OSError("Could not save synchronization groups.")
+            if self.config_manager.set("sync_last_group_index", self.current_group_idx) is False:
+                raise OSError("Could not save synchronization group index.")
+        except OSError as exc:
+            logger.warning("Could not save synchronization settings: %s", exc)
+            return False
+        return True
 
     # --- 그룹 관리 로직 ---
     def on_group_changed(self, idx):
@@ -792,12 +836,13 @@ class SyncTab(QWidget):
             show_toast(self, self._msg("sync_error_toast"), "error")
             QMessageBox.critical(self, self._msg("common_error"), self._msg("sync_fatal_error", errors="\n".join(self._sync_text(error) for error in errors)))
 
-    def build_run_config(self):
-        valid_groups = [g for g in self.sync_groups if len(g.get("folders", [])) >= 2]
+    def build_run_config(self, group_ids=None):
+        groups = self.sync_groups if group_ids is None else [g for g in self.sync_groups if g.get("id") in group_ids]
+        valid_groups = [g for g in groups if len(g.get("folders", [])) >= 2]
         if not valid_groups:
             return None
             
-        for group in self.sync_groups:
+        for group in groups:
             folders = group.get("folders", [])
             if 0 < len(folders) < 2:
                 raise TaskValidationError(

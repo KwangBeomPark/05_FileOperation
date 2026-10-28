@@ -1,3 +1,8 @@
+import os
+import tempfile
+
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -16,26 +21,32 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PyQt6.QtGui import QAction, QColor, QPalette
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
-import os
-import tempfile
 
-from src.ui.pdf_tab import PDFTab
-from src.ui.ocr_tab import OCRTab
-from src.ui.eml_tab import EMLTab
-from src.ui.sync_tab import SyncTab
+from src.core.release_config import (
+    DEFAULT_GITHUB_OWNER,
+    DEFAULT_GITHUB_REPOSITORY,
+    releases_page_url,
+)
+from src.core.updater import AutoUpdater, launch_installer
 from src.ui.bypass_tab import BypassTab
 from src.ui.collect_sync_tab import CollectSyncTab
-from src.ui.task_tab import TaskTab
-from src.ui.settings_dialog import SettingsDialog
+from src.ui.eml_tab import EMLTab
+from src.ui.i18n import (
+    choose,
+    get_app_language,
+    localize_widget_tree,
+    replace_phrases,
+    tr,
+)
 from src.ui.manual_dialog import ManualDialog
-from src.ui.i18n import choose, get_app_language, localize_widget_tree, replace_phrases, tr
-from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSITORY, releases_page_url
-from src.core.updater import AutoUpdater, launch_installer
-from src.version import APP_VERSION_TAG
+from src.ui.ocr_tab import OCRTab
+from src.ui.pdf_tab import PDFTab
+from src.ui.settings_dialog import SettingsDialog
+from src.ui.sync_tab import SyncTab
+from src.ui.task_tab import TaskTab
 from src.utils.config_manager import ConfigManager
 from src.utils.logger import get_logger
+from src.version import APP_VERSION_TAG
 
 logger = get_logger()
 
@@ -862,12 +873,46 @@ class MainWindow(QMainWindow):
         download_worker.finished.connect(on_download_finished)
         download_worker.start()
 
+    def active_tasks_running(self, include_collect: bool = True) -> list[str]:
+        """Return names of currently active worker tasks across all tabs."""
+        active_tasks = []
+        if getattr(self.task_tab, "is_running", False):
+            active_tasks.append(choose(self.language, "Run Tasks", "통합 일괄 실행", "Uruchamianie zadań"))
+        if getattr(self.pdf_tab, "is_converting", False):
+            active_tasks.append(choose(self.language, "PDF conversion", "PDF 이미지 변환", "Konwersja PDF"))
+        if getattr(self.ocr_tab, "is_converting", False):
+            active_tasks.append(choose(self.language, "Image OCR and rename", "이미지 OCR 이름 변경", "OCR obrazów i zmiana nazw"))
+        if getattr(self.eml_tab, "is_converting", False):
+            active_tasks.append(choose(self.language, "EML conversion", "EML 변환", "Konwersja EML"))
+        if getattr(self.sync_tab, "is_running", False):
+            active_tasks.append(choose(self.language, "Folder synchronization", "폴더 동기화", "Synchronizacja folderów"))
+        if include_collect and getattr(self.collect_sync_tab, "is_running", False):
+            active_tasks.append(tr("tab_collect_sync", self.language))
+        if getattr(self.bypass_tab, "is_running", False):
+            active_tasks.append(choose(self.language, "File conversion", "파일 변환", "Konwersja plików"))
+        return active_tasks
+
     def _launch_update_installer(self, result):
-        """Stop collection before launching; restore its schedule if the launch fails."""
-        timer = self.collect_sync_tab.schedule_timer
+        """Stop collection and the master scheduler before launching an update."""
+        running = self.active_tasks_running(include_collect=False)
+        if running:
+            task_list = ", ".join(running)
+            QMessageBox.warning(
+                self,
+                choose(self.language, "Tasks are running", "작업 진행 중", "Zadania są uruchomione"),
+                choose(
+                    self.language,
+                    f"Wait for running tasks to finish before installing the update:\n{task_list}",
+                    f"진행 중인 작업이 완료된 후 업데이트를 설치해 주세요:\n{task_list}",
+                    f"Poczekaj na zakończenie zadań przed zainstalowaniem aktualizacji:\n{task_list}",
+                ),
+            )
+            return False
+        timer = self.task_tab.schedule_timer
         was_active = timer.isActive()
         if not self.collect_sync_tab.stop_all():
             return False
+        timer.stop()
         try:
             launch_installer(result)
         except Exception:
@@ -933,21 +978,7 @@ class MainWindow(QMainWindow):
             self.hide_to_tray()
             return
 
-        active_tasks = []
-        if self.task_tab.is_running:
-            active_tasks.append(choose(self.language, "Run Tasks", "통합 일괄 실행", "Uruchamianie zadań"))
-        if self.pdf_tab.is_converting:
-            active_tasks.append(choose(self.language, "PDF conversion", "PDF 이미지 변환", "Konwersja PDF"))
-        if self.ocr_tab.is_converting:
-            active_tasks.append(choose(self.language, "Image OCR and rename", "이미지 OCR 이름 변경", "OCR obrazów i zmiana nazw"))
-        if self.eml_tab.is_converting:
-            active_tasks.append(choose(self.language, "EML conversion", "EML 변환", "Konwersja EML"))
-        if self.sync_tab.is_running:
-            active_tasks.append(choose(self.language, "Folder synchronization", "폴더 동기화", "Synchronizacja folderów"))
-        if self.collect_sync_tab.is_running:
-            active_tasks.append(tr("tab_collect_sync", self.language))
-        if self.bypass_tab.is_running:
-            active_tasks.append(choose(self.language, "File conversion", "파일 변환", "Konwersja plików"))
+        active_tasks = self.active_tasks_running()
             
         if active_tasks:
             task_list = ", ".join(active_tasks)

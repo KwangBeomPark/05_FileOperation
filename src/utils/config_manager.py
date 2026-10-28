@@ -44,7 +44,7 @@ class ConfigManager:
         # 폴더 동기화 설정
         "sync_folders": [],             # (구버전 호환용) 단일 동기화 폴더 목록
         "sync_groups": [],              # 다중 동기화 그룹 목록 [{"name": "그룹명", "folders": []}]
-        "collect_sync_groups": [],      # Independent keyword collection groups and daily history
+        "collect_sync_groups": [],      # Collection rules; scheduling belongs to TaskTab.
         "sync_last_group_index": 0,     # 마지막으로 선택한 그룹 인덱스
         "sync_move_to_deleted": True,   # 이전 버전 파일 to be deleted로 이동 여부
         
@@ -85,6 +85,9 @@ class ConfigManager:
         # Run Tasks에서 실제로 실행할 기능. 기존 설정에는 이 키가 없으므로
         # 안전한 기본값인 폴더 동기화만 선택합니다.
         "task_enabled_steps": ["sync"],
+        "task_enabled_items": {},       # Stable per-group and SA task selection.
+        "task_selection_migrated": False,
+        "task_item_last_results": {},
         "smtp_server": "",
         "smtp_port": "",
         "sender_email": "",
@@ -136,7 +139,11 @@ class ConfigManager:
                         migrated = self._migrate_config(config, loaded)
                     logger.debug(f"Configuration loaded successfully from {self.config_path}")
                     if migrated:
-                        self._save_config_raw(config)
+                        try:
+                            if not self._save_config_raw(config):
+                                raise OSError("Cannot persist migrated FileOps settings.")
+                        except OSError as exc:
+                            logger.warning("Could not save migrated FileOps settings: %s", exc)
                 except OSError as exc:
                     # Permission/locking failures do not imply corrupt content.
                     raise OSError("Cannot read FileOps settings. Check permissions and retry.") from exc
@@ -171,6 +178,12 @@ class ConfigManager:
     def _migrate_config(self, config: dict, loaded: dict) -> bool:
         """기존 사용자 설정 파일을 삭제하지 않고 현재 스키마로 보강합니다."""
         migrated = False
+        from src.core.task_items import ensure_sync_ids
+        groups = config.get("sync_groups")
+        if isinstance(groups, list) and all(isinstance(group, dict) for group in groups):
+            previous_groups = copy.deepcopy(groups)
+            ensure_sync_ids(groups)
+            migrated = groups != previous_groups
         try:
             version = int(loaded.get("config_version", 1) or 1)
         except (TypeError, ValueError):

@@ -11,7 +11,6 @@ from typing import Any
 
 from src.core.task_contracts import RunReport, StepStatus, TaskStep
 
-
 logger = logging.getLogger(__name__)
 
 RUN_STATUSES = {
@@ -148,6 +147,16 @@ class RunJournal:
                         "total_count": max(0, int(result.total_count)),
                     }
                     for step, result in report.results.items()
+                },
+                "item_results": {
+                    key: {
+                        "step": result.step.value,
+                        "status": result.status.name.lower(),
+                        "success_count": result.success_count,
+                        "total_count": result.total_count,
+                        "detail": result.error_message,
+                    }
+                    for key, result in report.item_results.items()
                 },
             })
             if not self._write_json_atomic(self._metadata_path(run_id), entry):

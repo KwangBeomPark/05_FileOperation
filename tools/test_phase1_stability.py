@@ -121,7 +121,7 @@ class TaskTabChainedOcrTests(unittest.TestCase):
         with patch("src.ui.task_tab.check_run_plan", return_value=PreflightReport(language="en")) as preflight:
             task_tab.refresh_readiness()
 
-        row = task_tab.STEP_ORDER.index(TaskStep.OCR)
+        row = task_tab.step_keys[TaskStep.OCR.value]
         self.assertEqual(task_tab.status_table.item(row, task_tab.COL_READINESS).text(), "Ready")
         plan = preflight.call_args.args[0]
         ocr_config = plan.get(TaskStep.OCR)
@@ -136,7 +136,7 @@ class TaskTabChainedOcrTests(unittest.TestCase):
         with patch("src.ui.task_tab.check_run_plan", return_value=PreflightReport(language="en")):
             task_tab.refresh_readiness()
 
-        row = task_tab.STEP_ORDER.index(TaskStep.OCR)
+        row = task_tab.step_keys[TaskStep.OCR.value]
         self.assertNotEqual(task_tab.status_table.item(row, task_tab.COL_READINESS).text(), "Ready")
 
     def test_diagnostics_receive_chained_ocr_config(self):

@@ -1,52 +1,93 @@
 import os
 import time
+from collections import deque
+from dataclasses import replace
 from datetime import datetime
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
-    QProgressBar, QTextEdit, QTableWidget, QTableWidgetItem, 
-    QHeaderView, QMessageBox, QCheckBox, QFrame, QTimeEdit,
-    QFileDialog
-)
+
 from PyQt6.QtCore import Qt, QTime, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QListWidget,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTimeEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 # Core Modules
 from src.core.diagnostics import DiagnosticItem, DiagnosticStatus
 from src.core.folder_watcher import FolderWatcher
 from src.core.preflight import check_run_plan
-from src.core.preset_manager import apply_workflow_preset, export_workflow_preset, load_workflow_preset
+from src.core.preset_manager import (
+    apply_workflow_preset,
+    export_workflow_preset,
+    load_workflow_preset,
+)
 from src.core.run_journal import RunJournal
 from src.core.schedule import evaluate_flexible_schedule, parse_timestamp
-from src.core.task_contracts import BypassRunConfig, OcrRunConfig, RunPlan, SourceDisposition, StepStatus, TaskStep, TaskValidationError
+from src.core.task_contracts import (
+    BypassRunConfig,
+    ExecutionItem,
+    OcrRunConfig,
+    RunPlan,
+    SourceDisposition,
+    StepStatus,
+    SyncRunConfig,
+    TaskStep,
+    TaskValidationError,
+)
 from src.core.task_history import merge_run_report_history, normalize_step_history
-from src.core.task_notifier import ReportNotification, localize_runtime_error, save_fallback_report
-from src.ui.i18n import get_app_language, tr
+from src.core.task_items import migrate_task_selection
+from src.core.task_notifier import (
+    ReportNotification,
+    localize_runtime_error,
+    save_fallback_report,
+)
 from src.ui.diagnostics_dialog import DiagnosticsDialog
-from src.ui.preflight_dialog import run_bounded_preflight
-from src.ui.run_summary_dialog import confirm_run_summary
-from src.ui.run_history_dialog import RunHistoryDialog
+from src.ui.i18n import get_app_language, tr
 from src.ui.notification_worker import NotificationWorker
+from src.ui.preflight_dialog import run_bounded_preflight
+from src.ui.run_history_dialog import RunHistoryDialog
+from src.ui.run_summary_dialog import confirm_run_summary
+from src.ui.task_panel import TaskPanelMixin
 from src.ui.task_worker import TaskWorker
 from src.utils.logger import get_logger
 
 logger = get_logger()
 
-class TaskTab(QWidget):
+class TaskTab(TaskPanelMixin, QWidget):
     SCHEDULE_RETRY_MINUTES = 10
     SCHEDULE_MAX_START_ATTEMPTS = 3
     STALL_WARNING_SECONDS = 300
     COL_RUN = 0
-    COL_FEATURE = 1
-    COL_READINESS = 2
-    COL_STATUS = 3
-    COL_LAST_RESULT = 4
+    COL_ORDER = 1
+    COL_TYPE = 2
+    COL_FEATURE = 3
+    COL_PATHS = 4
+    COL_READINESS = 5
+    COL_STATUS = 6
+    COL_LAST_RESULT = 7
 
     STEP_ORDER = (
         TaskStep.SYNC,
+        TaskStep.COLLECT_SYNC,
         TaskStep.EML,
         TaskStep.PDF,
         TaskStep.OCR,
-        TaskStep.BYPASS,
     )
 
     folder_files_detected = pyqtSignal(list)
@@ -75,7 +116,23 @@ class TaskTab(QWidget):
                 self.run_journal.recover_interrupted_runs()
             except Exception:
                 logger.exception("Could not initialize the run journal")
+        migration_warning = ""
+        try:
+            migrate_task_selection(self.config_manager)
+        except OSError as exc:
+            migration_warning = f"Could not save task selection migration: {exc}"
+            logger.warning(migration_warning)
+            self._selection_save_failed = True
+        self.live_log = deque(maxlen=20000)
         self.init_ui()
+        if migration_warning:
+            self.log(migration_warning)
+        if "bypass" in self.config_manager.get("task_enabled_steps", []):
+            self.log(self._text(
+                "File conversion (BYPASS) is excluded from the integrated four-step run. Use its own tab to run it.",
+                "파일 변환(BYPASS)은 통합 4단계 실행에 포함되지 않으며 개별 탭에서 실행하세요.",
+                "Konwersja plików (BYPASS) jest wyłączona ze zintegrowanego uruchomienia czterech etapów. Uruchom ją na osobnej karcie.",
+            ))
 
         self.schedule_timer = QTimer(self)
         self.schedule_timer.setInterval(30_000)
@@ -130,6 +187,9 @@ class TaskTab(QWidget):
         )
         self.schedule_time_edit.setEnabled(self.check_schedule.isChecked())
         ctrl_layout.addWidget(self.schedule_time_edit)
+        self.next_run_label = QLabel()
+        self.next_run_label.setStyleSheet("color: #7dd3fc;")
+        ctrl_layout.addWidget(self.next_run_label)
         
         # 메일 자동 발송 체크박스
         self.check_auto_email = QCheckBox()
@@ -253,9 +313,9 @@ class TaskTab(QWidget):
         
         # 2. 중간 상태 그리드 테이블 (Tab Summary Status)
         self.status_table = QTableWidget()
-        self.status_table.setColumnCount(5)
-        self.status_table.setRowCount(5)
-        self.status_table.setHorizontalHeaderLabels(["", "", "", "", ""])
+        self.status_table.setColumnCount(8)
+        self.status_table.setRowCount(0)
+        self.status_table.setHorizontalHeaderLabels(self.table_headers())
         self.status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.status_table.horizontalHeader().setSectionResizeMode(self.COL_RUN, QHeaderView.ResizeMode.ResizeToContents)
         self.status_table.horizontalHeader().setSectionResizeMode(self.COL_STATUS, QHeaderView.ResizeMode.ResizeToContents)
@@ -280,52 +340,17 @@ class TaskTab(QWidget):
             }
         """)
         
-        enabled_values = self.config_manager.get("task_enabled_steps", [TaskStep.SYNC.value])
-        if not isinstance(enabled_values, list):
-            enabled_values = [TaskStep.SYNC.value]
-        enabled_steps = {str(value) for value in enabled_values}
+        self.rows = []
+        self.item_checks = {}
         self.step_keys = {}
         self.step_checks = {}
-        for row_idx, step in enumerate(self.STEP_ORDER):
-            key = step.value
-            self.step_keys[key] = row_idx
+        self.status_table.cellDoubleClicked.connect(self.navigate_row)
+        self.main_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.addWidget(self.status_table)
+        layout.addWidget(self.main_splitter, 1)
+        self.rebuild_status_table()
 
-            run_check = QCheckBox()
-            run_check.setChecked(key in enabled_steps)
-            run_check.setToolTip(key)
-            run_check.toggled.connect(self.save_enabled_steps)
-            check_holder = QWidget()
-            check_layout = QHBoxLayout(check_holder)
-            check_layout.setContentsMargins(0, 0, 0, 0)
-            check_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            check_layout.addWidget(run_check)
-            self.status_table.setCellWidget(row_idx, self.COL_RUN, check_holder)
-            self.step_checks[step] = run_check
-            
-            # 단계명
-            name_item = QTableWidgetItem()
-            name_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            name_item.setFont(QFont("Malgun Gothic", 9, QFont.Weight.Bold))
-            self.status_table.setItem(row_idx, self.COL_FEATURE, name_item)
-
-            readiness_item = QTableWidgetItem()
-            readiness_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            readiness_item.setForeground(QColor("#94a3b8"))
-            self.status_table.setItem(row_idx, self.COL_READINESS, readiness_item)
-            
-            # 상태
-            status_item = QTableWidgetItem()
-            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            status_item.setForeground(QColor("#94a3b8"))
-            self.status_table.setItem(row_idx, self.COL_STATUS, status_item)
-
-            history_item = QTableWidgetItem()
-            history_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            history_item.setForeground(QColor("#cbd5e1"))
-            self.status_table.setItem(row_idx, self.COL_LAST_RESULT, history_item)
-            
-        layout.addWidget(self.status_table)
-        
         # 3. 전체 진행률 프로그레스 바 영역
         progress_layout = QVBoxLayout()
         progress_layout.setSpacing(5)
@@ -359,26 +384,65 @@ class TaskTab(QWidget):
         self.run_health_label.setStyleSheet("font-size: 10px; color: #64748b;")
         progress_layout.addWidget(self.run_health_label)
         
-        layout.addLayout(progress_layout)
+        layout.insertLayout(layout.indexOf(self.main_splitter), progress_layout)
         
         # 4. 하단 상세 로그창
         self.log_label = QLabel()
         self.log_label.setFont(QFont("Malgun Gothic", 10, QFont.Weight.Bold))
-        layout.addWidget(self.log_label)
         
-        self.log_area = QTextEdit()
+        self.log_area = QPlainTextEdit()
         self.log_area.setReadOnly(True)
-        # 고정폭 폰트 적용
         self.log_area.setFont(QFont("Consolas", 9))
-        self.log_area.setStyleSheet("""
-            QTextEdit {
-                background-color: #2f3640;
-                color: #f5f6fa;
-                border: 1px solid #1e272e;
-                border-radius: 6px;
-            }
-        """)
-        layout.addWidget(self.log_area)
+        self.log_area.setMaximumBlockCount(20000)
+        self.history_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.history_splitter.setChildrenCollapsible(False)
+        history_panel = QWidget()
+        history_panel.setMinimumWidth(260)
+        history_layout = QVBoxLayout(history_panel)
+        self.type_filter = QComboBox()
+        self.status_filter = QComboBox()
+        self.history_list = QListWidget()
+        history_layout.addWidget(self.type_filter)
+        history_layout.addWidget(self.status_filter)
+        history_layout.addWidget(self.history_list, 1)
+        self.type_filter.currentIndexChanged.connect(self.refresh_run_list)
+        self.status_filter.currentIndexChanged.connect(self.refresh_run_list)
+        self.history_list.currentItemChanged.connect(self.show_history_item)
+        viewer = QWidget()
+        viewer_layout = QVBoxLayout(viewer)
+        viewer_layout.addWidget(self.log_label)
+        toolbar = QHBoxLayout()
+        self.log_search = QLineEdit()
+        self.log_search_prev_btn = QPushButton()
+        self.log_search_next_btn = QPushButton()
+        toolbar.addWidget(self.log_search, 1)
+        toolbar.addWidget(self.log_search_prev_btn)
+        toolbar.addWidget(self.log_search_next_btn)
+        self.log_export_btn = QPushButton()
+        self.log_copy_btn = QPushButton()
+        self.log_notepad_btn = QPushButton()
+        self.log_folder_btn = QPushButton()
+        self.log_clear_btn = QPushButton()
+        for button in (self.log_copy_btn, self.log_notepad_btn, self.log_folder_btn, self.log_export_btn, self.log_clear_btn):
+            toolbar.addWidget(button)
+        self.log_search.textChanged.connect(lambda: self.find_viewer_text(restart=True))
+        self.log_search.returnPressed.connect(self.find_viewer_text)
+        self.log_search_next_btn.clicked.connect(lambda: self.find_viewer_text())
+        self.log_search_prev_btn.clicked.connect(lambda: self.find_viewer_text(backward=True))
+        self.log_export_btn.clicked.connect(self.export_log)
+        self.log_copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(self.log_area.toPlainText()))
+        self.log_folder_btn.clicked.connect(self.open_reports_folder)
+        self.log_notepad_btn.clicked.connect(self.open_viewer_in_notepad)
+        self.log_clear_btn.clicked.connect(self.clear_live_log)
+        viewer_layout.addLayout(toolbar)
+        viewer_layout.addWidget(self.log_area, 1)
+        self.history_splitter.addWidget(history_panel)
+        self.history_splitter.addWidget(viewer)
+        self.history_splitter.setStretchFactor(0, 0)
+        self.history_splitter.setStretchFactor(1, 1)
+        self.history_splitter.setSizes([280, 800])
+        self.main_splitter.addWidget(self.history_splitter)
+        self.main_splitter.setSizes([280, 360])
         self.refresh_history_display()
         self._update_backup_consent_visibility()
         self.refresh_language()
@@ -393,28 +457,38 @@ class TaskTab(QWidget):
     def _text(self, english, korean, polish):
         return {"ko": korean, "pl": polish}.get(self.language, english)
 
+    def table_headers(self):
+        return [
+            tr("task_run_header", self.language),
+            self._text("Order", "순서", "Kolejność"),
+            self._text("Type", "유형", "Typ"),
+            self._text("Name", "이름", "Nazwa"),
+            self._text("Summary", "폴더 및 규칙 요약", "Podsumowanie"),
+            tr("task_readiness_header", self.language),
+            tr("task_status_header", self.language),
+            tr("task_last_result_header", self.language),
+        ]
+
     def _runtime_error_text(self, value):
         return localize_runtime_error(value, self.language)
 
     def selected_steps(self):
-        return [step for step in self.STEP_ORDER if self.step_checks[step].isChecked()]
+        return list(dict.fromkeys(row["step"] for row in self.rows if self.item_checks[row["key"]].isChecked()))
 
     def save_enabled_steps(self, _checked=False):
-        previous = self.config_manager.get("task_enabled_steps", [TaskStep.SYNC.value])
-        previous_steps = {str(value) for value in previous} if isinstance(previous, list) else {TaskStep.SYNC.value}
-        selected_values = [step.value for step in self.selected_steps()]
-        self.config_manager.set("task_enabled_steps", selected_values)
-        if TaskStep.BYPASS.value in selected_values and TaskStep.BYPASS.value not in previous_steps:
-            self.check_allow_source_backup.setChecked(False)
+        selection = dict(self.config_manager.get("task_enabled_items", {}) or {})
+        selection.update({key: check.isChecked() for key, check in self.item_checks.items()})
+        self._selection_save_failed = self._update_config({
+            "task_enabled_items": selection,
+            "task_enabled_steps": [step.value for step in self.selected_steps()],
+        }) is False
+        if self._selection_save_failed:
+            self.log(tr("collect_save_error", self.language))
         if not self.is_running:
-            for step in self.STEP_ORDER:
-                row = self.step_keys[step.value]
-                status_key = "pending" if self.step_checks[step].isChecked() else "skipped"
-                self._set_status_item(self.status_table.item(row, self.COL_STATUS), status_key)
-                readiness_key = "not_checked" if self.step_checks[step].isChecked() else "not_selected"
-                self._set_readiness_item(step, readiness_key)
-        self._update_backup_consent_visibility()
-        self._refresh_start_button_state()
+            for row_index, row in enumerate(self.rows):
+                selected = self.item_checks[row["key"]].isChecked()
+                self._set_status_item(self.status_table.item(row_index, self.COL_STATUS), "pending" if selected else "skipped")
+        self.refresh_readiness()
 
     def _update_backup_consent_visibility(self):
         bypass_check = getattr(self, "step_checks", {}).get(TaskStep.BYPASS)
@@ -430,6 +504,9 @@ class TaskTab(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self.rebuild_status_table()
+        self.refresh_readiness()
+        self.refresh_run_list()
         self._update_backup_consent_visibility()
 
     def refresh_language(self):
@@ -461,27 +538,16 @@ class TaskTab(QWidget):
         self.export_preset_btn.setText(self._text("Export Preset", "프리셋 내보내기", "Eksportuj profil"))
         self.import_preset_btn.setText(self._text("Import Preset", "프리셋 가져오기", "Importuj profil"))
         self.selection_hint.setText(tr("task_selection_hint", language))
-        self.status_table.setHorizontalHeaderLabels([
-            tr("task_run_header", language),
-            tr("task_feature_header", language),
-            tr("task_readiness_header", language),
-            tr("task_status_header", language),
-            tr("task_last_result_header", language),
-        ])
-        for step in self.STEP_ORDER:
-            row = self.step_keys[step.value]
-            self.status_table.item(row, self.COL_FEATURE).setText(self.step_label(step))
-            readiness_item = self.status_table.item(row, self.COL_READINESS)
-            readiness_key = readiness_item.data(Qt.ItemDataRole.UserRole) or (
-                "not_checked" if self.step_checks[step].isChecked() else "not_selected"
-            )
-            readiness_detail = readiness_item.data(Qt.ItemDataRole.UserRole.value + 1) or ""
-            self._set_readiness_item(step, readiness_key, readiness_detail)
-            status_item = self.status_table.item(row, self.COL_STATUS)
-            status_key = status_item.data(Qt.ItemDataRole.UserRole)
-            if not status_key:
-                status_key = "pending" if self.step_checks[step].isChecked() else "skipped"
-            self._set_status_item(status_item, status_key)
+        self.status_table.setHorizontalHeaderLabels(self.table_headers())
+        for index, row in enumerate(self.rows):
+            self.status_table.item(index, self.COL_FEATURE).setText(row["name"] if row.get("group") else self.step_label(row["step"]))
+            self.status_table.item(index, self.COL_TYPE).setText(self.row_type_label(row["step"]))
+            status_item = self.status_table.item(index, self.COL_STATUS)
+            self._set_status_item(status_item, status_item.data(Qt.ItemDataRole.UserRole) or "pending")
+            readiness = self.status_table.item(index, self.COL_READINESS)
+            self.set_row_readiness(index, readiness.data(Qt.ItemDataRole.UserRole) or "not_checked",
+                                   readiness.data(Qt.ItemDataRole.UserRole.value + 1) or "")
+        self.refresh_history_language()
         self.progress_bar.setFormat(tr("task_progress_format", language))
         self.detail_label.setText(tr("task_waiting", language))
         if not self.is_running:
@@ -495,65 +561,46 @@ class TaskTab(QWidget):
         item.setText(tr(f"task_status_{status_key}", self.language))
 
     def _set_readiness_item(self, step, readiness_key, detail=""):
-        row = self.step_keys[step.value]
-        item = self.status_table.item(row, self.COL_READINESS)
-        item.setData(Qt.ItemDataRole.UserRole, readiness_key)
-        item.setData(Qt.ItemDataRole.UserRole.value + 1, detail)
-        item.setText(tr(f"task_readiness_{readiness_key}", self.language))
-        item.setToolTip(detail)
-        colors = {
-            "ready": "#4ade80",
-            "warning": "#fbbf24",
-            "blocked": "#f87171",
-            "not_checked": "#94a3b8",
-            "not_selected": "#64748b",
-        }
-        item.setForeground(QColor(colors.get(readiness_key, "#94a3b8")))
+        for index, row in enumerate(self.rows):
+            if row["step"] == step:
+                self.set_row_readiness(index, readiness_key, detail)
         self._refresh_start_button_state()
 
+    def set_row_readiness(self, index, key, detail=""):
+        item = self.status_table.item(index, self.COL_READINESS)
+        item.setData(Qt.ItemDataRole.UserRole, key)
+        item.setData(Qt.ItemDataRole.UserRole.value + 1, detail)
+        item.setText(tr(f"task_readiness_{key}", self.language))
+        item.setToolTip(detail)
+        item.setForeground(QColor({"ready": "#4ade80", "blocked": "#f87171", "warning": "#fbbf24"}.get(key, "#94a3b8")))
+
     def _refresh_start_button_state(self):
-        if not hasattr(self, "start_btn") or self.is_running:
-            return
-        selected = self.selected_steps() if hasattr(self, "step_checks") else []
-        readiness = []
-        for step in selected:
-            row = self.step_keys[step.value]
-            item = self.status_table.item(row, self.COL_READINESS)
-            readiness.append(item.data(Qt.ItemDataRole.UserRole) if item else "not_checked")
-        ready = bool(selected) and all(value in {"ready", "warning"} for value in readiness)
-        self.start_btn.setEnabled(ready)
-        if not selected:
-            tooltip_key = "task_start_prereq_none"
-        elif not ready:
-            tooltip_key = "task_start_prereq_readiness"
-        else:
-            tooltip_key = "task_start_ready"
-        self.start_btn.setToolTip(tr(tooltip_key, self.language))
+        if hasattr(self, "item_checks") and not self.is_running:
+            selected = bool(self.selected_steps())
+            self.start_btn.setEnabled(selected and not getattr(self, "_selection_save_failed", False))
+            self.start_btn.setToolTip(tr("task_start_ready" if selected else "task_start_prereq_none", self.language))
 
     def refresh_history_display(self):
-        history = normalize_step_history(self.config_manager.get("task_step_last_results", {}))
-        for step in self.STEP_ORDER:
-            row = self.step_keys[step.value]
-            item = self.status_table.item(row, self.COL_LAST_RESULT)
-            entry = history.get(step.value)
-            if not entry:
+        feature_history = normalize_step_history(self.config_manager.get("task_step_last_results", {}))
+        item_history = self.config_manager.get("task_item_last_results", {}) or {}
+        for index, row in enumerate(self.rows):
+            entry = item_history.get(row["key"]) or (feature_history.get(row["step"].value) if not row.get("group") else None)
+            item = self.status_table.item(index, self.COL_LAST_RESULT)
+            if entry:
+                item.setText(f"{tr('task_status_' + entry['status'], self.language)} · {entry['success_count']}/{entry['total_count']}")
+                item.setToolTip("\n".join(filter(None, [entry.get("timestamp", ""), entry.get("detail", "")])))
+            else:
                 item.setText(tr("task_history_none", self.language))
                 item.setToolTip("")
-                item.setForeground(QColor("#64748b"))
-                continue
-            try:
-                timestamp = datetime.fromisoformat(entry["timestamp"]).strftime("%Y-%m-%d %H:%M")
-            except (TypeError, ValueError):
-                timestamp = entry["timestamp"]
-            status_text = tr(f"task_status_{entry['status']}", self.language)
-            counts = ""
-            if entry["total_count"]:
-                counts = f" · {entry['success_count']}/{entry['total_count']}"
-            item.setText(f"{status_text}{counts} · {timestamp}")
-            item.setToolTip(entry["detail"])
-            item.setForeground(QColor("#4ade80" if entry["status"] == "completed" else "#fbbf24" if entry["status"] == "cancelled" else "#f87171"))
 
     def capture_run_report(self, report):
+        items = dict(self.config_manager.get("task_item_last_results", {}) or {})
+        timestamp = datetime.now().isoformat(timespec="seconds")
+        for key, result in report.item_results.items():
+            items[key] = dict(status=result.status.name.lower(), timestamp=timestamp,
+                              success_count=result.success_count, total_count=result.total_count,
+                              detail=result.error_message or "\n".join(result.details[-3:]))
+        self.config_manager.set("task_item_last_results", items)
         history = merge_run_report_history(
             self.config_manager.get("task_step_last_results", {}),
             report,
@@ -561,6 +608,7 @@ class TaskTab(QWidget):
         self._update_config({"task_step_last_results": history})
         self.refresh_history_display()
         self._finish_run_journal(report)
+        self.refresh_run_list()
 
     def open_run_history(self):
         if not self.run_journal:
@@ -655,6 +703,7 @@ class TaskTab(QWidget):
         main_win = self.window() if main_win is None else main_win
         return {
             TaskStep.SYNC: getattr(main_win, "sync_tab", None),
+            TaskStep.COLLECT_SYNC: getattr(main_win, "collect_sync_tab", None),
             TaskStep.EML: getattr(main_win, "eml_tab", None),
             TaskStep.PDF: getattr(main_win, "pdf_tab", None),
             TaskStep.OCR: getattr(main_win, "ocr_tab", None),
@@ -704,7 +753,15 @@ class TaskTab(QWidget):
         errors = {}
         for step in selected_steps:
             try:
-                configs[step] = self._build_step_config(step, tabs, selected_steps)
+                if step in (TaskStep.SYNC, TaskStep.COLLECT_SYNC):
+                    values = [self.build_row_config(row) for row in self.rows
+                              if row["step"] == step and self.item_checks[row["key"]].isChecked()]
+                    if step == TaskStep.SYNC:
+                        configs[step] = SyncRunConfig([group for value in values if value for group in value.sync_groups])
+                    elif values:
+                        configs[step] = replace(values[0], groups=tuple(group for value in values for group in value.groups))
+                else:
+                    configs[step] = self._build_step_config(step, tabs, selected_steps)
             except Exception as exc:
                 errors[step] = exc
         return configs, errors
@@ -717,55 +774,22 @@ class TaskTab(QWidget):
     def refresh_readiness(self):
         if self.is_running:
             return
-        self._update_backup_consent_visibility()
-        selected_steps = self.selected_steps()
-        configs, errors = self._collect_step_configs(selected_steps)
-        for step in self.STEP_ORDER:
-            if step not in selected_steps:
-                self._set_readiness_item(step, "not_selected")
-            elif step in errors:
-                self._set_readiness_item(step, "blocked", self._validation_detail(errors[step]))
-            else:
-                self._set_readiness_item(step, "ready")
-
-        if configs:
-            report = check_run_plan(
-                RunPlan(configs=configs),
-                self.config_manager,
-                auto_email=False,
-                check_office=False,
-            )
-            for step in configs:
-                blockers = [issue for issue in report.blockers if issue.step == step]
-                warnings = [issue for issue in report.warnings if issue.step == step]
-                if blockers:
-                    detail = "\n".join(filter(None, [issue.message + (f"\n{issue.detail}" if issue.detail else "") for issue in blockers]))
-                    self._set_readiness_item(step, "blocked", detail)
-                elif warnings:
-                    detail = "\n".join(filter(None, [issue.message + (f"\n{issue.detail}" if issue.detail else "") for issue in warnings]))
-                    self._set_readiness_item(step, "warning", detail)
-
-        bypass_config = configs.get(TaskStep.BYPASS)
-        if (
-            isinstance(bypass_config, BypassRunConfig)
-            and bypass_config.source_disposition == SourceDisposition.REPLACE
-        ):
-            self._set_readiness_item(
-                TaskStep.BYPASS,
-                "blocked",
-                tr("task_source_replace_direct_only", self.language),
-            )
-        if (
-            self.check_schedule.isChecked()
-            and isinstance(bypass_config, BypassRunConfig)
-            and bypass_config.source_disposition == SourceDisposition.BACKUP
-            and not self.check_allow_source_backup.isChecked()
-        ):
-            self._set_readiness_item(
-                TaskStep.BYPASS,
-                "blocked",
-                tr("task_schedule_backup_consent_required", self.language),
-            )
+        self.rebuild_status_table()
+        for index, row in enumerate(self.rows):
+            if not self.item_checks[row["key"]].isChecked():
+                self.set_row_readiness(index, "not_selected")
+                continue
+            try:
+                config = self.build_row_config(row)
+                if config is None:
+                    raise TaskValidationError(tr("task_no_config", self.language))
+                report = check_run_plan(RunPlan({row["step"]: config}), self.config_manager, auto_email=False, check_office=False)
+                issues = report.blockers or report.warnings
+                self.set_row_readiness(index, "blocked" if report.blockers else "warning" if issues else "ready",
+                                       "\n".join(issue.message for issue in issues))
+            except Exception as exc:
+                self.set_row_readiness(index, "blocked", self._validation_detail(exc))
+        self._refresh_start_button_state()
 
     def open_diagnostics(self):
         selected_steps = self.selected_steps()
@@ -827,9 +851,11 @@ class TaskTab(QWidget):
                 main_win.tab_widget.setCurrentWidget(widget)
         
     def log(self, message):
-        self.log_area.append(message)
-        sb = self.log_area.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        self.live_log.append(str(message))
+        if self.history_list.currentRow() == 0:
+            self.log_area.appendPlainText(str(message))
+            sb = self.log_area.verticalScrollBar()
+            sb.setValue(sb.maximum())
 
     def _collect_sync_busy(self):
         """Collection shares target folders, so it must not overlap a unified run."""
@@ -838,6 +864,23 @@ class TaskTab(QWidget):
     def _start_rejected(self, reason):
         self.start_failure_reason = str(reason or "").strip()
         return False
+
+    def _warn_start_rejected(self, reason, scheduled):
+        self.log(reason)
+        if not scheduled:
+            QMessageBox.warning(self, tr("run_error", self.language), reason)
+        return self._start_rejected(reason)
+
+    def _reject_unrunnable_items(self, items, scheduled):
+        reason = self._text(
+            "No runnable tasks remain. Check the selected tasks and resolve the following issues before trying again.",
+            "실행 가능한 작업이 없습니다. 선택한 작업과 다음 문제를 확인한 후 다시 실행해 주세요.",
+            "Brak zadań do uruchomienia. Sprawdź wybrane zadania i rozwiąż poniższe problemy przed ponowną próbą.",
+        )
+        details = [f"{item.name}: {item.error}" for item in items if item.error]
+        if details:
+            reason += "\n" + "\n".join(details)
+        return self._warn_start_rejected(reason, scheduled)
 
     def _update_config(self, values):
         update = getattr(self.config_manager, "update", None)
@@ -967,6 +1010,11 @@ class TaskTab(QWidget):
 
     def refresh_schedule_summary(self, now=None):
         now = now or datetime.now()
+        next_at = self._schedule_decision(now).next_at.strftime("%m/%d %H:%M")
+        self.next_run_label.setText(
+            "(" + tr("task_schedule_next_run", self.language, timestamp=next_at) + ")"
+            if self.check_schedule.isChecked() else ""
+        )
         if not self.check_schedule.isChecked():
             primary = tr("task_schedule_off", self.language)
         elif self.is_running and self.is_scheduled_run:
@@ -1051,11 +1099,13 @@ class TaskTab(QWidget):
 
         attempt_count = decision.attempt_count + 1
         timestamp = now.isoformat(timespec="seconds")
-        self._update_config({
+        saved = self._update_config({
             "task_schedule_attempt_date": now.date().isoformat(),
             "task_schedule_attempt_count": attempt_count,
             "task_schedule_last_attempt_at": timestamp,
         })
+        if saved is False:
+            return self._start_rejected(tr("collect_save_error", self.language))
         prefix = tr("task_scheduled_prefix", self.language)
         self.log(f"[{prefix}] " + tr(
             "task_scheduled_start",
@@ -1105,6 +1155,8 @@ class TaskTab(QWidget):
     def start_all_tasks(self, checked=False, scheduled=False):
         """통합 일괄 실행 시작"""
         self.start_failure_reason = ""
+        if getattr(self, "_selection_save_failed", False):
+            return self._start_rejected(tr("collect_save_error", self.language))
         if self._collect_sync_busy():
             return self._start_rejected(tr("collect_busy", self.language))
         if self.is_preflighting or getattr(self.window(), "_run_confirmation_active", False):
@@ -1115,6 +1167,10 @@ class TaskTab(QWidget):
             ))
         if self.is_running:
             return self._start_rejected(tr("task_schedule_already_running", self.language))
+        for tab in self._feature_tabs().values():
+            if tab and (getattr(tab, "is_running", False) is True or getattr(tab, "is_converting", False) is True):
+                return self._start_rejected(tr("task_schedule_already_running", self.language))
+        self.rebuild_status_table()
             
         main_win = self.window()
         if not main_win:
@@ -1135,48 +1191,27 @@ class TaskTab(QWidget):
                 )
             return self._start_rejected(tr("task_no_selection_body", self.language))
             
-        # 1. 5개 탭의 명시적 실행 계약 수집
-        configs, errors = self._collect_step_configs(selected_steps, main_win)
-        if errors:
-            failed_step, error = next(iter(errors.items()))
-            feature = self.step_label(failed_step)
-            if isinstance(error, TaskValidationError):
-                title = tr("task_validation_title", self.language, feature=feature)
-                body = tr(
-                    "task_validation_body",
-                    self.language,
-                    feature=feature,
-                    problem=self._validation_detail(error),
-                )
-                if scheduled:
-                    self.log(f"[{tr('task_scheduled_prefix', self.language)}] {title}\n{body}")
-                else:
-                    QMessageBox.warning(self, title, body)
-            else:
-                body = tr(
-                    "task_validation_unexpected",
-                    self.language,
-                    feature=feature,
-                    detail=str(error),
-                )
-                if scheduled:
-                    self.log(f"[{tr('task_scheduled_prefix', self.language)}] {body}")
-                else:
-                    QMessageBox.critical(self, tr("run_error", self.language), body)
-            return self._start_rejected(body)
-
-        run_plan = RunPlan(
-            configs=configs,
-            step_order=selected_steps,
-            chain_outputs=bool(self.check_chain_outputs.isChecked()),
-        )
-            
-        if run_plan.is_empty():
-            if scheduled:
-                self.log(self._text("[Scheduled run] No runnable task was found.", "[예약 실행] 실행 가능한 작업이 없습니다.", "[Harmonogram] Nie znaleziono zadania do uruchomienia."))
-            else:
-                QMessageBox.warning(self, tr("task_no_selection_title", self.language), tr("task_no_selection_body", self.language))
-            return self._start_rejected(tr("task_no_selection_body", self.language))
+        items = []
+        configs = {}
+        for row in self.rows:
+            if not self.item_checks[row["key"]].isChecked():
+                continue
+            try:
+                config = self.build_row_config(row)
+                if config is None:
+                    raise TaskValidationError(tr("task_no_config", self.language))
+                items.append(ExecutionItem(row["key"], row["step"], row["name"], config))
+                if row["step"] == TaskStep.SYNC and TaskStep.SYNC in configs:
+                    config = SyncRunConfig(configs[TaskStep.SYNC].sync_groups + config.sync_groups)
+                elif row["step"] == TaskStep.COLLECT_SYNC and TaskStep.COLLECT_SYNC in configs:
+                    config = replace(config, groups=configs[TaskStep.COLLECT_SYNC].groups + config.groups)
+                configs[row["step"]] = config
+            except Exception as exc:
+                items.append(ExecutionItem(row["key"], row["step"], row["name"], error=self._validation_detail(exc)))
+        if not any(item.config is not None and not item.error for item in items):
+            return self._reject_unrunnable_items(items, scheduled)
+        run_plan = RunPlan(configs=configs, step_order=selected_steps,
+                           chain_outputs=self.check_chain_outputs.isChecked(), items=items)
 
         bypass_config = run_plan.get(TaskStep.BYPASS)
         replace_requested = (
@@ -1232,16 +1267,24 @@ class TaskTab(QWidget):
                 QMessageBox.warning(self, self._text("Preflight Check", "실행 전 점검", "Kontrola przed uruchomieniem"), reason)
             return self._start_rejected(reason)
         if preflight.has_blockers:
-            if scheduled:
-                self.log(self._text("[Scheduled run] Preflight blocker:\n", "[예약 실행] 사전 점검 차단 항목:\n", "[Harmonogram] Problem kontroli wstępnej:\n") + preflight.format(include_warnings=False))
-            else:
-                QMessageBox.critical(self, self._text("Preflight check failed", "사전 점검 실패", "Kontrola wstępna nie powiodła się"), preflight.format(include_warnings=False))
-            return self._start_rejected(preflight.format(include_warnings=False, language=self.language))
+            blocked = {issue.step for issue in preflight.blockers}
+            if None in blocked:
+                return self._warn_start_rejected(preflight.format(include_warnings=False, language=self.language), scheduled)
+            items = [replace(item, error="\n".join(issue.message for issue in preflight.blockers if issue.step == item.step))
+                     if item.step in blocked else item for item in items]
+            configs = {step: config for step, config in configs.items() if step not in blocked}
+            run_plan = replace(run_plan, items=items, configs=configs)
+
+        if not any(item.config is not None and not item.error for item in items):
+            return self._reject_unrunnable_items(items, scheduled)
 
         warning_text = preflight.format(include_warnings=True, language=self.language) if preflight.warnings else ""
+        item_errors = [f"{item.name}: {item.error}" for item in items if item.error]
+        if item_errors:
+            warning_text += "\n" + "\n".join(item_errors)
         if scheduled and warning_text:
             self.log(self._text("[Scheduled run] Preflight warning:\n", "[예약 실행] 사전 점검 경고:\n", "[Harmonogram] Ostrzeżenie kontroli wstępnej:\n") + warning_text)
-        if not confirm_run_summary(self, run_plan, self.config_manager, scheduled=scheduled, warnings=warning_text):
+        if not confirm_run_summary(self, replace(run_plan, items=[], step_order=list(configs)), self.config_manager, scheduled=scheduled, warnings=warning_text):
             return self._start_rejected(self._text(
                 "The change review was not completed. No task was started.",
                 "변경 내용 확인을 완료하지 않아 작업을 시작하지 않았습니다.",
@@ -1259,19 +1302,14 @@ class TaskTab(QWidget):
         self.schedule_time_edit.setEnabled(False)
         self.readiness_btn.setEnabled(False)
         self.diagnostics_btn.setEnabled(False)
-        for check in self.step_checks.values():
+        self.check_chain_outputs.setEnabled(False)
+        self.import_preset_btn.setEnabled(False)
+        for check in self.item_checks.values():
             check.setEnabled(False)
         
-        # 탭 상태 초기화
-        for key in self.step_keys.keys():
-            row = self.step_keys[key]
-            if TaskStep(key) not in run_plan.configs:
-                self._set_status_item(self.status_table.item(row, self.COL_STATUS), "skipped")
-                self.status_table.item(row, self.COL_STATUS).setForeground(QColor("#94a3b8"))
-            else:
-                self._set_status_item(self.status_table.item(row, self.COL_STATUS), "pending")
-                self.status_table.item(row, self.COL_STATUS).setForeground(QColor("#38bdf8"))
-                
+        for index, row in enumerate(self.rows):
+            self._set_status_item(self.status_table.item(index, self.COL_STATUS),
+                                  "pending" if self.item_checks[row["key"]].isChecked() else "skipped")
         self.progress_bar.setValue(0)
         self.detail_label.setText(tr("task_status_running", self.language))
         self.current_step = None
@@ -1281,22 +1319,38 @@ class TaskTab(QWidget):
         self.current_run_finalized = False
         self._begin_run_journal(run_plan, scheduled)
         self._show_active_health()
-        self.log_area.clear()
+        self.clear_live_log()
+        self.history_list.setCurrentRow(0)
         
         # 다른 탭들 UI 잠금 걸기
         if hasattr(main_win, "set_all_tabs_locked"):
             main_win.set_all_tabs_locked(True)
             
         # 3. TaskWorker (QThread) 생성 및 실행
-        self.worker = TaskWorker(self.config_manager, run_plan)
-        self.worker.log_signal.connect(self.handle_worker_log)
-        self.worker.step_progress.connect(self.update_step_progress)
-        self.worker.total_progress.connect(self.update_total_progress)
-        self.worker.status_changed.connect(self.update_status_cell)
-        self.worker.report_ready.connect(self.capture_run_report)
-        self.worker.finished.connect(self.on_tasks_finished)
-        self.worker.start()
+        try:
+            self.worker = TaskWorker(self.config_manager, run_plan)
+            self.worker.log_signal.connect(self.handle_worker_log)
+            self.worker.step_progress.connect(self.update_step_progress)
+            self.worker.total_progress.connect(self.update_total_progress)
+            self.worker.item_status_changed.connect(self.update_item_status)
+            self.worker.report_ready.connect(self.capture_run_report)
+            self.worker.finished.connect(lambda worker=self.worker: self._worker_stopped(worker))
+            self.worker.start()
+        except Exception as exc:
+            worker = self.worker
+            self.worker = None
+            if worker:
+                worker.deleteLater()
+            self.on_tasks_finished(False, str(exc), "")
+            return self._start_rejected(str(exc))
         return True
+
+    def _worker_stopped(self, worker):
+        if self.worker is not worker or worker.isRunning():
+            return
+        self.worker = None
+        self.on_tasks_finished(*worker.outcome)
+        worker.deleteLater()
 
     def stop_tasks(self):
         """실행 중인 통합 태스크 강제 중지"""
@@ -1371,17 +1425,17 @@ class TaskTab(QWidget):
         self.schedule_time_edit.setEnabled(self.check_schedule.isChecked())
         self.readiness_btn.setEnabled(True)
         self.diagnostics_btn.setEnabled(True)
-        for check in self.step_checks.values():
+        self.check_chain_outputs.setEnabled(True)
+        self.import_preset_btn.setEnabled(True)
+        for check in self.item_checks.values():
             check.setEnabled(True)
         self._refresh_start_button_state()
 
         if not success and not report_body:
-            for step in self.selected_steps():
-                row = self.step_keys[step.value]
-                status_item = self.status_table.item(row, self.COL_STATUS)
+            for index, row in enumerate(self.rows):
+                status_item = self.status_table.item(index, self.COL_STATUS)
                 if status_item.data(Qt.ItemDataRole.UserRole) in {"pending", "running"}:
                     self._set_status_item(status_item, "failed")
-                    status_item.setForeground(QColor("#f87171"))
         
         main_win = self.window()
         if hasattr(main_win, "set_all_tabs_locked"):
@@ -1453,6 +1507,7 @@ class TaskTab(QWidget):
                         + f"\n\n{message}",
                     )
 
+        self.refresh_run_list()
         QTimer.singleShot(0, self.refresh_readiness)
         self.current_run_id = ""
 

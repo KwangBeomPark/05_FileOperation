@@ -59,16 +59,17 @@ class TaskSelectionTests(unittest.TestCase):
         with patch("src.ui.task_tab.QMessageBox.warning"):
             self.assertFalse(task_tab.start_all_tasks())
 
-        self.assertEqual(task_tab.selected_steps(), [TaskStep.SYNC])
-        window.sync_tab.build_run_config.assert_called_once_with()
+        self.assertEqual(task_tab.selected_steps(), [])
+        window.sync_tab.build_run_config.assert_not_called()
         window.bypass_tab.build_run_config.assert_not_called()
-        self.assertEqual(task_tab.status_table.item(0, 1).text(), "Sync Folders")
+        self.assertEqual(task_tab.status_table.rowCount(), 3)
+        self.assertNotIn(TaskStep.BYPASS, task_tab.step_checks)
 
         task_tab.schedule_timer.stop()
         window.deleteLater()
 
     def test_readiness_dashboard_shows_valid_selected_feature(self):
-        config = FakeConfig()
+        config = FakeConfig({"sync_groups": [{"id": "daily", "name": "daily", "folders": ["a", "b"]}]})
         window = QMainWindow()
         task_tab = TaskTab(config)
         window.setCentralWidget(task_tab)
@@ -104,8 +105,9 @@ class TaskSelectionTests(unittest.TestCase):
             started = task_tab.start_all_tasks(scheduled=True)
 
         self.assertFalse(started)
-        self.assertIn("separate scheduled source-backup consent", task_tab.start_failure_reason)
-        self.assertFalse(task_tab.check_allow_source_backup.isHidden())
+        self.assertEqual(task_tab.selected_steps(), [])
+        self.assertTrue(task_tab.check_allow_source_backup.isHidden())
+        window.bypass_tab.build_run_config.assert_not_called()
         preflight.assert_not_called()
         task_tab.schedule_timer.stop()
         window.deleteLater()
@@ -128,7 +130,8 @@ class TaskSelectionTests(unittest.TestCase):
             started = task_tab.start_all_tasks()
 
         self.assertFalse(started)
-        self.assertIn("directly", task_tab.start_failure_reason)
+        self.assertEqual(task_tab.selected_steps(), [])
+        window.bypass_tab.build_run_config.assert_not_called()
         preflight.assert_not_called()
         task_tab.schedule_timer.stop()
         window.deleteLater()
@@ -140,8 +143,8 @@ class TaskSelectionTests(unittest.TestCase):
         window.setCentralWidget(task_tab)
         report = RunReport(
             {
-                TaskStep.SYNC: StepResult(
-                    step=TaskStep.SYNC,
+                TaskStep.EML: StepResult(
+                    step=TaskStep.EML,
                     status=StepStatus.COMPLETED,
                     success_count=2,
                     total_count=2,
@@ -155,7 +158,7 @@ class TaskSelectionTests(unittest.TestCase):
 
         task_tab.capture_run_report(report)
 
-        self.assertEqual(config.get("task_step_last_results")["sync"]["status"], "completed")
+        self.assertEqual(config.get("task_step_last_results")["eml"]["status"], "completed")
         history_text = task_tab.status_table.item(0, task_tab.COL_LAST_RESULT).text()
         self.assertIn("Completed · 2/2", history_text)
         task_tab.schedule_timer.stop()

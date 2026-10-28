@@ -1,4 +1,4 @@
-"""Independent keyword collection editor, cancellable worker and daily scheduler."""
+"""Keyword collection editor and cancellable manual preview/test worker."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from time import monotonic
 
-from PyQt6.QtCore import Qt, QThread, QTime, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -30,12 +30,12 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
-    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from src.app_identity import user_data_dir
+from src.core.collect_report import collect_step_result
 from src.core.collect_sync import (
     ACTION_COPY,
     ACTION_ERROR,
@@ -57,6 +57,8 @@ from src.core.collect_sync_config import (
     local_now,
     new_collect_group,
 )
+from src.core.run_journal import RunJournal
+from src.core.task_contracts import RunReport, StepStatus, TaskStep
 from src.ui.collect_recovery_dialog import CollectRecoveryDialog
 from src.ui.i18n import get_app_language, tr
 from src.utils.atomic_write import atomic_write_json
@@ -86,6 +88,8 @@ class CollectWorker(QThread):
         parent=None,
         *,
         configured_groups=None,
+        language="en",
+        journal_dir=None,
     ):
         super().__init__(parent)
         self.groups = tuple(groups)
@@ -99,6 +103,9 @@ class CollectWorker(QThread):
         self.error_code = ""
         self.blocked_before_run = False
         self._last_progress_at = 0.0
+        self.language = language
+        self.journal_dir = journal_dir
+        self.run_id = ""
 
     def stop(self):
         self.requestInterruption()
@@ -111,6 +118,13 @@ class CollectWorker(QThread):
             self.progress.emit(current, total, message)
 
     def run(self):
+        journal = None
+        if not self.dry_run:
+            try:
+                journal = RunJournal(self.journal_dir or self.state_path.parent)
+                self.run_id = journal.start_run([TaskStep.COLLECT_SYNC], scheduled=False, language=self.language)
+            except Exception:
+                logger.exception("Cannot start collect journal")
         try:
             self.report = run_collect_groups(
                 self.groups,
@@ -167,10 +181,24 @@ class CollectWorker(QThread):
             except (OSError, ValueError):
                 logger.exception("Cannot save collect run report")
                 self.error_code = self.error_code or "collect_save_error"
+            if journal and self.run_id:
+                result = collect_step_result(self.report, self.language, self.error_code)
+                status = result.status
+                body = "\n".join([
+                    "# " + tr("task_step_collect_sync", self.language),
+                    ", ".join(group.name for group in self.groups),
+                    tr("task_status_" + status.name.lower(), self.language),
+                    *result.details,
+                ])
+                try:
+                    journal.finish_run(self.run_id, RunReport({TaskStep.COLLECT_SYNC: result}, body,
+                                       result.error_message, status == StepStatus.COMPLETED, self.report.cancelled))
+                except Exception:
+                    logger.exception("Cannot finish collect journal")
 
 
 class CollectSyncTab(QWidget):
-    """Edit and execute one selected group; schedule each group independently."""
+    """Edit rules and manually preview/test one group. TaskTab owns scheduling."""
 
     RESULT_ROW_LIMIT = 2000
 
@@ -197,10 +225,6 @@ class CollectSyncTab(QWidget):
         self._init_ui()
         self.load_saved_data()
         self.refresh_language()
-        self.schedule_timer = QTimer(self)
-        self.schedule_timer.setInterval(30_000)
-        self.schedule_timer.timeout.connect(self._on_schedule_tick)
-        self.schedule_timer.start()
         self.setAcceptDrops(True)
 
     @property
@@ -290,18 +314,6 @@ class CollectSyncTab(QWidget):
             fields.addRow(label, field)
         form.addLayout(fields)
         form.addWidget(self.subfolders_check)
-        schedule_row = QHBoxLayout()
-        self.schedule_check = QCheckBox()
-        self.schedule_time = QTimeEdit()
-        self.schedule_time.setDisplayFormat("HH:mm")
-        schedule_row.addWidget(self.schedule_check)
-        schedule_row.addWidget(self.schedule_time)
-        schedule_row.addStretch()
-        form.addLayout(schedule_row)
-        self.schedule_status = QLabel()
-        self.schedule_status.setWordWrap(True)
-        self.schedule_status.setTextFormat(Qt.TextFormat.PlainText)
-        form.addWidget(self.schedule_status)
         self.note = QLabel()
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
@@ -357,9 +369,8 @@ class CollectSyncTab(QWidget):
         self.result_pager.hide()
         for widget in (self.keywords_input, self.target_input):
             widget.editingFinished.connect(self._save_editor)
-        for widget in (self.subfolders_check, self.schedule_check):
+        for widget in (self.subfolders_check,):
             widget.toggled.connect(self._save_editor)
-        self.schedule_time.timeChanged.connect(self._save_editor)
 
     def load_saved_data(self):
         """Keep malformed saved content untouched rather than silently resetting it."""
@@ -434,10 +445,6 @@ class CollectSyncTab(QWidget):
         self.keywords_input.setText(", ".join(group.get("keywords", [])))
         self.target_input.setText(group.get("target", ""))
         self.subfolders_check.setChecked(bool(group.get("include_subfolders", False)))
-        self.schedule_check.setChecked(bool(group.get("schedule_enabled", False)))
-        self.schedule_time.setTime(
-            QTime.fromString(group.get("schedule_time", "00:00"), "HH:mm")
-        )
         self._loading = False
         self._clear_results()
         self._refresh_enabled()
@@ -452,20 +459,6 @@ class CollectSyncTab(QWidget):
         ):
             return
         group = self.groups[self.current_group_idx]
-        enabled, clock = (
-            self.schedule_check.isChecked(),
-            self.schedule_time.time().toString("HH:mm"),
-        )
-        if (
-            group.get("schedule_enabled") != enabled
-            or group.get("schedule_time") != clock
-        ):
-            for key in (
-                "schedule_attempt_date",
-                "schedule_attempt_count",
-                "schedule_last_attempt_at",
-            ):
-                group.pop(key, None)
         group.update(
             sources=[
                 self.source_list.item(i).text() for i in range(self.source_list.count())
@@ -477,8 +470,6 @@ class CollectSyncTab(QWidget):
             ],
             target=self.target_input.text().strip(),
             include_subfolders=self.subfolders_check.isChecked(),
-            schedule_enabled=enabled,
-            schedule_time=clock,
         )
         self._clear_results()
         self.save_data()
@@ -746,6 +737,8 @@ class CollectSyncTab(QWidget):
             configured_groups=tuple(
                 build_collect_group(value) for value in self.groups
             ),
+            language=self.language,
+            journal_dir=getattr(self.config_manager, "app_dir", None),
         )
         self.worker = worker
         self.is_running = True
@@ -860,12 +853,10 @@ class CollectSyncTab(QWidget):
         """Request cancellation and refuse shutdown if an OS operation is still blocked."""
         if self._confirmation_active:
             return False
-        self.schedule_timer.stop()
         if self.worker:
             worker = self.worker
             self.stop()
             if not worker.wait(1500):
-                self.schedule_timer.start()
                 return False
             self._worker_finished(worker)
         return True
@@ -883,7 +874,6 @@ class CollectSyncTab(QWidget):
             self.keywords_input,
             self.target_input,
             self.subfolders_check,
-            self.schedule_check,
             self.target_button,
         ):
             widget.setEnabled(has_group)
@@ -894,7 +884,6 @@ class CollectSyncTab(QWidget):
             "collect_remove_source",
         ):
             self._buttons[key].setEnabled(has_group)
-        self.schedule_time.setEnabled(has_group and self.schedule_check.isChecked())
         self.preview_button.setEnabled(editable and has_group)
         self.run_button.setEnabled(editable and has_group)
         self.recovery_button.setEnabled(not self.is_busy and not self._ui_locked)
@@ -904,82 +893,12 @@ class CollectSyncTab(QWidget):
             and not self.worker.isInterruptionRequested()
         )
 
-    def _on_schedule_tick(self):
-        self.check_scheduled_run()
-        self.refresh_schedule_summary()
-
     def check_scheduled_run(self, now=None):
-        """Run at most one due group per tick; busy groups consume no attempts."""
-        if (
-            self.is_busy
-            or self._ui_locked
-            or self._invalid_saved
-            or self._save_failed
-            or self._other_tasks_running()
-        ):
-            return False
-        now = now or local_now()
-        for index, group in enumerate(self.groups):
-            if not group.get("schedule_enabled", False):
-                continue
-            decision = collect_schedule_decision(group, now)
-            if not decision.should_start:
-                continue
-            stamp = now.isoformat(timespec="seconds")
-            group.update(
-                schedule_attempt_date=now.date().isoformat(),
-                schedule_attempt_count=decision.attempt_count + 1,
-                schedule_last_attempt_at=stamp,
-            )
-            if not self.save_data():
-                return False
-            if self._start(index=index, scheduled=True, now=now):
-                return True
-            group.update(
-                schedule_last_failure_at=stamp,
-                schedule_last_failure_reason="collect_save_error"
-                if self._save_failed
-                else "collect_error_io",
-            )
-            self.save_data()
-            return False
+        """Deprecated compatibility entry point. Only TaskTab may schedule work."""
         return False
 
     def refresh_schedule_summary(self):
-        if self.current_group_idx < 0:
-            self.schedule_status.clear()
-            return
-        group = self.groups[self.current_group_idx]
-        text = self._msg("collect_schedule_off")
-        if group.get("schedule_enabled"):
-            decision = collect_schedule_decision(group, local_now())
-            text = self._msg(
-                "collect_next", time=decision.next_at.strftime("%Y-%m-%d %H:%M")
-            )
-        if group.get("schedule_last_started_at") or group.get(
-            "schedule_last_failure_at"
-        ):
-            result = str(group.get("schedule_last_result", "failure"))
-            result_key = {
-                "running": "collect_working",
-                "success": "collect_done",
-                "interrupted": "collect_interrupted",
-            }.get(result, "collect_error")
-            text += "\n" + self._msg(
-                "collect_history",
-                start=group.get("schedule_last_started_at") or "—",
-                end=group.get("schedule_last_finished_at") or "—",
-                result=self._msg(result_key),
-            )
-        failure_at = str(group.get("schedule_last_failure_at", ""))
-        if failure_at and failure_at > str(group.get("schedule_last_started_at", "")):
-            reason = str(group.get("schedule_last_failure_reason", "collect_error_io"))
-            text += "\n" + self._msg(
-                "collect_last_attempt_failure",
-                time=failure_at,
-                reason=self._msg(reason),
-            )
-        self.schedule_status.setText(text)
+        """Legacy callers may refresh; the per-group scheduler has been retired."""
 
     def _action_message(self, action):
         if action.message_code == "newer" or action.kind == ACTION_TARGET_NEWER:
@@ -1067,7 +986,6 @@ class CollectSyncTab(QWidget):
         for widget, key in (
             (self.subfolders_check, "collect_subfolders"),
             (self.target_button, "collect_browse"),
-            (self.schedule_check, "collect_schedule"),
             (self.preview_button, "collect_preview"),
             (self.run_button, "collect_run"),
             (self.stop_button, "collect_stop"),

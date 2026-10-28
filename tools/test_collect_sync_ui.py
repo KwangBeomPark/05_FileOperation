@@ -89,7 +89,6 @@ class CollectUiTests(unittest.TestCase):
         )
         self.config = MemoryConfig([self.group])
         self.tab = CollectSyncTab(self.config)
-        self.tab.schedule_timer.stop()
         self.tab.state_path = self.root / "data" / "collect_sync_state.json"
 
     def tearDown(self):
@@ -113,7 +112,6 @@ class CollectUiTests(unittest.TestCase):
         self.tab.target_input.setText(str(self.target))
         self.tab.add_source_paths([str(self.source), str(self.source)])
         self.tab.subfolders_check.setChecked(True)
-        self.tab.schedule_check.setChecked(True)
         with patch(
             "src.ui.collect_sync_tab.QInputDialog.getText",
             return_value=("Renamed", True),
@@ -121,11 +119,10 @@ class CollectUiTests(unittest.TestCase):
             self.tab.rename_group()
         restored = CollectSyncTab(self.config)
         try:
-            restored.schedule_timer.stop()
             self.assertEqual(restored.groups[1]["name"], "Renamed")
             self.assertEqual(restored.groups[1]["sources"], [str(self.source)])
             self.assertEqual(restored.groups[1]["keywords"], ["invoice", "memo"])
-            self.assertTrue(restored.groups[1]["schedule_enabled"])
+            self.assertFalse(restored.groups[1]["schedule_enabled"])
             self.assertEqual(restored.groups[0]["keywords"], ["report"])
         finally:
             restored.stop_all()
@@ -235,10 +232,10 @@ class CollectUiTests(unittest.TestCase):
         self.finish()
         self.assertEqual(self.tab._last_report.actions[0].message_code, "cycle")
         self.tab.groups[0].update(schedule_enabled=True, schedule_time="12:00")
-        self.assertTrue(self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12)))
+        self.assertFalse(self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12)))
+        self.assertTrue(self.tab._start())
         self.finish()
         self.assertEqual(self.tab._last_report.actions[0].message_code, "cycle")
-        self.assertEqual(self.tab.groups[0]["schedule_last_result"], "failure")
         self.assertEqual(list(self.target.iterdir()), [])
 
     def test_confirmation_defers_schedules_and_reentrant_starts_without_attempts(self):
@@ -329,7 +326,7 @@ class CollectUiTests(unittest.TestCase):
             self.assertFalse(self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12)))
         for key, value in old.items():
             self.assertEqual(self.tab.groups[0][key], value)
-        self.assertTrue(self.tab.groups[0]["schedule_last_failure_at"])
+        self.assertNotIn("schedule_last_failure_at", self.tab.groups[0])
 
     def test_direct_native_start_failure_restores_persisted_schedule_history(self):
         previous = {
@@ -410,61 +407,8 @@ class CollectUiTests(unittest.TestCase):
             1,
         )
 
-    def test_schedule_hidden_due_group_records_history_without_popups(self):
-        self.tab.groups[0].update(schedule_enabled=True, schedule_time="12:00")
-        self.tab.hide()
-        with patch(
-            "src.ui.collect_sync_tab.QMessageBox.question",
-            side_effect=AssertionError("No scheduled popup"),
-        ):
-            self.assertFalse(
-                self.tab.check_scheduled_run(wall_time(2026, 10, 27, 11, 59))
-            )
-            self.assertTrue(
-                self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12, 1))
-            )
-            self.assertFalse(
-                self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12, 1))
-            )
-            self.finish()
-        group = self.config.get("collect_sync_groups")[0]
-        self.assertEqual(group["schedule_last_started_at"], "2026-10-27T12:01:00")
-        self.assertTrue(group["schedule_last_finished_at"])
-        self.assertEqual(group["schedule_last_result"], "success")
-        self.assertFalse(self.tab.check_scheduled_run(wall_time(2026, 10, 27, 23)))
-        self.assertTrue(self.tab.check_scheduled_run(wall_time(2026, 10, 28, 12)))
-        self.finish()
 
-    def test_multiple_due_groups_run_serially_once_each(self):
-        second = new_collect_group("Second")
-        second.update(
-            sources=[str(self.source)],
-            keywords=["memo"],
-            target=str(self.target),
-            schedule_enabled=True,
-        )
-        self.tab.groups[0]["schedule_enabled"] = True
-        self.tab.groups.append(second)
-        now = wall_time(2026, 10, 27, 12)
-        self.assertTrue(self.tab.check_scheduled_run(now))
-        self.finish()
-        self.assertTrue(self.tab.check_scheduled_run(now))
-        self.assertEqual(self.tab._result_group_id, second["id"])
-        self.finish()
-        self.assertFalse(self.tab.check_scheduled_run(now))
 
-    def test_unavailable_source_is_error_and_next_day_can_retry(self):
-        self.tab.groups[0].update(
-            sources=[str(self.root / "offline")], schedule_enabled=True
-        )
-        self.assertTrue(self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12)))
-        self.finish()
-        self.assertEqual(self.tab._last_report.count(ACTION_ERROR), 1)
-        self.assertEqual(self.tab.groups[0]["schedule_last_result"], "failure")
-        self.assertIn("unavailable", self.tab.table.item(0, 4).text())
-        self.assertFalse(self.tab.check_scheduled_run(wall_time(2026, 10, 27, 13)))
-        self.assertTrue(self.tab.check_scheduled_run(wall_time(2026, 10, 28, 12)))
-        self.finish()
 
     def test_settings_save_failure_blocks_manual_and_schedule(self):
         self.config.fail = True
@@ -497,21 +441,10 @@ class CollectUiTests(unittest.TestCase):
             dialog.reject()
             dialog.deleteLater()
             self.app.processEvents()
-        self.assertTrue(self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12)))
+        self.assertFalse(self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12)))
+        self.assertTrue(self.tab._start())
         self.finish()
 
-    def test_worker_start_failure_allows_only_bounded_prestart_retries(self):
-        self.tab.groups[0]["schedule_enabled"] = True
-        with patch.object(
-            CollectWorker, "start", side_effect=RuntimeError("thread start failed")
-        ):
-            for minute, attempts in ((0, 1), (5, 1), (10, 2), (20, 3), (30, 3)):
-                self.assertFalse(
-                    self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12, minute))
-                )
-                self.assertEqual(self.tab.groups[0]["schedule_attempt_count"], attempts)
-        self.assertFalse(self.tab.is_running)
-        self.assertFalse(self.tab.groups[0].get("schedule_last_started_at", ""))
 
     def test_invalid_saved_settings_are_not_overwritten(self):
         self.config.values["collect_sync_groups"] = "bad"
@@ -531,11 +464,10 @@ class CollectUiTests(unittest.TestCase):
             schedule_last_finished_at="",
         )
         restored = CollectSyncTab(self.config)
-        restored.schedule_timer.stop()
         try:
             self.assertEqual(restored.groups[0]["schedule_last_result"], "interrupted")
             self.assertEqual(restored.groups[0]["schedule_last_finished_at"], "")
-            self.assertIn("Interrupted", restored.schedule_status.text())
+            self.assertFalse(hasattr(restored, "schedule_timer"))
             self.assertFalse(restored.check_scheduled_run(wall_time(2026, 10, 27, 23)))
             self.assertEqual(
                 self.config.get("collect_sync_groups")[0]["schedule_last_result"],
@@ -667,13 +599,12 @@ class CollectUiTests(unittest.TestCase):
                 tr("collect_recovery_title", language), self.tab.status_label.text()
             )
         self.tab.groups[0].update(schedule_enabled=True, schedule_time="12:00")
-        self.assertTrue(self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12)))
+        self.assertFalse(self.tab.check_scheduled_run(wall_time(2026, 10, 27, 12)))
+        self.assertTrue(self.tab._start())
         self.finish()
         self.assertEqual(report_path.read_bytes(), completed_bytes)
         self.assertEqual(self.tab.groups[0]["last_result_counts"], completed_counts)
         self.assertEqual(self.tab.groups[0]["last_finished_at"], completed_at)
-        self.assertEqual(self.tab.groups[0]["schedule_last_result"], "failure")
-        self.assertTrue(self.tab.groups[0]["schedule_last_finished_at"])
 
     def test_report_serialization_failure_stays_inside_worker(self):
         with patch(
@@ -700,7 +631,6 @@ class CollectMainWindowTests(unittest.TestCase):
         ):
             self.window = MainWindow()
         self.window.task_tab.schedule_timer.stop()
-        self.window.collect_sync_tab.schedule_timer.stop()
         self.window.save_window_state = Mock()
 
     def tearDown(self):
@@ -770,7 +700,7 @@ class CollectMainWindowTests(unittest.TestCase):
         self.assertFalse(self.window._is_exiting)
 
     def test_failed_installer_launch_restores_previous_timer_state(self):
-        timer = self.window.collect_sync_tab.schedule_timer
+        timer = self.window.task_tab.schedule_timer
         for active in (True, False):
             timer.start() if active else timer.stop()
             with (
@@ -783,19 +713,40 @@ class CollectMainWindowTests(unittest.TestCase):
                 self.window._launch_update_installer("fixture-not-executed.exe")
             self.assertEqual(timer.isActive(), active)
 
+    def test_installer_is_refused_while_master_or_sync_is_running(self):
+        timer = self.window.task_tab.schedule_timer
+        for tab in (self.window.task_tab, self.window.sync_tab):
+            for active in (True, False):
+                with self.subTest(tab=type(tab).__name__, timer_active=active):
+                    timer.start() if active else timer.stop()
+                    tab.is_running = True
+                    try:
+                        with (
+                            patch("src.ui.main_window.launch_installer") as launch,
+                            patch("src.ui.main_window.QMessageBox.warning") as warning,
+                            patch.object(self.window.collect_sync_tab, "stop_all") as stop,
+                        ):
+                            self.assertFalse(self.window._launch_update_installer("fixture-not-executed.exe"))
+                        warning.assert_called_once()
+                        launch.assert_not_called()
+                        stop.assert_not_called()
+                        self.assertEqual(timer.isActive(), active)
+                    finally:
+                        tab.is_running = False
+
     def test_refused_installer_launch_keeps_timer_active_and_never_launches(self):
         tab = self.window.collect_sync_tab
         worker = Mock()
         worker.wait.return_value = False
         tab.worker, tab.is_running = worker, True
-        tab.schedule_timer.start()
+        self.window.task_tab.schedule_timer.start()
         try:
             with patch("src.ui.main_window.launch_installer") as launch:
                 self.assertFalse(
                     self.window._launch_update_installer("fixture-not-executed.exe")
                 )
             launch.assert_not_called()
-            self.assertTrue(tab.schedule_timer.isActive())
+            self.assertTrue(self.window.task_tab.schedule_timer.isActive())
         finally:
             tab.worker, tab.is_running = None, False
 
