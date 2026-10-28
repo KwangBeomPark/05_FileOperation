@@ -8,11 +8,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PyQt6.QtCore import QCoreApplication, QEventLoop, QTimer
+from PyQt6.QtCore import QCoreApplication, QEventLoop, QTimer, Qt
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
-from src.core.collect_sync import ACTION_COPY, ACTION_ERROR
+from src.core.collect_sync import ACTION_COPY, ACTION_ERROR, CollectAction, CollectReport
 from src.core.collect_sync_config import new_collect_group
 from src.ui.collect_sync_tab import CollectSyncTab, CollectWorker
 from src.ui.i18n import tr
@@ -798,6 +798,127 @@ class CollectMainWindowTests(unittest.TestCase):
             self.assertEqual(observed, [False])
             self.assertNotIn("schedule_attempt_count", group)
             self.assertFalse(self.window.sync_tab.is_running)
+
+
+class CollectSyncTableSortingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.config = MemoryConfig()
+        self.config.values["collect_sync_groups"] = [
+            {"id": "g1", "name": "Group 1", "sources": [], "keywords": ["*"], "target": "dest"}
+        ]
+        self.tab = CollectSyncTab(self.config)
+        self.tab.state_path = Path(self.tmp.name) / "state.json"
+
+    def tearDown(self):
+        self.tab.deleteLater()
+        self.tmp.cleanup()
+
+    def test_sorting_disabled_on_qtablewidget_directly(self):
+        """Qt table-level sorting should stay disabled to prevent incremental insertion races."""
+        self.assertFalse(self.tab.table.isSortingEnabled())
+        self.assertTrue(self.tab.table.horizontalHeader().sectionsClickable())
+
+    def test_sort_header_case_insensitive_and_toggle(self):
+        actions = (
+            CollectAction(ACTION_COPY, source="C:/path/b.txt", target_name="b.txt"),
+            CollectAction(ACTION_COPY, source="C:/path/A.txt", target_name="A.txt"),
+            CollectAction(ACTION_COPY, source="C:/path/c.txt", target_name="c.txt"),
+        )
+        self.tab._last_report = CollectReport(actions=actions)
+        self.tab._render_report()
+
+        header = self.tab.table.horizontalHeader()
+        # Sort Column 1 (Source) - Ascending
+        header.sortIndicatorChanged.emit(1, Qt.SortOrder.AscendingOrder)
+        self.assertEqual(
+            [self.tab.table.item(r, 1).text() for r in range(3)],
+            ["C:/path/A.txt", "C:/path/b.txt", "C:/path/c.txt"]
+        )
+
+        # Sort Column 1 (Source) - Descending
+        header.sortIndicatorChanged.emit(1, Qt.SortOrder.DescendingOrder)
+        self.assertEqual(
+            [self.tab.table.item(r, 1).text() for r in range(3)],
+            ["C:/path/c.txt", "C:/path/b.txt", "C:/path/A.txt"]
+        )
+
+    def test_sort_stability_on_ties(self):
+        actions = (
+            CollectAction(ACTION_COPY, source="same.txt", target_name="first.txt"),
+            CollectAction(ACTION_COPY, source="same.txt", target_name="second.txt"),
+            CollectAction(ACTION_COPY, source="same.txt", target_name="third.txt"),
+        )
+        self.tab._last_report = CollectReport(actions=actions)
+        header = self.tab.table.horizontalHeader()
+
+        # Ascending on Column 1 (all keys identical)
+        header.sortIndicatorChanged.emit(1, Qt.SortOrder.AscendingOrder)
+        self.assertEqual(
+            [self.tab.table.item(r, 2).text() for r in range(3)],
+            ["first.txt", "second.txt", "third.txt"]
+        )
+
+        # Descending on Column 1 (all keys identical - stable tie-breaking preserves report order)
+        header.sortIndicatorChanged.emit(1, Qt.SortOrder.DescendingOrder)
+        self.assertEqual(
+            [self.tab.table.item(r, 2).text() for r in range(3)],
+            ["first.txt", "second.txt", "third.txt"]
+        )
+
+    def test_sort_with_paging_and_reset_to_first_page(self):
+        actions = tuple(
+            CollectAction(ACTION_COPY, source=f"file_{i:04d}.txt", target_name=f"file_{i:04d}.txt")
+            for i in range(2001)
+        )
+        self.tab._last_report = CollectReport(actions=actions)
+        self.tab._render_report()
+        self.tab._change_result_page(1)
+        self.assertEqual(self.tab._result_page, 1)
+
+        # Sort Column 1 Descending -> should reset page to 0
+        header = self.tab.table.horizontalHeader()
+        header.sortIndicatorChanged.emit(1, Qt.SortOrder.DescendingOrder)
+        self.assertEqual(self.tab._result_page, 0)
+        self.assertEqual(self.tab.table.item(0, 1).text(), "file_2000.txt")
+
+        # Go to last page -> file_0000.txt should be on page 1
+        self.tab._change_result_page(1)
+        self.assertEqual(self.tab.table.item(0, 1).text(), "file_0000.txt")
+
+    def test_sort_with_duplicate_identical_action_objects(self):
+        actions = [CollectAction(ACTION_COPY, source="test.txt", target_name="test.txt")] * 2001
+        self.tab._last_report = CollectReport(actions=tuple(actions))
+        header = self.tab.table.horizontalHeader()
+        header.sortIndicatorChanged.emit(0, Qt.SortOrder.AscendingOrder)
+        self.assertEqual(self.tab.table.rowCount(), 2000)
+
+    def test_sort_preference_persists_across_clear_and_empty_safe(self):
+        # Empty report safe
+        header = self.tab.table.horizontalHeader()
+        self.tab._last_report = None
+        header.sortIndicatorChanged.emit(1, Qt.SortOrder.AscendingOrder)
+        self.assertEqual(self.tab.table.rowCount(), 0)
+
+        # Set sort preference
+        header.sortIndicatorChanged.emit(1, Qt.SortOrder.DescendingOrder)
+        self.tab._clear_results()
+        self.assertEqual(self.tab._sort_column, 1)
+        self.assertEqual(self.tab._sort_order, Qt.SortOrder.DescendingOrder)
+
+        # New report renders with saved sort preference
+        actions = (
+            CollectAction(ACTION_COPY, source="A.txt"),
+            CollectAction(ACTION_COPY, source="Z.txt"),
+        )
+        self.tab._last_report = CollectReport(actions=actions)
+        self.tab._render_report()
+        self.assertEqual(self.tab.table.item(0, 1).text(), "Z.txt")
+        self.assertEqual(self.tab.table.item(1, 1).text(), "A.txt")
 
 
 if __name__ == "__main__":

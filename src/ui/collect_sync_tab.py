@@ -221,6 +221,10 @@ class CollectSyncTab(QWidget):
         self._result_group_id = ""
         self._result_group_name = ""
         self._scheduled = False
+        self._sort_column: int | None = None
+        self._sort_order = Qt.SortOrder.AscendingOrder
+        self._sort_cache_key: tuple | None = None
+        self._sort_cache_indices: list[int] | None = None
         self.state_path = user_data_dir() / "collect_sync_state.json"
         self._init_ui()
         self.load_saved_data()
@@ -345,10 +349,12 @@ class CollectSyncTab(QWidget):
         self.table = QTableWidget(0, 5)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Interactive
-        )
-        self.table.horizontalHeader().setStretchLastSection(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(False)
+        header.sortIndicatorChanged.connect(self._on_sort_indicator_changed)
         for column, width in enumerate((125, 390, 220, 230)):
             self.table.setColumnWidth(column, width)
         self.table.verticalHeader().hide()
@@ -918,6 +924,8 @@ class CollectSyncTab(QWidget):
         self._last_report = None
         self._result_page = 0
         self._report_dry_run = False
+        self._sort_cache_key = None
+        self._sort_cache_indices = None
         self.table.setRowCount(0)
         self.summary_label.clear()
         self.result_pager.hide()
@@ -925,26 +933,68 @@ class CollectSyncTab(QWidget):
         self.next_page_button.setEnabled(False)
         self.page_label.clear()
 
+    def _on_sort_indicator_changed(self, logical_index: int, order: Qt.SortOrder):
+        if logical_index < 0 or logical_index >= 5:
+            return
+        self._sort_column = logical_index
+        self._sort_order = order
+        self.table.horizontalHeader().setSortIndicatorShown(True)
+        self._result_page = 0
+        self.table.clearSelection()
+        self.table.scrollToTop()
+        self._render_report()
+
+    def _action_cell_texts(self, action):
+        return (
+            self._msg("collect_" + action.kind),
+            action.source,
+            action.target_name,
+            action.archived_name,
+            self._action_message(action),
+        )
+
+    def _get_sorted_indices(self):
+        report = self._last_report
+        if report is None:
+            return []
+        actions = report.actions
+        total = len(actions)
+        if total == 0 or self._sort_column is None:
+            return list(range(total))
+
+        col = self._sort_column
+        order = self._sort_order
+        lang = self.language
+        cache_key = (report, col, order, lang)
+        if (
+            self._sort_cache_key == cache_key
+            and self._sort_cache_indices is not None
+            and len(self._sort_cache_indices) == total
+        ):
+            return self._sort_cache_indices
+
+        row_keys = [self._action_cell_texts(a)[col].casefold() for a in actions]
+        reverse = order == Qt.SortOrder.DescendingOrder
+        indices = sorted(range(total), key=lambda i: row_keys[i], reverse=reverse)
+
+        self._sort_cache_key = cache_key
+        self._sort_cache_indices = indices
+        return indices
+
     def _render_report(self):
         report = self._last_report
         if report is None:
             return
-        total = len(report.actions)
+        ordered_indices = self._get_sorted_indices()
+        total = len(ordered_indices)
         pages = max(1, (total + self.RESULT_ROW_LIMIT - 1) // self.RESULT_ROW_LIMIT)
         self._result_page = min(max(0, self._result_page), pages - 1)
         start = self._result_page * self.RESULT_ROW_LIMIT
         end = min(total, start + self.RESULT_ROW_LIMIT)
         self.table.setRowCount(end - start)
-        for row, action in enumerate(report.actions[start:end]):
-            for column, text in enumerate(
-                (
-                    self._msg("collect_" + action.kind),
-                    action.source,
-                    action.target_name,
-                    action.archived_name,
-                    self._action_message(action),
-                )
-            ):
+        for row, idx in enumerate(ordered_indices[start:end]):
+            action = report.actions[idx]
+            for column, text in enumerate(self._action_cell_texts(action)):
                 item = QTableWidgetItem(text)
                 item.setToolTip(text)
                 self.table.setItem(row, column, item)
@@ -1006,6 +1056,12 @@ class CollectSyncTab(QWidget):
                 )
             ]
         )
+        if self._sort_column is not None:
+            hdr = self.table.horizontalHeader()
+            hdr.blockSignals(True)
+            hdr.setSortIndicator(self._sort_column, self._sort_order)
+            hdr.setSortIndicatorShown(True)
+            hdr.blockSignals(False)
         if not self.is_running:
             self.status_label.setText(self._msg(self._status_key))
         self._render_report()
