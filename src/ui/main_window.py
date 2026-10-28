@@ -475,7 +475,7 @@ class MainWindow(QMainWindow):
     def _set_tab_labels(self):
         top_level_tabs = (self.task_tab, self.sync_tab, self.collect_sync_tab, self.bypass_tab, self.sa_team_tabs)
         tab_labels = ("tab_tasks", "tab_sync", "tab_collect_sync", "tab_bypass", "tab_sa_team")
-        for widget, key in zip(top_level_tabs, tab_labels):
+        for widget, key in zip(top_level_tabs, tab_labels, strict=True):
             self.tab_widget.setTabText(self.tab_widget.indexOf(widget), tr(key, self.language))
         for widget, key in ((self.eml_tab, "tab_eml"), (self.pdf_tab, "tab_pdf"), (self.ocr_tab, "tab_ocr")):
             self.sa_team_tabs.setTabText(self.sa_team_tabs.indexOf(widget), tr(key, self.language))
