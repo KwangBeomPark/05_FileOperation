@@ -11,21 +11,21 @@ from PyQt6.QtCore import Qt, QTime, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
 
 # Core Modules
-from src.core.email_sender import send_email
 from src.core.diagnostics import DiagnosticItem, DiagnosticStatus
 from src.core.folder_watcher import FolderWatcher
-from src.core.notifier import build_webhook_payload, send_webhook
 from src.core.preflight import check_run_plan
 from src.core.preset_manager import apply_workflow_preset, export_workflow_preset, load_workflow_preset
 from src.core.run_journal import RunJournal
 from src.core.schedule import evaluate_flexible_schedule, parse_timestamp
 from src.core.task_contracts import BypassRunConfig, OcrRunConfig, RunPlan, SourceDisposition, StepStatus, TaskStep, TaskValidationError
 from src.core.task_history import merge_run_report_history, normalize_step_history
+from src.core.task_notifier import ReportNotification, localize_runtime_error, save_fallback_report
 from src.ui.i18n import get_app_language, tr
 from src.ui.diagnostics_dialog import DiagnosticsDialog
 from src.ui.preflight_dialog import run_bounded_preflight
 from src.ui.run_summary_dialog import confirm_run_summary
 from src.ui.run_history_dialog import RunHistoryDialog
+from src.ui.notification_worker import NotificationWorker
 from src.ui.task_worker import TaskWorker
 from src.utils.logger import get_logger
 
@@ -55,6 +55,7 @@ class TaskTab(QWidget):
         super().__init__(parent)
         self.config_manager = config_manager
         self.worker = None
+        self.notification_workers = []
         self.folder_watcher = None
         self.is_running = False
         self.is_scheduled_run = False
@@ -393,19 +394,7 @@ class TaskTab(QWidget):
         return {"ko": korean, "pl": polish}.get(self.language, english)
 
     def _runtime_error_text(self, value):
-        text = str(value)
-        if self.language == "ko":
-            return text
-        replacements = {
-            "필수 이메일 발송 설정 항목이 누락되었습니다": "Required email settings are missing",
-            "수신자 이메일 주소가 비어있습니다": "The recipient email address is empty",
-            "SMTP 인증에 실패했습니다": "SMTP authentication failed",
-            "이메일 주소 또는 비밀번호(앱 비밀번호)를 확인하세요": "Check the email address and app password",
-            "이메일 전송 중 에러가 발생했습니다": "An error occurred while sending email",
-        }
-        for korean, english in replacements.items():
-            text = text.replace(korean, english)
-        return text
+        return localize_runtime_error(value, self.language)
 
     def selected_steps(self):
         return [step for step in self.STEP_ORDER if self.step_checks[step].isChecked()]
@@ -639,29 +628,26 @@ class TaskTab(QWidget):
                     logger.exception("Could not mark the run as possibly stalled")
 
     def _finish_run_journal(self, report):
-        if self.current_run_finalized or not self.run_journal or not self.current_run_id:
-            return
-        try:
-            self.current_report_path = self.run_journal.finish_run(self.current_run_id, report)
-            self.current_run_finalized = True
-            self.log(tr("run_report_saved", self.language, path=self.current_report_path))
-        except Exception as exc:
-            logger.exception("Could not save the completed run report")
-            self.log(tr("run_report_save_failed", self.language, detail=str(exc)))
+        self._finalize_journal(
+            lambda run_id: self.run_journal.finish_run(run_id, report),
+            "Could not save the completed run report",
+        )
 
     def _finish_failed_journal(self, message, report_body):
+        self._finalize_journal(
+            lambda run_id: self.run_journal.finish_failed(run_id, str(message), str(report_body or "")),
+            "Could not save the failed run report",
+        )
+
+    def _finalize_journal(self, finish, failure_log):
         if self.current_run_finalized or not self.run_journal or not self.current_run_id:
             return
         try:
-            self.current_report_path = self.run_journal.finish_failed(
-                self.current_run_id,
-                str(message),
-                str(report_body or ""),
-            )
+            self.current_report_path = finish(self.current_run_id)
             self.current_run_finalized = True
             self.log(tr("run_report_saved", self.language, path=self.current_report_path))
         except Exception as exc:
-            logger.exception("Could not save the failed run report")
+            logger.exception(failure_log)
             self.log(tr("run_report_save_failed", self.language, detail=str(exc)))
 
     def _feature_tabs(self, main_win=None):
@@ -1320,6 +1306,8 @@ class TaskTab(QWidget):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait()
+        for worker in list(self.notification_workers):
+            worker.wait()
 
     def update_step_progress(self, current, total, detail_msg):
         self.detail_label.setText(detail_msg)
@@ -1460,91 +1448,27 @@ class TaskTab(QWidget):
         self.current_run_id = ""
 
     def send_report_email(self, report_body):
-        """결과 리포트 이메일 전송 및 실패 시 로컬 Fallback"""
-        smtp_server = self.config_manager.get("smtp_server", "").strip()
-        smtp_port_raw = self.config_manager.get("smtp_port", "")
-        sender_email = self.config_manager.get("sender_email", "").strip()
-        sender_password = self.config_manager.get("sender_password", "")
-        receiver_email = self.config_manager.get("receiver_email", "").strip()
-        mail_subject = self.config_manager.get("mail_subject", "통합 작업 완료 결과 보고서").strip()
-        if self.language != "ko" and mail_subject == "통합 작업 완료 결과 보고서":
-            mail_subject = "Task Result Report"
-        mail_body_header = self.config_manager.get("mail_body_header", "").strip()
-        
-        if not smtp_server or not sender_email or not receiver_email:
-            self.log(self._text("✗ Email was skipped because SMTP settings are incomplete.", "✗ SMTP 설정이 누락되어 이메일 발송을 건너뜁니다.", "✗ Pominięto e-mail z powodu niepełnych ustawień SMTP."))
-            if not self.current_report_path:
-                self.save_fallback_report(report_body)
-            return
-            
-        try:
-            smtp_port = int(smtp_port_raw) if smtp_port_raw else 587
-        except ValueError:
-            smtp_port = 587
-            
-        # 메일 본문 가공
-        full_body = ""
-        if mail_body_header:
-            full_body += f"{mail_body_header}\n\n"
-            full_body += "=" * 60 + "\n\n"
-        full_body += report_body
-        
-        self.log(self._text(f"✉ Sending the result to [{receiver_email}]...", f"✉ [{receiver_email}]에 결과를 발송합니다...", f"✉ Wysyłanie wyniku do [{receiver_email}]..."))
-        
-        # 비동기 발송이 아닌 동기적 발송으로 간결하게 처리 (완료 후 발송이므로 체감이 크지 않음)
-        ok, send_msg = send_email(
-            smtp_server=smtp_server,
-            smtp_port=smtp_port,
-            sender_email=sender_email,
-            sender_password=sender_password,
-            receiver_emails=receiver_email,
-            subject=mail_subject,
-            body_text=full_body
+        """결과 리포트 이메일/웹훅 전송 및 실패 시 로컬 Fallback (백그라운드 스레드)"""
+        notification = ReportNotification.from_config(
+            self.config_manager,
+            self.language,
+            has_saved_report=bool(self.current_report_path),
         )
-        
-        if ok:
-            self.log(self._text("✓ Email sent successfully.", "✓ 이메일을 전송했습니다.", "✓ E-mail wysłany pomyślnie."))
-        else:
-            self.log(self._text("✗ Email failed", "✗ 이메일 전송 실패", "✗ Nie udało się wysłać e-maila") + f": {self._runtime_error_text(send_msg)}")
-            if not self.current_report_path:
-                self.save_fallback_report(full_body)
+        worker = NotificationWorker(notification, report_body, self)
+        worker.log_signal.connect(self.log)
+        worker.finished.connect(lambda: self._on_notification_finished(worker))
+        self.notification_workers.append(worker)
+        worker.start()
+        return worker
 
-        # Multi-channel webhook notification
-        webhook_url = str(self.config_manager.get("webhook_url", "") or "").strip()
-        if webhook_url:
-            self.log(self._text("✉ Sending Webhook notification...", "✉ 웹훅 알림을 전송합니다...", "✉ Wysyłanie powiadomienia Webhook..."))
-            webhook_type = str(self.config_manager.get("webhook_type", "generic") or "generic")
-            payload = build_webhook_payload(webhook_type, mail_subject, report_body, success=True)
-            wb_ok, wb_msg = send_webhook(webhook_url, payload)
-            if wb_ok:
-                self.log(self._text("✓ Webhook notification sent successfully.", "✓ 웹훅 알림이 성공적으로 전송되었습니다.", "✓ Powiadomienie Webhook wysłane pomyślnie."))
-            else:
-                self.log(self._text("✗ Webhook notification failed", "✗ 웹훅 알림 전송 실패", "✗ Nie udało się wysłać powiadomienia Webhook") + f": {wb_msg}")
-            
+    def _on_notification_finished(self, worker):
+        if worker in self.notification_workers:
+            self.notification_workers.remove(worker)
+        worker.deleteLater()
+
     def save_fallback_report(self, content):
         """이메일 발송 실패 또는 무설정 시 로컬 Fallback 텍스트 파일 저장 (Atomic Write)"""
-        from src.app_identity import user_data_dir
-        log_dir = str(user_data_dir() / 'logs')
-            
-        timestamp = time.strftime('%Y%m%d_%H%M%S')
-        filename = f"task_report_{timestamp}.txt"
-        
-        temp_path = os.path.join(log_dir, f"{filename}.tmp")
-        final_path = os.path.join(log_dir, filename)
-        
-        try:
-            os.makedirs(log_dir, exist_ok=True)
-            # 원자적 파일 쓰기(Atomic Write) 보장
-            with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            os.replace(temp_path, final_path)
-            
-            msg = self._text("💾 Result report saved locally", "💾 결과 보고서를 로컬에 저장했습니다", "💾 Raport zapisano lokalnie") + f": {final_path}"
-            self.log(msg)
-            logger.info(msg)
-        except Exception as e:
-            logger.error(f"Failed to save fallback report atomically: {e}")
-            self.log(self._text("✗ Could not save the result report", "✗ 결과 보고서를 저장하지 못했습니다", "✗ Nie można zapisać raportu") + f": {e}")
+        return save_fallback_report(content, log=self.log, text=self._text)
 
     def export_preset(self):
         file_path, _ = QFileDialog.getSaveFileName(

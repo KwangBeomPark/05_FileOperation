@@ -1,0 +1,20 @@
+당신은 'Claude Opus 5.5' 수석 아키텍트입니다.
+FileOps Hub 프로젝트(`C:\Dev\GitHub\05_FileOperation`)의 **Phase 3 리팩토링 (TaskTab 비대화 해소, 알림/보고서 비동기 안전화, 프리셋 로직 정리)**을 직접 코드를 수정하여 수행해 주세요.
+(과설계 금지, 기존 동작/기능/UI 100% 동일 유지, 기존 376개 테스트 전체 통과 필수)
+
+[Phase 3 구체적 작업 항목]
+1. `src/core/task_notifier.py` 신규 생성 및 알림/폴백 저장 로직 추출:
+   - `TaskTab` 내부의 `send_report_email()`, 웹훅 알림 전송(`build_webhook_payload`, `send_webhook`), 그리고 실패 시 로컬 원자적 파일 저장(`save_fallback_report()`)을 `src/core/task_notifier.py`로 추출.
+   - 이메일/웹훅 전송 시 SMTP 지연이나 타임아웃으로 UI가 멈추지(freeze) 않도록 `NotificationWorker(QThread)` 또는 백그라운드 비동기 디스패치 방식으로 연동하여, UI 로그 영역에 완료/실패 메시지가 안전하게 찍히도록 구현.
+   - 다국어 메시지(`self._text` 또는 `tr`) 및 로거 호출 호환성 유지.
+
+2. `src/ui/task_tab.py` 슬림화:
+   - 알림 전송 및 폴백 저장 코드를 `task_notifier`에 위임하여 약 150~200줄의 비UI 네트워크/파일 I/O 코드를 탭에서 제거.
+   - 저널 완료 처리(`_finish_run_journal`, `_finish_failed_journal`)를 간결하게 정리.
+
+3. 검증 및 테스트:
+   - `tools/test_task_notifier.py`를 추가하여 모의(mock) SMTP, 웹훅, 폴백 파일 저장이 정상 동작하는지 단위 테스트 작성.
+   - `python -m unittest discover -s tools -p "test_*.py"` 실행하여 기존 376개 + 신규 테스트 전체 통과 확인.
+   - `ruff check src` 실행하여 신규 린트 오류 없음 확인.
+
+작업이 완료되면 변경한 내용과 테스트 결과를 한국어로 요약 보고해 주세요.
