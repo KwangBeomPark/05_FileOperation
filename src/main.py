@@ -89,20 +89,21 @@ def run_headless(config_path: str | None = None) -> int:
         )
 
     enabled_steps_values = config.get("task_enabled_steps", [TaskStep.SYNC.value])
+    if not isinstance(enabled_steps_values, list):
+        enabled_steps_values = [TaskStep.SYNC.value]
     enabled_steps = []
     for val in enabled_steps_values:
         try:
             step = TaskStep(val)
-            if step in configs:
-                enabled_steps.append(step)
         except ValueError:
-            pass
+            continue
+        if step in configs and step not in enabled_steps:
+            enabled_steps.append(step)
 
-    if not enabled_steps:
-        enabled_steps = list(configs.keys())
-
+    # RunPlan.active_steps appends every config missing from step_order, so pass
+    # only the enabled steps' configs or disabled features would run anyway.
     plan = RunPlan(
-        configs=configs,
+        configs={step: configs[step] for step in enabled_steps},
         step_order=enabled_steps,
         chain_outputs=chain_outputs,
     )

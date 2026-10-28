@@ -664,38 +664,83 @@ class TaskTab(QWidget):
             logger.exception("Could not save the failed run report")
             self.log(tr("run_report_save_failed", self.language, detail=str(exc)))
 
-    def refresh_readiness(self):
-        if self.is_running:
-            return
-        self._update_backup_consent_visibility()
-        main_win = self.window()
-        tabs = {
+    def _feature_tabs(self, main_win=None):
+        """Map each task step to its feature tab on the main window (None when absent)."""
+        main_win = self.window() if main_win is None else main_win
+        return {
             TaskStep.SYNC: getattr(main_win, "sync_tab", None),
             TaskStep.EML: getattr(main_win, "eml_tab", None),
             TaskStep.PDF: getattr(main_win, "pdf_tab", None),
             TaskStep.OCR: getattr(main_win, "ocr_tab", None),
             TaskStep.BYPASS: getattr(main_win, "bypass_tab", None),
         }
+
+    def _chained_ocr_config(self):
+        """OCR config for a run whose OCR input comes from earlier EML/PDF outputs."""
+        return OcrRunConfig(
+            image_paths=[],
+            rule_mode=str(self.config_manager.get("ocr_rule_mode", "promotion") or "promotion"),
+            custom_pattern=str(self.config_manager.get("ocr_custom_pattern", "") or ""),
+            rename_template=str(self.config_manager.get("ocr_rename_template", "{match}") or "{match}"),
+            export_txt=bool(self.config_manager.get("ocr_export_txt", False)),
+        )
+
+    def _build_step_config(self, step, tabs, selected_steps):
+        """Build one step's run config, raising TaskValidationError when it cannot run."""
+        tab_obj = tabs.get(step)
+        if tab_obj is None or not hasattr(tab_obj, "build_run_config"):
+            raise TaskValidationError(
+                tr("task_readiness_tab_unavailable", self.language),
+                message_key="task_readiness_tab_unavailable",
+            )
+        config = tab_obj.build_run_config()
+        if config is None:
+            if (
+                step == TaskStep.OCR
+                and self.check_chain_outputs.isChecked()
+                and (TaskStep.EML in selected_steps or TaskStep.PDF in selected_steps)
+            ):
+                return self._chained_ocr_config()
+            raise TaskValidationError(
+                tr("task_no_config", self.language),
+                message_key="task_no_config",
+            )
+        return config
+
+    def _collect_step_configs(self, selected_steps, main_win=None):
+        """Build configs for the selected steps.
+
+        Returns (configs, errors), both keyed by TaskStep in selection order; errors
+        holds the exception raised while building that step's config.
+        """
+        tabs = self._feature_tabs(main_win)
         configs = {}
-        for step in self.STEP_ORDER:
-            if not self.step_checks[step].isChecked():
-                self._set_readiness_item(step, "not_selected")
-                continue
-            tab_obj = tabs.get(step)
-            if tab_obj is None or not hasattr(tab_obj, "build_run_config"):
-                self._set_readiness_item(step, "blocked", tr("task_readiness_tab_unavailable", self.language))
-                continue
+        errors = {}
+        for step in selected_steps:
             try:
-                config = tab_obj.build_run_config()
-                if config is None:
-                    raise TaskValidationError(tr("task_no_config", self.language))
-                configs[step] = config
-                self._set_readiness_item(step, "ready")
-            except TaskValidationError as exc:
-                detail = tr(exc.message_key, self.language, **exc.values) if exc.message_key else exc.user_message
-                self._set_readiness_item(step, "blocked", detail)
+                configs[step] = self._build_step_config(step, tabs, selected_steps)
             except Exception as exc:
-                self._set_readiness_item(step, "blocked", str(exc))
+                errors[step] = exc
+        return configs, errors
+
+    def _validation_detail(self, exc):
+        if isinstance(exc, TaskValidationError):
+            return tr(exc.message_key, self.language, **exc.values) if exc.message_key else exc.user_message
+        return str(exc)
+
+    def refresh_readiness(self):
+        if self.is_running:
+            return
+        self._update_backup_consent_visibility()
+        selected_steps = self.selected_steps()
+        configs, errors = self._collect_step_configs(selected_steps)
+        for step in self.STEP_ORDER:
+            if step not in selected_steps:
+                self._set_readiness_item(step, "not_selected")
+            elif step in errors:
+                self._set_readiness_item(step, "blocked", self._validation_detail(errors[step]))
+            else:
+                self._set_readiness_item(step, "ready")
 
         if configs:
             report = check_run_plan(
@@ -746,42 +791,17 @@ class TaskTab(QWidget):
             )
             return
 
-        main_win = self.window()
-        tabs = {
-            TaskStep.SYNC: getattr(main_win, "sync_tab", None),
-            TaskStep.EML: getattr(main_win, "eml_tab", None),
-            TaskStep.PDF: getattr(main_win, "pdf_tab", None),
-            TaskStep.OCR: getattr(main_win, "ocr_tab", None),
-            TaskStep.BYPASS: getattr(main_win, "bypass_tab", None),
-        }
-        configs = {}
-        validation_items = []
-        for step in selected_steps:
-            tab_obj = tabs.get(step)
-            try:
-                if tab_obj is None or not hasattr(tab_obj, "build_run_config"):
-                    raise TaskValidationError(tr("task_readiness_tab_unavailable", self.language))
-                config = tab_obj.build_run_config()
-                if config is None:
-                    raise TaskValidationError(tr("task_no_config", self.language))
-                configs[step] = config
-            except TaskValidationError as exc:
-                detail = tr(exc.message_key, self.language, **exc.values) if exc.message_key else exc.user_message
-                validation_items.append(DiagnosticItem(
-                    f"{step.value}_config",
-                    tr("diagnostics_feature_config", self.language, feature=self.step_label(step)),
-                    DiagnosticStatus.FAIL,
-                    detail,
-                    step.value,
-                ))
-            except Exception as exc:
-                validation_items.append(DiagnosticItem(
-                    f"{step.value}_config",
-                    tr("diagnostics_feature_config", self.language, feature=self.step_label(step)),
-                    DiagnosticStatus.FAIL,
-                    str(exc),
-                    step.value,
-                ))
+        configs, errors = self._collect_step_configs(selected_steps)
+        validation_items = [
+            DiagnosticItem(
+                f"{step.value}_config",
+                tr("diagnostics_feature_config", self.language, feature=self.step_label(step)),
+                DiagnosticStatus.FAIL,
+                self._validation_detail(exc),
+                step.value,
+            )
+            for step, exc in errors.items()
+        ]
 
         self.diagnostics_dialog = DiagnosticsDialog(
             self.config_manager,
@@ -813,14 +833,7 @@ class TaskTab(QWidget):
             step = TaskStep(target)
         except ValueError:
             return
-        widgets = {
-            TaskStep.SYNC: getattr(main_win, "sync_tab", None),
-            TaskStep.EML: getattr(main_win, "eml_tab", None),
-            TaskStep.PDF: getattr(main_win, "pdf_tab", None),
-            TaskStep.OCR: getattr(main_win, "ocr_tab", None),
-            TaskStep.BYPASS: getattr(main_win, "bypass_tab", None),
-        }
-        widget = widgets.get(step)
+        widget = self._feature_tabs(main_win).get(step)
         if widget is not None:
             if hasattr(main_win, "select_feature_tab"):
                 main_win.select_feature_tab(widget)
@@ -1128,76 +1141,33 @@ class TaskTab(QWidget):
             return self._start_rejected(tr("task_no_selection_body", self.language))
             
         # 1. 5개 탭의 명시적 실행 계약 수집
-        configs = {}
-        tabs = {
-            TaskStep.SYNC: getattr(main_win, "sync_tab", None),
-            TaskStep.EML: getattr(main_win, "eml_tab", None),
-            TaskStep.PDF: getattr(main_win, "pdf_tab", None),
-            TaskStep.OCR: getattr(main_win, "ocr_tab", None),
-            TaskStep.BYPASS: getattr(main_win, "bypass_tab", None),
-        }
-        
-        current_step = selected_steps[0]
-        try:
-            for step in selected_steps:
-                current_step = step
-                tab_obj = tabs.get(step)
-                if tab_obj and hasattr(tab_obj, "build_run_config"):
-                    config = tab_obj.build_run_config()
-                    if config is None:
-                        if (
-                            step == TaskStep.OCR
-                            and self.check_chain_outputs.isChecked()
-                            and (TaskStep.EML in selected_steps or TaskStep.PDF in selected_steps)
-                        ):
-                            ocr_rule_mode = str(self.config_manager.get("ocr_rule_mode", "promotion") or "promotion")
-                            custom_pattern = str(self.config_manager.get("ocr_custom_pattern", "") or "")
-                            rename_template = str(self.config_manager.get("ocr_rename_template", "{match}") or "{match}")
-                            export_txt = bool(self.config_manager.get("ocr_export_txt", False))
-                            config = OcrRunConfig(
-                                image_paths=[],
-                                rule_mode=ocr_rule_mode,
-                                custom_pattern=custom_pattern,
-                                rename_template=rename_template,
-                                export_txt=export_txt,
-                            )
-                        else:
-                            raise TaskValidationError(
-                                tr("task_no_config", self.language),
-                                message_key="task_no_config",
-                            )
-                    configs[step] = config
-        except TaskValidationError as val_err:
-            feature = self.step_label(current_step)
-            problem = (
-                tr(val_err.message_key, self.language, **val_err.values)
-                if val_err.message_key
-                else val_err.user_message
-            )
-            title = tr("task_validation_title", self.language, feature=feature)
-            body = tr(
-                "task_validation_body",
-                self.language,
-                feature=feature,
-                problem=problem,
-            )
-            if scheduled:
-                self.log(f"[{tr('task_scheduled_prefix', self.language)}] {title}\n{body}")
+        configs, errors = self._collect_step_configs(selected_steps, main_win)
+        if errors:
+            failed_step, error = next(iter(errors.items()))
+            feature = self.step_label(failed_step)
+            if isinstance(error, TaskValidationError):
+                title = tr("task_validation_title", self.language, feature=feature)
+                body = tr(
+                    "task_validation_body",
+                    self.language,
+                    feature=feature,
+                    problem=self._validation_detail(error),
+                )
+                if scheduled:
+                    self.log(f"[{tr('task_scheduled_prefix', self.language)}] {title}\n{body}")
+                else:
+                    QMessageBox.warning(self, title, body)
             else:
-                QMessageBox.warning(self, title, body)
-            return self._start_rejected(body)
-        except Exception as ex:
-            feature = self.step_label(current_step)
-            body = tr(
-                "task_validation_unexpected",
-                self.language,
-                feature=feature,
-                detail=str(ex),
-            )
-            if scheduled:
-                self.log(f"[{tr('task_scheduled_prefix', self.language)}] {body}")
-            else:
-                QMessageBox.critical(self, tr("run_error", self.language), body)
+                body = tr(
+                    "task_validation_unexpected",
+                    self.language,
+                    feature=feature,
+                    detail=str(error),
+                )
+                if scheduled:
+                    self.log(f"[{tr('task_scheduled_prefix', self.language)}] {body}")
+                else:
+                    QMessageBox.critical(self, tr("run_error", self.language), body)
             return self._start_rejected(body)
 
         run_plan = RunPlan(

@@ -230,6 +230,7 @@ class ConfigManager:
         """
         설정 키 값을 가져옵니다.
         보안 키인 경우 자동으로 DPAPI 복호화를 거쳐 평문으로 반환합니다.
+        list/dict 값은 깊은 복사본을 반환하므로, 호출자가 수정해도 내부 상태는 set()을 거쳐야만 바뀝니다.
         """
         with self.lock:
             val = self.config.get(key, default)
@@ -239,6 +240,8 @@ class ConfigManager:
                 except Exception as e:
                     logger.error(f"Failed to automatically decrypt secure key '{key}': {e}")
                     return ""
+            if isinstance(val, (list, dict)):
+                return copy.deepcopy(val)
             return val
 
     def set(self, key, value):

@@ -59,6 +59,7 @@ class TaskRunner:
         self.pdf_converter = PDFConverter(self.config_manager)
         self.ocr_processor = OCRProcessor(self.config_manager)
         self.bypass_converter = BypassConverter()
+        self.sync_manager: SyncManager | None = None
 
     def _text(self, english: str, korean: str, polish: str) -> str:
         return {"ko": korean, "pl": polish}.get(self.language, english)
@@ -159,6 +160,9 @@ class TaskRunner:
             self.eml_converter.cancel()
         except Exception:
             pass
+        sync_manager = self.sync_manager
+        if sync_manager is not None and hasattr(sync_manager, "cancel"):
+            sync_manager.cancel()
 
     def run(self, callbacks: RunnerCallbacks | None = None) -> RunReport:
         callbacks = callbacks or RunnerCallbacks()
@@ -285,7 +289,13 @@ class TaskRunner:
                     folders=group.folders,
                     move_to_deleted=group.move_to_deleted,
                 )
+            self.sync_manager = manager
             actions = manager.analyze_sync()
+            # analyze_sync/execute_sync reset the manager's cancel flag, so re-check here.
+            if not self.is_running:
+                self.sync_manager = None
+                result.status = StepStatus.CANCELLED
+                return
             success_files, fail_files, errors = manager.execute_sync(
                 actions,
                 progress_callback=lambda current, total, filename: callbacks.step_progress(
@@ -298,6 +308,15 @@ class TaskRunner:
                     ),
                 ),
             )
+            self.sync_manager = None
+            if not self.is_running:
+                result.details.append(self._text(
+                    f"Group [{group.name}] cancelled (successful: {success_files}, failed: {fail_files})",
+                    f"그룹 [{group.name}] 취소됨 (성공: {success_files}건, 실패: {fail_files}건)",
+                    f"Grupa [{group.name}] anulowana (powodzenie: {success_files}, błędy: {fail_files})",
+                ))
+                result.status = StepStatus.CANCELLED
+                return
 
             if not errors:
                 success_count += 1
