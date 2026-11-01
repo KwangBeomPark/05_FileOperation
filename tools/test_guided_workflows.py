@@ -77,6 +77,44 @@ class GuidedWorkflowTests(unittest.TestCase):
             self.assertFalse(sync.sync_btn.isEnabled())
         sync.close()
 
+    def test_sync_bridge_weekdays_schedule_multilingual(self):
+        config = FakeConfig({
+            "task_enabled_items": {"sync:grp1": True},
+            "task_schedule_enabled": True,
+            "task_schedule_mode": "daily",
+            "task_schedule_time": "09:30",
+            "task_schedule_weekdays": [0, 1, 2, 3, 4],
+            "ui_language": "en",
+        })
+        sync = SyncTab(config)
+        sync.sync_groups = [{"id": "grp1", "name": "work", "folders": ["/a", "/b"]}]
+        sync.current_group_idx = 0
+
+        # EN (points to real tab name 'Run Tasks')
+        sync.refresh_task_bridge()
+        self.assertIn("Run Tasks: Included", sync.task_bridge_label.text())
+        self.assertIn("Mon-Fri 09:30", sync.task_bridge_label.text())
+        self.assertNotIn("daily", sync.task_bridge_label.text())
+        self.assertEqual(sync.task_bridge_btn.text(), "Open Run Tasks")
+        self.assertEqual(sync.archive_input.placeholderText(), "to be deleted")
+
+        # KO (points to real tab name '작업 실행')
+        config.values["ui_language"] = "ko"
+        sync.refresh_language()
+        self.assertIn("작업 실행: 포함됨", sync.task_bridge_label.text())
+        self.assertIn("월~금 09:30", sync.task_bridge_label.text())
+        self.assertNotIn("매일", sync.task_bridge_label.text())
+        self.assertEqual(sync.task_bridge_btn.text(), "작업 실행 열기")
+
+        # PL (points to real tab name 'Uruchom zadania' and tone 'Uwzględnione')
+        config.values["ui_language"] = "pl"
+        sync.refresh_language()
+        self.assertIn("Uruchom zadania: Uwzględnione", sync.task_bridge_label.text())
+        self.assertIn("Pn-Pt 09:30", sync.task_bridge_label.text())
+        self.assertNotIn("codziennie", sync.task_bridge_label.text())
+        self.assertEqual(sync.task_bridge_btn.text(), "Otwórz Uruchom zadania")
+        sync.close()
+
     def test_convert_files_updates_targets_in_memory_when_target_format_changes(self):
         with tempfile.TemporaryDirectory() as source:
             bypass = BypassTab(FakeConfig())

@@ -98,8 +98,8 @@ class CollectUiTests(unittest.TestCase):
         self.app.processEvents()
         self.temporary.cleanup()
 
-    def finish(self):
-        wait_until(lambda: not self.tab.is_running)
+    def finish(self, timeout_ms=15000):
+        wait_until(lambda: not self.tab.is_running, timeout_ms=timeout_ms)
 
     def test_group_add_rename_remove_and_reload_preserve_independent_settings(self):
         with patch(
@@ -919,6 +919,125 @@ class CollectSyncTableSortingTests(unittest.TestCase):
         self.tab._render_report()
         self.assertEqual(self.tab.table.item(0, 1).text(), "Z.txt")
         self.assertEqual(self.tab.table.item(1, 1).text(), "A.txt")
+
+
+class CollectSyncNudgeAndBridgeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.config = MemoryConfig()
+        group = new_collect_group("Report Sync")
+        self.group_id = group["id"]
+        self.config.values["collect_sync_groups"] = [group]
+        self.tab = CollectSyncTab(self.config)
+        self.tab.state_path = Path(self.tmp.name) / "state.json"
+
+    def tearDown(self):
+        self.tab.deleteLater()
+        self.tmp.cleanup()
+
+    def test_empty_state_safety_hint(self):
+        self.tab._clear_results()
+        self.assertIn("Preview never copies or modifies files", self.tab.summary_label.text())
+
+    def test_bridge_included_with_schedule(self):
+        self.config.values["task_enabled_items"] = {f"collect_sync:{self.group_id}": True}
+        self.config.values["task_schedule_enabled"] = True
+        self.config.values["task_schedule_mode"] = "daily"
+        self.config.values["task_schedule_time"] = "09:30"
+        self.tab.refresh_task_bridge()
+        self.assertIn("09:30", self.tab.task_bridge_label.text())
+        self.assertIn("Included", self.tab.task_bridge_label.text())
+        self.assertFalse(self.tab.task_bridge_button.isHidden())
+
+    def test_bridge_included_with_interval_schedule(self):
+        self.config.values["task_enabled_items"] = {f"collect_sync:{self.group_id}": True}
+        self.config.values["task_schedule_enabled"] = True
+        self.config.values["task_schedule_mode"] = "interval"
+        self.config.values["task_schedule_interval_minutes"] = 15
+        self.tab.refresh_task_bridge()
+        self.assertIn("15", self.tab.task_bridge_label.text())
+        self.assertIn("Included", self.tab.task_bridge_label.text())
+
+    def test_bridge_not_included(self):
+        self.config.values["task_enabled_items"] = {f"collect_sync:{self.group_id}": False}
+        self.tab.refresh_task_bridge()
+        self.assertIn("Not included", self.tab.task_bridge_label.text())
+
+    def test_empty_hint_retranslates_on_language_change(self):
+        self.tab._clear_results()
+        self.assertIn("Preview never copies", self.tab.summary_label.text())
+        self.config.values["ui_language"] = "ko"
+        self.tab.refresh_language()
+        self.assertIn("미리보기는 파일을 복사하거나 변경하지 않습니다", self.tab.summary_label.text())
+
+    def test_bridge_shows_save_failed_on_error(self):
+        self.tab._save_failed = True
+        self.tab.refresh_task_bridge()
+        self.assertIn("save failed", self.tab.task_bridge_label.text().lower())
+        self.assertTrue(self.tab.task_bridge_button.isHidden())
+
+    def test_bridge_included_with_weekdays_schedule_multilingual(self):
+        self.config.values["task_enabled_items"] = {f"collect_sync:{self.group_id}": True}
+        self.config.values["task_schedule_enabled"] = True
+        self.config.values["task_schedule_mode"] = "daily"
+        self.config.values["task_schedule_time"] = "09:30"
+        self.config.values["task_schedule_weekdays"] = [0, 1, 2, 3, 4]
+
+        # 1. English (points to real tab name 'Run Tasks')
+        self.config.values["ui_language"] = "en"
+        self.tab.refresh_language()
+        self.assertIn("Run Tasks: Included", self.tab.task_bridge_label.text())
+        self.assertIn("Mon-Fri 09:30", self.tab.task_bridge_label.text())
+        self.assertNotIn("daily", self.tab.task_bridge_label.text())
+        self.assertEqual(self.tab.task_bridge_button.text(), "Open Run Tasks")
+
+        # 2. Korean (points to real tab name '작업 실행')
+        self.config.values["ui_language"] = "ko"
+        self.tab.refresh_language()
+        self.assertIn("작업 실행: 포함됨", self.tab.task_bridge_label.text())
+        self.assertIn("월~금 09:30", self.tab.task_bridge_label.text())
+        self.assertNotIn("매일", self.tab.task_bridge_label.text())
+        self.assertEqual(self.tab.task_bridge_button.text(), "작업 실행 열기")
+
+        # 3. Polish (points to real tab name 'Uruchom zadania' and tone 'Uwzględnione')
+        self.config.values["ui_language"] = "pl"
+        self.tab.refresh_language()
+        self.assertIn("Uruchom zadania: Uwzględnione", self.tab.task_bridge_label.text())
+        self.assertIn("Pn-Pt 09:30", self.tab.task_bridge_label.text())
+        self.assertNotIn("codziennie", self.tab.task_bridge_label.text())
+        self.assertEqual(self.tab.task_bridge_button.text(), "Otwórz Uruchom zadania")
+
+    def test_clear_results_during_execution_does_not_show_preview_safety_hint(self):
+        # Opus A2: safety hint should only show when idle, not during real copy
+        self.tab.is_running = True
+        self.tab._clear_results()
+        self.assertEqual(self.tab.summary_label.text(), "")
+        self.assertNotIn("Preview never copies", self.tab.summary_label.text())
+
+    def test_start_execution_clears_preview_safety_hint(self):
+        # Codex P2: starting execution must clear any preview hint when transitioning to running
+        self.tab._clear_results()
+        self.assertIn("Preview never copies", self.tab.summary_label.text())
+        with unittest.mock.patch("PyQt6.QtCore.QThread.start"):
+            self.assertTrue(self.tab._start(dry_run=False))
+            self.assertTrue(self.tab.is_running)
+            self.assertEqual(self.tab.summary_label.text(), "")
+            # cleanup running state
+            self.tab.is_running = False
+            if self.tab.worker:
+                self.tab.worker.deleteLater()
+                self.tab.worker = None
+
+    def test_save_data_succeeds_even_if_bridge_refresh_fails(self):
+        # Codex P2-1: UI bridge presentation errors should never fail save_data()
+        with unittest.mock.patch.object(self.tab, "_refresh_task_bridge_impl", side_effect=RuntimeError("ui fault")):
+            result = self.tab.save_data()
+            self.assertTrue(result)
+            self.assertFalse(self.tab._save_failed)
 
 
 if __name__ == "__main__":

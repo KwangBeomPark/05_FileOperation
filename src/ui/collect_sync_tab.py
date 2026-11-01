@@ -60,7 +60,7 @@ from src.core.collect_sync_config import (
 from src.core.run_journal import RunJournal
 from src.core.task_contracts import RunReport, StepStatus, TaskStep
 from src.ui.collect_recovery_dialog import CollectRecoveryDialog
-from src.ui.i18n import get_app_language, tr
+from src.ui.i18n import format_task_schedule_description, get_app_language, tr
 from src.utils.atomic_write import atomic_write_json
 from src.utils.logger import get_logger
 
@@ -279,6 +279,17 @@ class CollectSyncTab(QWidget):
             self._buttons[key] = button
             row.addWidget(button)
         form.addLayout(row)
+        bridge_row = QHBoxLayout()
+        self.task_bridge_label = QLabel()
+        self.task_bridge_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        self.task_bridge_button = QPushButton()
+        self.task_bridge_button.setFixedHeight(22)
+        self.task_bridge_button.setStyleSheet("font-size: 11px; padding: 2px 8px;")
+        self.task_bridge_button.clicked.connect(self._navigate_to_task_tab)
+        bridge_row.addWidget(self.task_bridge_label)
+        bridge_row.addWidget(self.task_bridge_button)
+        bridge_row.addStretch()
+        form.addLayout(bridge_row)
         self.group_combo.currentIndexChanged.connect(self.on_group_changed)
         self._labels["collect_sources"] = QLabel()
         form.addWidget(self._labels["collect_sources"])
@@ -431,6 +442,7 @@ class CollectSyncTab(QWidget):
         if self._save_failed:
             self._status_key = "collect_save_error"
         self.status_label.setText(self._msg(self._status_key))
+        self.refresh_task_bridge()
         return not self._save_failed
 
     def _reload_combo(self, index):
@@ -455,6 +467,7 @@ class CollectSyncTab(QWidget):
         self._clear_results()
         self._refresh_enabled()
         self.refresh_schedule_summary()
+        self.refresh_task_bridge()
 
     def _save_editor(self, *_args):
         if (
@@ -748,6 +761,7 @@ class CollectSyncTab(QWidget):
         )
         self.worker = worker
         self.is_running = True
+        self.summary_label.clear()
         self._status_key = "collect_working"
         self.status_label.setText(self._msg(self._status_key))
         self.progress_bar.setRange(0, 0)
@@ -899,6 +913,64 @@ class CollectSyncTab(QWidget):
             and not self.worker.isInterruptionRequested()
         )
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_task_bridge()
+
+    def _navigate_to_task_tab(self):
+        main_win = self.window()
+        tab_widget = getattr(main_win, "tab_widget", None)
+        task_tab = getattr(main_win, "task_tab", None)
+        if tab_widget and task_tab:
+            idx = tab_widget.indexOf(task_tab)
+            if idx >= 0:
+                tab_widget.setCurrentIndex(idx)
+
+    def refresh_task_bridge(self):
+        try:
+            self._refresh_task_bridge_impl()
+        except Exception:
+            logger.exception("Failed to refresh task bridge")
+
+    def _refresh_task_bridge_impl(self):
+        if not hasattr(self, "task_bridge_label"):
+            return
+        if self.current_group_idx < 0 or not self.groups:
+            self.task_bridge_label.clear()
+            self.task_bridge_button.hide()
+            return
+        group = self.groups[self.current_group_idx] if 0 <= self.current_group_idx < len(self.groups) else None
+        if not group or not group.get("id"):
+            self.task_bridge_label.clear()
+            self.task_bridge_button.hide()
+            return
+        if getattr(self, "_save_failed", False):
+            self.task_bridge_label.setText(self._msg("collect_bridge_save_failed"))
+            self.task_bridge_button.hide()
+            return
+
+        group_key = f"collect_sync:{group['id']}"
+        enabled_items = self.config_manager.get("task_enabled_items", None)
+        if enabled_items is not None and isinstance(enabled_items, dict):
+            included = bool(enabled_items.get(group_key, False))
+        else:
+            enabled_steps = self.config_manager.get("task_enabled_steps", []) or []
+            included = TaskStep.COLLECT_SYNC.value in enabled_steps
+
+        schedule_enabled = bool(self.config_manager.get("task_schedule_enabled", False))
+        sched_desc = format_task_schedule_description(self.config_manager, self.language)
+
+        if included and schedule_enabled:
+            text = self._msg("collect_bridge_included", schedule=sched_desc)
+        elif included:
+            text = self._msg("collect_bridge_included_no_sched")
+        else:
+            text = self._msg("collect_bridge_not_included")
+
+        self.task_bridge_label.setText(text)
+        self.task_bridge_button.setText(self._msg("collect_bridge_open"))
+        self.task_bridge_button.show()
+
     def check_scheduled_run(self, now=None):
         """Deprecated compatibility entry point. Only TaskTab may schedule work."""
         return False
@@ -927,7 +999,10 @@ class CollectSyncTab(QWidget):
         self._sort_cache_key = None
         self._sort_cache_indices = None
         self.table.setRowCount(0)
-        self.summary_label.clear()
+        if not self.is_running and self.worker is None:
+            self.summary_label.setText(self._msg("collect_empty_hint"))
+        else:
+            self.summary_label.clear()
         self.result_pager.hide()
         self.previous_page_button.setEnabled(False)
         self.next_page_button.setEnabled(False)
@@ -1064,5 +1139,12 @@ class CollectSyncTab(QWidget):
             hdr.blockSignals(False)
         if not self.is_running:
             self.status_label.setText(self._msg(self._status_key))
-        self._render_report()
+        if self._last_report is None:
+            if not self.is_running and self.worker is None:
+                self.summary_label.setText(self._msg("collect_empty_hint"))
+            else:
+                self.summary_label.clear()
+        else:
+            self._render_report()
         self.refresh_schedule_summary()
+        self.refresh_task_bridge()

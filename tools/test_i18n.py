@@ -144,6 +144,90 @@ class LocalizationTests(unittest.TestCase):
         self.assertEqual(label.text(), "Selected PDFs: 3")
         app.processEvents()
 
+    def test_format_task_schedule_description_multilingual(self):
+        from src.ui.i18n import format_task_schedule_description
+
+        class DummyConfig:
+            def __init__(self, data):
+                self.data = data
+            def get(self, key, default=None):
+                return self.data.get(key, default)
+
+        # 1. Daily without weekdays (default daily)
+        c_daily = DummyConfig({"task_schedule_mode": "daily", "task_schedule_time": "09:30"})
+        self.assertEqual(format_task_schedule_description(c_daily, "en"), "09:30 daily")
+        self.assertEqual(format_task_schedule_description(c_daily, "ko"), "매일 09:30")
+        self.assertEqual(format_task_schedule_description(c_daily, "pl"), "codziennie 09:30")
+
+        # 2. Weekdays filter (Mon-Fri: 0,1,2,3,4)
+        c_mon_fri = DummyConfig({
+            "task_schedule_mode": "daily",
+            "task_schedule_time": "09:30",
+            "task_schedule_weekdays": [0, 1, 2, 3, 4],
+        })
+        self.assertEqual(format_task_schedule_description(c_mon_fri, "en"), "Mon-Fri 09:30")
+        self.assertEqual(format_task_schedule_description(c_mon_fri, "ko"), "월~금 09:30")
+        self.assertEqual(format_task_schedule_description(c_mon_fri, "pl"), "Pn-Pt 09:30")
+
+        # 3. Weekend filter (Sat-Sun: 5,6)
+        c_weekend = DummyConfig({
+            "task_schedule_mode": "daily",
+            "task_schedule_time": "10:00",
+            "task_schedule_weekdays": [5, 6],
+        })
+        self.assertEqual(format_task_schedule_description(c_weekend, "en"), "Sat-Sun 10:00")
+        self.assertEqual(format_task_schedule_description(c_weekend, "ko"), "토·일 10:00")
+        self.assertEqual(format_task_schedule_description(c_weekend, "pl"), "So-Nd 10:00")
+
+        # 4. Custom weekdays (Mon, Wed: 0, 2)
+        c_custom = DummyConfig({
+            "task_schedule_mode": "daily",
+            "task_schedule_time": "14:00",
+            "task_schedule_weekdays": [0, 2],
+        })
+        self.assertEqual(format_task_schedule_description(c_custom, "en"), "Mon, Wed 14:00")
+        self.assertEqual(format_task_schedule_description(c_custom, "ko"), "월, 수 14:00")
+        self.assertEqual(format_task_schedule_description(c_custom, "pl"), "Pn, Śr 14:00")
+
+        # 5. Interval mode
+        c_interval = DummyConfig({
+            "task_schedule_mode": "interval",
+            "task_schedule_interval_minutes": 15,
+        })
+        self.assertEqual(format_task_schedule_description(c_interval, "en"), "every 15 min")
+        self.assertEqual(format_task_schedule_description(c_interval, "ko"), "15분 간격")
+        self.assertEqual(format_task_schedule_description(c_interval, "pl"), "co 15 min")
+
+        # 6. Robustness against corrupt or negative values (Codex P2-1, P2-2)
+        c_corrupt_interval = DummyConfig({
+            "task_schedule_mode": "interval",
+            "task_schedule_interval_minutes": "corrupted_value",
+        })
+        self.assertEqual(format_task_schedule_description(c_corrupt_interval, "en"), "every 60 min")
+        self.assertEqual(format_task_schedule_description(c_corrupt_interval, "ko"), "60분 간격")
+
+        # Opus B2: 0 should fall back to 60 minutes matching task_tab.py:911
+        c_zero_interval = DummyConfig({
+            "task_schedule_mode": "interval",
+            "task_schedule_interval_minutes": 0,
+        })
+        self.assertEqual(format_task_schedule_description(c_zero_interval, "en"), "every 60 min")
+        self.assertEqual(format_task_schedule_description(c_zero_interval, "ko"), "60분 간격")
+
+        c_negative_interval = DummyConfig({
+            "task_schedule_mode": "interval",
+            "task_schedule_interval_minutes": -5,
+        })
+        self.assertEqual(format_task_schedule_description(c_negative_interval, "en"), "every 1 min")
+        self.assertEqual(format_task_schedule_description(c_negative_interval, "ko"), "1분 간격")
+
+        c_daily_with_bad_interval = DummyConfig({
+            "task_schedule_mode": "daily",
+            "task_schedule_time": "09:30",
+            "task_schedule_interval_minutes": "bad",
+        })
+        self.assertEqual(format_task_schedule_description(c_daily_with_bad_interval, "en"), "09:30 daily")
+
 
 if __name__ == "__main__":
     unittest.main()

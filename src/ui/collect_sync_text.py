@@ -183,7 +183,41 @@ COLLECT_TEXT = {
         "2. 파일명 키워드 (쉼표 구분 · 하나라도 포함)",
         "2. Słowa w nazwie pliku (LUB, oddziel przecinkami)",
     ),
-    "collect_keyword_hint": ("report, invoice", "보고서, 정산", "raport, faktura"),
+    "collect_keyword_hint": (
+        "report, .xlsx (comma-separated words in filename)",
+        "보고서, .xlsx (파일명에 포함된 단어, 쉼표 구분)",
+        "raport, .xlsx (słowa w nazwie pliku, po przecinku)",
+    ),
+    "collect_empty_hint": (
+        "💡 Tip: Enter search folders and keywords, then click 'Preview selected group'. Preview never copies or modifies files.",
+        "💡 팁: 검색할 폴더와 키워드를 입력한 뒤 [선택 그룹 미리보기]를 누르세요. 미리보기는 파일을 복사하거나 변경하지 않습니다.",
+        "💡 Wskazówka: Wprowadź foldery i słowa kluczowe, a następnie kliknij 'Podgląd'. Podgląd nie kopiuje ani nie modyfikuje plików.",
+    ),
+    "collect_bridge_included": (
+        "🔗 Run Tasks: Included ({schedule})",
+        "🔗 작업 실행: 포함됨 ({schedule})",
+        "🔗 Uruchom zadania: Uwzględnione ({schedule})",
+    ),
+    "collect_bridge_included_no_sched": (
+        "🔗 Run Tasks: Included (Schedule off)",
+        "🔗 작업 실행: 포함됨 (예약 꺼짐)",
+        "🔗 Uruchom zadania: Uwzględnione (harmonogram wył.)",
+    ),
+    "collect_bridge_not_included": (
+        "○ Run Tasks: Not included",
+        "○ 작업 실행: 미포함",
+        "○ Uruchom zadania: Nie uwzględnione",
+    ),
+    "collect_bridge_open": (
+        "Open Run Tasks",
+        "작업 실행 열기",
+        "Otwórz Uruchom zadania",
+    ),
+    "collect_bridge_save_failed": (
+        "⚠ Configuration save failed",
+        "⚠ 설정 저장 실패",
+        "⚠ Błąd zapisu konfiguracji",
+    ),
     "collect_subfolders": (
         "Include subfolders",
         "하위 폴더 포함",
@@ -201,9 +235,9 @@ COLLECT_TEXT = {
         "Uruchamiaj tę grupę codziennie",
     ),
     "collect_note": (
-        "Sources are never changed. Replaced copies move to the previous-version archive. Keep the app running (tray is OK) for schedules.",
-        "원본은 변경하지 않습니다. 교체되는 타겟 사본은 ‘이전 버전’에 보관합니다. 예약하려면 앱을 켜 두세요(트레이 가능).",
-        "Źródła pozostają bez zmian. Zastąpione kopie trafiają do archiwum poprzednich wersji. Harmonogram wymaga działającej aplikacji (także w zasobniku).",
+        "Sources are never modified. Replaced target copies are safely kept in 'Previous Versions'. Schedules are managed in Run Tasks.",
+        "원본은 변경하지 않으며, 교체되는 대상 사본은 '이전 버전'에 보관됩니다. 예약 실행은 '작업 실행' 탭에서 관리합니다.",
+        "Źródła nie są modyfikowane. Zastąpione kopie docelowe trafiają do 'Poprzednich wersji'. Harmonogram jest zarządzany w karcie Uruchom zadania.",
     ),
     "collect_preview": (
         "Preview selected group",
@@ -362,7 +396,7 @@ COLLECT_TEXT = {
 COLLECT_MANUAL = {
     "en": {
         "title": "Auto Collect Sync",
-        "summary": "Read matching file names from many sources into one flat target. This feature has independent groups and schedules, not Run Tasks steps.",
+        "summary": "Read matching file names from many sources into one flat target. Groups can be run directly or scheduled from the Run Tasks tab.",
         "steps": [
             "Add a group and its source folders; optionally include subfolders.",
             "Enter comma-separated keywords (any match, case insensitive) and choose an existing target folder.",
@@ -386,7 +420,7 @@ COLLECT_MANUAL = {
     },
     "ko": {
         "title": "자동 수집 동기화",
-        "summary": "여러 원본에서 이름에 키워드가 포함된 파일을 하나의 타겟에 모읍니다. 작업 실행 단계와 별개로 그룹과 예약을 관리합니다.",
+        "summary": "여러 원본에서 조건에 맞는 파일을 하나의 대상 폴더로 수집합니다. 그룹별로 바로 실행하거나 '작업 실행' 탭에서 함께 예약 실행할 수 있습니다.",
         "steps": [
             "그룹을 추가하고 원본 폴더를 등록하세요. 필요하면 하위 폴더 포함을 켜세요.",
             "키워드를 쉼표로 구분해 입력하고 기존 타겟 폴더를 선택하세요. 하나라도 포함되면 수집하며 대소문자는 구분하지 않습니다.",
@@ -410,7 +444,7 @@ COLLECT_MANUAL = {
     },
     "pl": {
         "title": "Automatyczne zbieranie",
-        "summary": "Zbieraj pasujące nazwy plików z wielu źródeł do jednego płaskiego celu. Grupy i harmonogramy są niezależne od kroków Uruchamiania zadań.",
+        "summary": "Zbieraj pasujące pliki z wielu źródeł do jednego folderu docelowego. Grupy można uruchamiać bezpośrednio lub zaplanować w karcie Uruchom zadania.",
         "steps": [
             "Dodaj grupę i foldery źródłowe; opcjonalnie uwzględnij podfoldery.",
             "Wpisz słowa oddzielone przecinkami (dowolne dopasowanie, bez rozróżniania wielkości liter) i wybierz istniejący cel.",

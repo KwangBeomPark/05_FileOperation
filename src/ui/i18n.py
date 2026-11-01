@@ -59,6 +59,7 @@ MESSAGES = {
         "task_status_header": "Status",
         "task_last_result_header": "Last Result",
         "task_selection_hint": "1. Select features  →  2. Check Readiness  →  3. Run Selected Tasks. Unselected features are not validated.",
+        "task_table_double_click_hint": "💡 Tip: Double-click any row to jump directly to its detailed settings tab.",
         "task_start_prereq_none": "Step 1: select at least one feature.",
         "task_start_prereq_readiness": "Step 2: check readiness and resolve every Needs setup item.",
         "task_start_ready": "Ready to run the selected tasks.",
@@ -288,6 +289,7 @@ MESSAGES = {
         "task_status_header": "현재 상태",
         "task_last_result_header": "최근 결과",
         "task_selection_hint": "1. 기능 선택  →  2. 실행 준비 점검  →  3. 선택한 작업 시작. 선택하지 않은 기능의 설정은 검사하지 않습니다.",
+        "task_table_double_click_hint": "💡 팁: 목록의 행을 더블클릭하면 해당 작업의 상세 설정 탭으로 바로 이동합니다.",
         "task_start_prereq_none": "1단계: 실행할 기능을 하나 이상 선택하세요.",
         "task_start_prereq_readiness": "2단계: 실행 준비를 점검하고 '설정 필요' 항목을 모두 해결하세요.",
         "task_start_ready": "선택한 작업을 실행할 준비가 되었습니다.",
@@ -517,6 +519,7 @@ MESSAGES = {
         "task_status_header": "Stan",
         "task_last_result_header": "Ostatni wynik",
         "task_selection_hint": "1. Wybierz funkcje  →  2. Sprawdź gotowość  →  3. Uruchom wybrane zadania. Niewybrane funkcje nie są sprawdzane.",
+        "task_table_double_click_hint": "💡 Wskazówka: Kliknij dwukrotnie wiersz, aby przejść do jego karty ustawień.",
         "task_start_prereq_none": "Krok 1: wybierz co najmniej jedną funkcję.",
         "task_start_prereq_readiness": "Krok 2: sprawdź gotowość i popraw wszystkie pozycje Wymaga konfiguracji.",
         "task_start_ready": "Gotowe do uruchomienia wybranych zadań.",
@@ -1072,3 +1075,56 @@ def localize_widget_tree(root: Any, language: str) -> None:
                 source = tab_widget.tabText(index)
                 widget.setProperty("_i18n_source_tab_text", source)
             tab_widget.setTabText(index, localize_static_text(source, language))
+
+
+def format_task_schedule_description(config_manager: Any, language: str) -> str:
+    """Format the active schedule description (daily with optional weekdays, interval, or custom)."""
+    lang = normalize_language(language) or "en"
+    mode = str(config_manager.get("task_schedule_mode", "daily")).strip().lower()
+
+    if mode == "interval":
+        raw_interval = config_manager.get("task_schedule_interval_minutes", 60)
+        try:
+            interval = max(1, int(raw_interval or 60))
+        except (TypeError, ValueError):
+            interval = 60
+
+        if lang == "ko":
+            return f"{interval}분 간격"
+        if lang == "pl":
+            return f"co {interval} min"
+        return f"every {interval} min"
+
+    # Default / Daily mode (and fallback for unknown modes)
+    time_str = str(config_manager.get("task_schedule_time", "18:00")).strip()
+    raw_weekdays = config_manager.get("task_schedule_weekdays", None)
+    valid_days = set()
+    if raw_weekdays is not None and isinstance(raw_weekdays, (list, tuple, set)):
+        for d in raw_weekdays:
+            try:
+                valid_days.add(int(d) % 7)
+            except (ValueError, TypeError):
+                pass
+
+    has_day_filter = 0 < len(valid_days) < 7
+    if has_day_filter:
+        sorted_days = sorted(valid_days)
+        if sorted_days == [0, 1, 2, 3, 4]:
+            prefix_day = {"en": "Mon-Fri", "ko": "월~금", "pl": "Pn-Pt"}[lang]
+        elif sorted_days == [5, 6]:
+            prefix_day = {"en": "Sat-Sun", "ko": "토·일", "pl": "So-Nd"}[lang]
+        else:
+            names = {
+                "en": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+                "ko": ["월", "화", "수", "목", "금", "토", "일"],
+                "pl": ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"],
+            }[lang]
+            prefix_day = ", ".join(names[d] for d in sorted_days)
+        return f"{prefix_day} {time_str}"
+
+    # No day filter (all 7 days or not specified)
+    if lang == "ko":
+        return f"매일 {time_str}"
+    if lang == "pl":
+        return f"codziennie {time_str}"
+    return f"{time_str} daily"

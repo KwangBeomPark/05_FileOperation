@@ -33,7 +33,13 @@ from src.core.task_contracts import (
     TaskValidationError,
 )
 from src.core.task_items import ensure_sync_ids
-from src.ui.i18n import choose, get_app_language, replace_phrases, tr
+from src.ui.i18n import (
+    choose,
+    format_task_schedule_description,
+    get_app_language,
+    replace_phrases,
+    tr,
+)
 from src.ui.run_summary_dialog import confirm_run_summary
 from src.ui.toast_notification import show_toast
 from src.ui.workflow_widget import WorkflowWidget
@@ -286,6 +292,18 @@ class SyncTab(QWidget):
         
         group_layout.addLayout(group_h_layout)
 
+        bridge_layout = QHBoxLayout()
+        self.task_bridge_label = QLabel()
+        self.task_bridge_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        self.task_bridge_btn = QPushButton()
+        self.task_bridge_btn.setFixedHeight(22)
+        self.task_bridge_btn.setStyleSheet("font-size: 11px; padding: 2px 8px;")
+        self.task_bridge_btn.clicked.connect(self._navigate_to_task_tab)
+        bridge_layout.addWidget(self.task_bridge_label)
+        bridge_layout.addWidget(self.task_bridge_btn)
+        bridge_layout.addStretch()
+        group_layout.addLayout(bridge_layout)
+
         # 그룹별 범용 동기화 옵션 (모드, 하위 폴더 재귀, 제외 패턴, 백업 폴더명)
         options_h_layout = QHBoxLayout()
         self.sync_mode_label = QLabel(self._t("Mode:", "동기화 방식:", "Tryb:"))
@@ -372,6 +390,10 @@ class SyncTab(QWidget):
         control_layout.addWidget(self.progress_bar)
         self.plan_summary_label = QLabel("분석 전")
         control_layout.addWidget(self.plan_summary_label)
+        self.action_hint_label = QLabel()
+        self.action_hint_label.setWordWrap(True)
+        self.action_hint_label.setStyleSheet("color: #94a3b8; font-size: 11px; margin-top: 2px;")
+        control_layout.addWidget(self.action_hint_label)
         
         layout.addWidget(control_group, 1)
         
@@ -401,6 +423,73 @@ class SyncTab(QWidget):
             if btn not in (self.stop_btn,):
                 btn.setEnabled(enabled)
         self._refresh_action_state()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_task_bridge()
+
+    def _navigate_to_task_tab(self):
+        main_win = self.window()
+        tab_widget = getattr(main_win, "tab_widget", None)
+        task_tab = getattr(main_win, "task_tab", None)
+        if tab_widget and task_tab:
+            idx = tab_widget.indexOf(task_tab)
+            if idx >= 0:
+                tab_widget.setCurrentIndex(idx)
+
+    def refresh_task_bridge(self):
+        try:
+            self._refresh_task_bridge_impl()
+        except Exception:
+            logger.exception("Failed to refresh sync task bridge")
+
+    def _refresh_task_bridge_impl(self):
+        if not hasattr(self, "task_bridge_label"):
+            return
+        if self.current_group_idx < 0 or not self.sync_groups:
+            self.task_bridge_label.clear()
+            self.task_bridge_btn.hide()
+            return
+        group = self.sync_groups[self.current_group_idx] if 0 <= self.current_group_idx < len(self.sync_groups) else None
+        if not group:
+            self.task_bridge_label.clear()
+            self.task_bridge_btn.hide()
+            return
+
+        group_key = f"sync:{group['id']}" if group.get("id") else "sync"
+        enabled_items = self.config_manager.get("task_enabled_items", None)
+        if enabled_items is not None and isinstance(enabled_items, dict):
+            included = bool(enabled_items.get(group_key, False))
+        else:
+            enabled_steps = self.config_manager.get("task_enabled_steps", []) or []
+            included = "sync" in enabled_steps
+
+        schedule_enabled = bool(self.config_manager.get("task_schedule_enabled", False))
+        sched_desc = format_task_schedule_description(self.config_manager, self.language)
+
+        if included and schedule_enabled:
+            text = self._t(
+                f"🔗 Run Tasks: Included ({sched_desc})",
+                f"🔗 작업 실행: 포함됨 ({sched_desc})",
+                f"🔗 Uruchom zadania: Uwzględnione ({sched_desc})",
+            )
+        elif included:
+            text = self._t(
+                "🔗 Run Tasks: Included (Schedule off)",
+                "🔗 작업 실행: 포함됨 (예약 꺼짐)",
+                "🔗 Uruchom zadania: Uwzględnione (harmonogram wył.)",
+            )
+        else:
+            text = self._t(
+                "○ Run Tasks: Not included",
+                "○ 작업 실행: 미포함",
+                "○ Uruchom zadania: Nie uwzględnione",
+            )
+
+        btn_text = self._t("Open Run Tasks", "작업 실행 열기", "Otwórz Uruchom zadania")
+        self.task_bridge_label.setText(text)
+        self.task_bridge_btn.setText(btn_text)
+        self.task_bridge_btn.show()
 
     def _valid_groups(self):
         return [group for group in self.sync_groups if len(group.get("folders", [])) >= 2]
@@ -450,6 +539,22 @@ class SyncTab(QWidget):
                 self.workflow_widget.set_active_step(2)
         self.analyze_btn.setToolTip(analyze_reason)
         self.sync_btn.setToolTip(sync_reason)
+        if hasattr(self, "action_hint_label"):
+            if not configured:
+                hint_text = f"💡 {analyze_reason}"
+            elif not self._analysis_is_current:
+                safe_note = self._t(
+                    "(Analysis never changes your files.)",
+                    "(분석은 파일을 변경하지 않는 안전한 단계입니다.)",
+                    "(Analiza nie modyfikuje Twoich plików.)",
+                )
+                hint_text = f"💡 {analyze_reason} {safe_note}"
+            elif not self._analysis_has_actions:
+                hint_text = f"✅ {sync_reason}"
+            else:
+                hint_text = f"💡 {sync_reason}"
+            self.action_hint_label.setText(hint_text)
+        self.refresh_task_bridge()
 
     # --- 데이터 & 설정 마이그레이션 ---
     def load_saved_data(self):
@@ -507,7 +612,9 @@ class SyncTab(QWidget):
                 raise OSError("Could not save synchronization group index.")
         except OSError as exc:
             logger.warning("Could not save synchronization settings: %s", exc)
+            self.refresh_task_bridge()
             return False
+        self.refresh_task_bridge()
         return True
 
     # --- 그룹 관리 로직 ---

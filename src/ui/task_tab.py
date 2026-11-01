@@ -345,9 +345,18 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.step_keys = {}
         self.step_checks = {}
         self.status_table.cellDoubleClicked.connect(self.navigate_row)
+        table_container = QWidget()
+        table_v_layout = QVBoxLayout(table_container)
+        table_v_layout.setContentsMargins(0, 0, 0, 0)
+        table_v_layout.setSpacing(2)
+        self.table_hint_label = QLabel()
+        self.table_hint_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        table_v_layout.addWidget(self.table_hint_label)
+        table_v_layout.addWidget(self.status_table)
+
         self.main_splitter = QSplitter(Qt.Orientation.Vertical)
         self.main_splitter.setChildrenCollapsible(False)
-        self.main_splitter.addWidget(self.status_table)
+        self.main_splitter.addWidget(table_container)
         layout.addWidget(self.main_splitter, 1)
         self.rebuild_status_table()
 
@@ -512,6 +521,8 @@ class TaskTab(TaskPanelMixin, QWidget):
     def refresh_language(self):
         language = self.language
         self.title_label.setText(tr("task_title", language))
+        if hasattr(self, "table_hint_label"):
+            self.table_hint_label.setText(tr("task_table_double_click_hint", language))
         self.check_schedule.setText(tr("task_schedule", language))
         self.check_auto_email.setText(tr("task_auto_email", language))
         self.check_allow_source_backup.setText(tr("task_schedule_allow_source_backup", language))
