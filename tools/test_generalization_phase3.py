@@ -24,7 +24,7 @@ class TestSchedulePhase3(unittest.TestCase):
     """Test flexible schedule evaluator with interval mode and weekday filtering."""
 
     def test_interval_mode_due_on_fresh_start(self):
-        now = datetime(2026, 9, 26, 10, 0, 0)
+        now = datetime(2026, 9, 26, 10, 0, 0)  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
         decision = evaluate_flexible_schedule(
             now=now,
             schedule_mode="interval",
@@ -34,7 +34,7 @@ class TestSchedulePhase3(unittest.TestCase):
         self.assertEqual(decision.status, "due")
 
     def test_interval_mode_waiting_for_next_interval(self):
-        now = datetime(2026, 9, 26, 10, 15, 0)
+        now = datetime(2026, 9, 26, 10, 15, 0)  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
         last_started = "2026-09-26T10:00:00"
         decision = evaluate_flexible_schedule(
             now=now,
@@ -44,10 +44,10 @@ class TestSchedulePhase3(unittest.TestCase):
         )
         self.assertFalse(decision.should_start)
         self.assertEqual(decision.status, "interval_waiting")
-        self.assertEqual(decision.next_at, datetime(2026, 9, 26, 10, 30, 0))
+        self.assertEqual(decision.next_at, datetime(2026, 9, 26, 10, 30, 0))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
 
     def test_interval_mode_due_after_interval_elapsed(self):
-        now = datetime(2026, 9, 26, 10, 35, 0)
+        now = datetime(2026, 9, 26, 10, 35, 0)  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
         last_started = "2026-09-26T10:00:00"
         decision = evaluate_flexible_schedule(
             now=now,
@@ -60,7 +60,7 @@ class TestSchedulePhase3(unittest.TestCase):
 
     def test_daily_weekday_filter_deferred_when_not_today(self):
         # 2026-09-26 is a Saturday (weekday 5)
-        now = datetime(2026, 9, 26, 19, 0, 0)
+        now = datetime(2026, 9, 26, 19, 0, 0)  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
         self.assertEqual(now.weekday(), 5)
         # Weekdays: only Monday (0) to Friday (4)
         decision = evaluate_flexible_schedule(
@@ -72,11 +72,11 @@ class TestSchedulePhase3(unittest.TestCase):
         self.assertFalse(decision.should_start)
         self.assertEqual(decision.status, "not_scheduled_day")
         # Next Monday is 2026-09-28
-        self.assertEqual(decision.next_at, datetime(2026, 9, 28, 18, 0, 0))
+        self.assertEqual(decision.next_at, datetime(2026, 9, 28, 18, 0, 0))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
 
     def test_daily_weekday_filter_active_when_today(self):
         # Saturday (5)
-        now = datetime(2026, 9, 26, 19, 0, 0)
+        now = datetime(2026, 9, 26, 19, 0, 0)  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
         decision = evaluate_flexible_schedule(
             now=now,
             schedule_time="18:00",

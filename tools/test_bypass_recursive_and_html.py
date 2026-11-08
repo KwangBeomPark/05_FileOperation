@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+
 from PyQt6.QtWidgets import QApplication
 
 from src.core.task_contracts import SourceDisposition
@@ -238,7 +239,8 @@ class BypassRecursiveAndHtmlTests(unittest.TestCase):
             f.write(b'PK' + b'y' * 50)
 
         class FakeWorker:
-            tasks = [{'src': pdf_file, 'tgt': tgt_file, 'generate_pdf_html': False}]
+            def __init__(self):
+                self.tasks = [{'src': pdf_file, 'tgt': tgt_file, 'generate_pdf_html': False}]
         self.tab.worker = FakeWorker()
         self.tab._pre_conversion_src_size = 160
 
@@ -359,7 +361,7 @@ class BypassRecursiveAndHtmlTests(unittest.TestCase):
         with open(pdf_file, "wb") as f:
             f.write(b"%PDF-1.4 print badge test")
 
-        ok, err = converter._generate_pdf_html_viewer(pdf_file, html_file)
+        ok, _err = converter._generate_pdf_html_viewer(pdf_file, html_file)
         self.assertTrue(ok)
         self.assertTrue(os.path.exists(html_file))
 
@@ -384,6 +386,7 @@ class BypassRecursiveAndHtmlTests(unittest.TestCase):
 
     def test_drag_and_drop_respects_running_lock_and_file_fallback(self):
         from unittest.mock import MagicMock
+
         from PyQt6.QtCore import QUrl
 
         # 1. Ignored when running
@@ -414,7 +417,7 @@ class BypassRecursiveAndHtmlTests(unittest.TestCase):
         )
 
     def test_on_finished_survives_oserror_in_capacity_calculation(self):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
         self.tab.set_source_folder_path(self.temp_dir.name)
         # Mock worker tasks
         self.tab.worker = MagicMock()
@@ -437,7 +440,7 @@ class BypassRecursiveAndHtmlTests(unittest.TestCase):
         with open(pdf_file, "wb") as f:
             f.write(b"%PDF-1.4 test")
 
-        ok, err = converter._generate_pdf_html_viewer(pdf_file, html_file)
+        ok, _err = converter._generate_pdf_html_viewer(pdf_file, html_file)
         self.assertTrue(ok)
         with open(html_file, "r", encoding="utf-8") as f:
             content = f.read()
@@ -451,8 +454,9 @@ class BypassRecursiveAndHtmlTests(unittest.TestCase):
         self.assertGreater(supports_idx, blob_idx, "Blob URL and download href must be bound before supportsPdf check")
 
     def test_pdf_html_viewer_enforces_50mb_size_limit(self):
-        from src.core.bypass_converter import BypassConverter, MAX_PDF_HTML_SIZE_BYTES
         from unittest.mock import patch
+
+        from src.core.bypass_converter import MAX_PDF_HTML_SIZE_BYTES, BypassConverter
         converter = BypassConverter()
         pdf_file = os.path.join(self.temp_dir.name, "giant.pdf")
         html_file = os.path.join(self.temp_dir.name, "giant.html")
@@ -498,8 +502,9 @@ class BypassRecursiveAndHtmlTests(unittest.TestCase):
         self.assertEqual(len(self.tab.scanned_files), 0)
 
     def test_build_run_config_rejects_files_outside_source_dir(self):
-        from PyQt6.QtWidgets import QTableWidgetItem
         from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QTableWidgetItem
+
         from src.core.task_contracts import TaskValidationError
 
         folder_a = os.path.join(self.temp_dir.name, "out_folder_a")

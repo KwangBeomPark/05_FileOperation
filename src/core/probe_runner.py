@@ -10,7 +10,6 @@ from dataclasses import asdict, dataclass
 from threading import Event
 from typing import Any
 
-
 PATH_TIMEOUT_SECONDS = 8.0
 SMTP_TIMEOUT_SECONDS = 5.0
 DEPENDENCY_TIMEOUT_SECONDS = 15.0
@@ -116,7 +115,8 @@ def _worker_entry(probe_name: str, payload: dict[str, Any], result_sender) -> No
     try:
         value = _run_registered_probe(probe_name, payload)
         result_sender.send({"ok": True, "value": value})
-    except BaseException as exc:
+    # A disposable worker must report even SystemExit from a probed dependency.
+    except BaseException as exc:  # noqa: BLE001
         try:
             result_sender.send({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
         except Exception:

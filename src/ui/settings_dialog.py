@@ -1,11 +1,24 @@
 import os
 import re
+
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, 
-    QFileDialog, QMessageBox, QGroupBox, QFormLayout, QComboBox, QScrollArea, QWidget,
-    QCheckBox
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
+
 from src.ui.i18n import choose, get_app_language, tr
+
 
 class SettingsDialog(QDialog):
     def __init__(self, config_manager, parent=None):
@@ -286,7 +299,7 @@ class SettingsDialog(QDialog):
                     
         webhook_url = self.webhook_url_input.text().strip()
         webhook_type = self.webhook_type_combo.currentData() or "generic"
-        if webhook_url and not (webhook_url.startswith("http://") or webhook_url.startswith("https://")):
+        if webhook_url and not (webhook_url.startswith(("http://", "https://"))):
             QMessageBox.warning(
                 self,
                 choose(self.language, "Input Error", "입력 오류", "Błąd danych wejściowych"),

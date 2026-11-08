@@ -1,6 +1,7 @@
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QGraphicsOpacityEffect
-from PyQt6.QtCore import QTimer, QPropertyAnimation, QEasingCurve, Qt
+from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import QGraphicsOpacityEffect, QLabel, QVBoxLayout, QWidget
+
 
 class ToastNotification(QWidget):
     """토스트 알림 위젯"""

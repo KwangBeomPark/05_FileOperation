@@ -1,7 +1,9 @@
-import fitz  # PyMuPDF
 import os
 from datetime import datetime
+
+import fitz  # PyMuPDF
 from PIL import Image
+
 
 class PDFConverter:
     """PDF를 JPEG 이미지로 변환하는 클래스"""
@@ -26,7 +28,7 @@ class PDFConverter:
             with fitz.open(pdf_path) as doc:
                 return len(doc)
         except Exception as e:
-            raise Exception(f"PDF 페이지 수를 읽을 수 없습니다: {str(e)}") from e
+            raise Exception(f"PDF 페이지 수를 읽을 수 없습니다: {e!s}") from e
     
     def get_optimal_dpi(self, page_width, page_height):
         """페이지 크기에 따라 최적 DPI 결정
@@ -70,7 +72,8 @@ class PDFConverter:
         try:
             with fitz.open(pdf_path) as doc:
                 pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                # Preserve the local wall-clock timestamp in output filenames.
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005
                 total_pages = len(doc)
                 image_files = []
 
@@ -92,7 +95,7 @@ class PDFConverter:
             return image_files
             
         except Exception as e:
-            raise Exception(f"PDF 변환 중 오류 발생: {str(e)}") from e
+            raise Exception(f"PDF 변환 중 오류 발생: {e!s}") from e
     
     def create_thumbnail(self, image_path, size=(150, 150)):
         """이미지 썸네일 생성
@@ -109,4 +112,4 @@ class PDFConverter:
             img.thumbnail(size, Image.Resampling.LANCZOS)
             return img
         except Exception as e:
-            raise Exception(f"썸네일 생성 실패: {str(e)}") from e
+            raise Exception(f"썸네일 생성 실패: {e!s}") from e

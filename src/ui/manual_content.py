@@ -5,7 +5,6 @@ from typing import Any
 from src.ui.collect_sync_text import COLLECT_MANUAL
 from src.ui.i18n import normalize_language
 
-
 TOPIC_ORDER = (
     "getting_started",
     "tasks",

@@ -3,19 +3,27 @@ from __future__ import annotations
 
 from threading import Event
 
-from PyQt6.QtCore import QEventLoop, QThread, Qt, pyqtSignal
+from PyQt6.QtCore import QEventLoop, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
-    QPushButton, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout,
+    QCheckBox,
+    QDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
 )
 
 from src.core.probe_runner import run_probe
-from src.core.run_summary import RunChangeSummary, SUMMARY_TIMEOUT_SECONDS
+from src.core.run_summary import SUMMARY_TIMEOUT_SECONDS, RunChangeSummary
 from src.ui.i18n import choose, get_app_language, tr
 from src.ui.preflight_dialog import PreflightProgressDialog
 from src.utils.logger import get_logger
-
 
 logger = get_logger()
 

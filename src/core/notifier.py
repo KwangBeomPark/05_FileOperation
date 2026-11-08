@@ -59,7 +59,7 @@ def send_webhook(
 ) -> tuple[bool, str]:
     """Deliver a JSON payload to a Webhook URL synchronously with bounded timeout."""
     target_url = str(url or "").strip()
-    if not target_url or not (target_url.startswith("http://") or target_url.startswith("https://")):
+    if not target_url or not target_url.startswith(("http://", "https://")):
         return False, "Invalid or missing Webhook URL (must begin with http:// or https://)"
 
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")

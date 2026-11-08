@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -23,7 +22,7 @@ class InstallerMigrationTests(unittest.TestCase):
             [shutil.which("ISCC.exe"), "/Q", f"/O{cls.root}", f"/DFixtureRoot={cls.root}",
              f"/DMigrationInclude={ROOT / 'installer' / 'legacy_migration.iss'}",
              str(ROOT / "tools" / "fixtures" / "installer_migration.iss")],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, check=False,
         )
         if result.returncode:
             raise AssertionError(result.stdout + result.stderr)
@@ -36,7 +35,7 @@ class InstallerMigrationTests(unittest.TestCase):
             result = subprocess.run(
                 [str(cls.installer), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
                  "/Case=runtime_probe", f"/LOG={probe / 'fixture.log'}"],
-                capture_output=True, timeout=30,
+                capture_output=True, timeout=30, check=False,
             )
         except OSError as exc:
             if getattr(exc, "winerror", None) == 4551:
@@ -64,7 +63,7 @@ class InstallerMigrationTests(unittest.TestCase):
         result = subprocess.run(
             [str(self.installer), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
              f"/Case={self.case.name}", f"/Scenario={scenario}", f"/LOG={self.case / 'fixture.log'}"],
-            timeout=30, capture_output=True,
+            timeout=30, capture_output=True, check=False,
         )
         log = self.case / "fixture.log"
         self.assertEqual(result.returncode, 0, log.read_text(encoding="utf-8", errors="replace") if log.exists() else repr(result))
@@ -187,7 +186,7 @@ class InstallerMigrationTests(unittest.TestCase):
         document.write_bytes(b"outside data")
         junction = self.old / "UserSetting"
         result = subprocess.run(["cmd.exe", "/c", "mklink", "/J", str(junction), str(outside)],
-                                capture_output=True, timeout=10)
+                                capture_output=True, timeout=10, check=False)
         self.assertEqual(result.returncode, 0)
         try:
             self.assertIn("unsafe", self.run_migration())

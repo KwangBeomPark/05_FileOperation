@@ -1,19 +1,32 @@
 import os
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QProgressBar,
-    QFileDialog, QMessageBox, QListWidgetItem, QGroupBox, QTextEdit, QComboBox, QLineEdit,
-    QCheckBox, QFormLayout
-)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
-from src.ui.workflow_widget import WorkflowWidget
-from src.ui.toast_notification import show_toast
-from src.ui.image_preview_dialog import ImagePreviewDialog
-from src.ui.i18n import choose, get_app_language, replace_phrases, tr
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.core.ocr_processor import OCRProcessor
 from src.core.task_contracts import OcrRunConfig, RunPlan, TaskStep, TaskValidationError
+from src.ui.i18n import choose, get_app_language, replace_phrases, tr
+from src.ui.image_preview_dialog import ImagePreviewDialog
 from src.ui.run_summary_dialog import confirm_run_summary
+from src.ui.toast_notification import show_toast
+from src.ui.workflow_widget import WorkflowWidget
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -128,7 +141,7 @@ class OCRWorker(QThread):
                                     try:
                                         os.chmod(target_path, 0o777)
                                         os.remove(target_path)
-                                    except Exception as rem_err:
+                                    except (OSError, TypeError, ValueError) as rem_err:
                                         logger.error(f"Cannot overwrite existing path: {rem_err}")
                                 
                                 os.chmod(img_path, 0o777)
@@ -142,7 +155,7 @@ class OCRWorker(QThread):
                     else:
                         self.ocr_completed.emit(img_path, img_path, "", False, self._detail(error_msg or self._msg("ocr_promotion_not_found")))
                         
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - isolate processor failures to this image
                     logger.error(f"Failed to process image {img_path}: {e}")
                     self.ocr_completed.emit(img_path, img_path, "", False, str(e))
                     
@@ -152,7 +165,7 @@ class OCRWorker(QThread):
                 self._msg("ocr_result_complete", success=success_count, total=total_images)
             )
             
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - report unexpected worker failures to the UI
             logger.error(f"Error in OCRWorker: {e}")
             self.finished.emit(False, str(e))
 
@@ -509,9 +522,8 @@ class OCRTab(QWidget):
         self.progress_bar.setValue(percent)
         self.progress_bar.setFormat(f"{percent}% ({current}/{total})")
         self.log_area.append(f"🔄 {status_msg}")
-        if parent_win := self.window():
-            if hasattr(parent_win, 'status_bar'):
-                parent_win.status_bar.showMessage(status_msg)
+        if (parent_win := self.window()) and hasattr(parent_win, 'status_bar'):
+            parent_win.status_bar.showMessage(status_msg)
                 
     def on_ocr_completed(self, original_path, new_path, promo_num, success, ocr_text):
         # 1. 캐시 및 리스트 데이터 갱신

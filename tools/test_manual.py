@@ -6,7 +6,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
-from src.ui.manual_content import MANUAL_CONTENT, TOPIC_ORDER, manual_topic, manual_topics
+from src.ui.manual_content import (
+    MANUAL_CONTENT,
+    TOPIC_ORDER,
+    manual_topic,
+    manual_topics,
+)
 from src.ui.manual_dialog import ManualDialog
 
 

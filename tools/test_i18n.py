@@ -1,10 +1,19 @@
 import ast
 import re
 import unittest
-from string import Formatter
 from pathlib import Path
+from string import Formatter
 
-from src.ui.i18n import FEATURE_MESSAGES, MESSAGES, STATIC_TEXT, detect_system_language, localize_static_text, normalize_language, replace_phrases, tr
+from src.ui.i18n import (
+    FEATURE_MESSAGES,
+    MESSAGES,
+    STATIC_TEXT,
+    detect_system_language,
+    localize_static_text,
+    normalize_language,
+    replace_phrases,
+    tr,
+)
 
 
 class LocalizationTests(unittest.TestCase):
@@ -63,9 +72,8 @@ class LocalizationTests(unittest.TestCase):
                     incomplete.append(f"{path.name}:{node.lineno}")
                 if name in {"_msg", "tr"} and node.args:
                     key_arg = node.args[0]
-                    if isinstance(key_arg, ast.Constant) and isinstance(key_arg.value, str):
-                        if key_arg.value not in MESSAGES["en"]:
-                            unknown_keys.append(f"{path.name}:{node.lineno}:{key_arg.value}")
+                    if isinstance(key_arg, ast.Constant) and isinstance(key_arg.value, str) and key_arg.value not in MESSAGES["en"]:
+                        unknown_keys.append(f"{path.name}:{node.lineno}:{key_arg.value}")
         self.assertEqual(incomplete, [])
         self.assertEqual(unknown_keys, [])
 
@@ -116,7 +124,15 @@ class LocalizationTests(unittest.TestCase):
         import os
 
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-        from PyQt6.QtWidgets import QApplication, QGroupBox, QLabel, QPushButton, QVBoxLayout, QWidget
+        from PyQt6.QtWidgets import (
+            QApplication,
+            QGroupBox,
+            QLabel,
+            QPushButton,
+            QVBoxLayout,
+            QWidget,
+        )
+
         from src.ui.i18n import localize_widget_tree
 
         app = QApplication.instance() or QApplication([])

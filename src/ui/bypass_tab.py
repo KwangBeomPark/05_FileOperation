@@ -1,18 +1,28 @@
 import os
-from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QProgressBar,
-    QFileDialog, QMessageBox, QGroupBox, QTextEdit, QComboBox, QCheckBox,
-    QTableWidget, QTableWidgetItem, QHeaderView, QRadioButton, QButtonGroup
-)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl
-from PyQt6.QtGui import QDesktopServices
 
-from src.ui.workflow_widget import WorkflowWidget
-from src.ui.toast_notification import show_toast
-from src.ui.i18n import choose, get_app_language, replace_phrases, tr
-from src.ui.backup_recovery_dialog import BackupRecoveryDialog
-from src.ui.preflight_dialog import run_bounded_preflight
-from src.ui.run_summary_dialog import confirm_run_summary
+from PyQt6.QtCore import Qt, QThread, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtWidgets import (
+    QApplication,
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QRadioButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
 from src.core import bypass_planner
 from src.core.bypass_converter import BypassConverter
 from src.core.task_contracts import (
@@ -23,6 +33,12 @@ from src.core.task_contracts import (
     TaskStep,
     TaskValidationError,
 )
+from src.ui.backup_recovery_dialog import BackupRecoveryDialog
+from src.ui.i18n import choose, get_app_language, replace_phrases, tr
+from src.ui.preflight_dialog import run_bounded_preflight
+from src.ui.run_summary_dialog import confirm_run_summary
+from src.ui.toast_notification import show_toast
+from src.ui.workflow_widget import WorkflowWidget
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -90,7 +106,7 @@ class BypassConvertWorker(QThread):
                 self._msg("bypass_result_complete", success=success_count, total=total)
             )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - report unexpected worker failures to the UI
             logger.error(f"Error in BypassConvertWorker: {e}")
             self.finished.emit(False, self._msg("bypass_worker_error", detail=str(e)))
 
@@ -1069,7 +1085,7 @@ class BypassTab(QWidget):
             self.workflow_widget.set_active_step(1)
             self._refresh_action_state()
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - reset scan state and report errors at the UI boundary
             if hasattr(self, "_discovered_files"):
                 self._discovered_files.clear()
             self.scanned_files.clear()
@@ -1170,9 +1186,8 @@ class BypassTab(QWidget):
         percent = int((current / total) * 100) if total > 0 else 0
         self.progress_bar.setValue(percent)
         self.log_area.append(f"🔄 {status_msg}")
-        if parent_win := self.window():
-            if hasattr(parent_win, 'status_bar'):
-                parent_win.status_bar.showMessage(status_msg)
+        if (parent_win := self.window()) and hasattr(parent_win, 'status_bar'):
+            parent_win.status_bar.showMessage(status_msg)
 
     def on_file_completed(self, src_path, tgt_path, success, message):
         filename = os.path.basename(src_path)
@@ -1190,9 +1205,7 @@ class BypassTab(QWidget):
             item_0 = self.file_table.item(idx, 0)
             stored_path = item_0.data(Qt.ItemDataRole.UserRole)
             matched = False
-            if stored_path and os.path.normcase(os.path.abspath(stored_path)) == src_norm:
-                matched = True
-            elif item_0.text() == rel_display or item_0.text() == filename:
+            if stored_path and os.path.normcase(os.path.abspath(stored_path)) == src_norm or item_0.text() == rel_display or item_0.text() == filename:
                 matched = True
 
             if matched:
@@ -1252,7 +1265,7 @@ class BypassTab(QWidget):
                     pct = (diff_bytes / total_src_size) * 100
                     delta_str = f"▲ {self._format_size(diff_bytes)} (+{pct:.1f}%)"
                 capacity_str = f" [{self._format_size(total_src_size)} → {self._format_size(total_tgt_size)} ({delta_str})]"
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - optional result decoration must not suppress completion
             logger.debug(f"Capacity impact calculation skipped due to error: {e}")
 
         # 백그라운드 완료 알림 (창이 비활성 상태일 때만 작업 표시줄 깜빡임 & 시스템 차임벨)
@@ -1260,7 +1273,7 @@ class BypassTab(QWidget):
         if is_background:
             try:
                 QApplication.alert(self, 0)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - platform notification must not suppress completion
                 logger.debug(f"Taskbar alert skipped: {e}")
 
             try:
@@ -1269,7 +1282,7 @@ class BypassTab(QWidget):
                     winsound.MessageBeep(winsound.MB_ICONASTERISK)
                 else:
                     winsound.MessageBeep(winsound.MB_ICONHAND)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - optional platform sound must not suppress completion
                 logger.debug(f"Audio beep skipped: {e}")
 
         if success:

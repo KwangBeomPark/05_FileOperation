@@ -1,18 +1,28 @@
 import os
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QListWidget, QProgressBar,
-    QFileDialog, QMessageBox, QListWidgetItem, QLineEdit, QGroupBox
-)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
-from src.ui.workflow_widget import WorkflowWidget
-from src.ui.toast_notification import show_toast
-from src.ui.image_preview_dialog import ImagePreviewDialog
-from src.ui.i18n import choose, get_app_language, tr
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.core.pdf_converter import PDFConverter
 from src.core.task_contracts import PdfRunConfig, RunPlan, TaskStep, TaskValidationError
+from src.ui.i18n import choose, get_app_language, tr
+from src.ui.image_preview_dialog import ImagePreviewDialog
 from src.ui.run_summary_dialog import confirm_run_summary
+from src.ui.toast_notification import show_toast
+from src.ui.workflow_widget import WorkflowWidget
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -61,7 +71,7 @@ class PDFConvertWorker(QThread):
                     
             self.progress.emit(total_files, total_files, self._msg("pdf_all_converted"))
             self.finished.emit(True, self._msg("pdf_conversion_success"))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - report unexpected worker failures to the UI
             logger.error(f"Error in PDFConvertWorker: {e}")
             self.finished.emit(False, str(e))
 
@@ -309,9 +319,8 @@ class PDFTab(QWidget):
         percent = int((current / total) * 100) if total > 0 else 0
         self.progress_bar.setValue(percent)
         self.progress_bar.setFormat(f"{percent}% ({current}/{total})")
-        if parent_win := self.window():
-            if hasattr(parent_win, 'status_bar'):
-                parent_win.status_bar.showMessage(status_msg)
+        if (parent_win := self.window()) and hasattr(parent_win, 'status_bar'):
+            parent_win.status_bar.showMessage(status_msg)
                 
     def on_page_converted(self, page_num, image_path):
         self.image_files.append(image_path)

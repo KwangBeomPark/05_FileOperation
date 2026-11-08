@@ -9,8 +9,17 @@ from unittest.mock import patch
 from src.core.run_summary import DISPLAY_LIMIT, build_run_summary
 from src.core.sync_manager import SyncManager, check_approved_sync_action
 from src.core.task_contracts import (
-    BypassFileConfig, BypassRunConfig, EmlRunConfig, EmlTaskConfig, OcrRunConfig,
-    PdfRunConfig, RunPlan, SourceDisposition, SyncGroupConfig, SyncRunConfig, TaskStep,
+    BypassFileConfig,
+    BypassRunConfig,
+    EmlRunConfig,
+    EmlTaskConfig,
+    OcrRunConfig,
+    PdfRunConfig,
+    RunPlan,
+    SourceDisposition,
+    SyncGroupConfig,
+    SyncRunConfig,
+    TaskStep,
 )
 
 
@@ -125,9 +134,8 @@ class RunSummaryTests(unittest.TestCase):
         self.assertEqual(manifest["target"], os.path.normcase(os.path.abspath(held.target)))
 
     def test_scan_failure_is_not_reported_as_zero_changes(self):
-        with patch("src.core.sync_manager.os.listdir", side_effect=PermissionError("denied")):
-            with self.assertRaises(OSError):
-                build_run_summary(self.sync_plan())
+        with patch("src.core.sync_manager.os.listdir", side_effect=PermissionError("denied")), self.assertRaises(OSError):
+            build_run_summary(self.sync_plan())
 
     def test_conflicting_copies_are_labeled_as_preserved(self):
         source = self.file(self.source, "sample.txt", b"new")

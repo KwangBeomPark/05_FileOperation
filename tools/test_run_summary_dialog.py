@@ -2,33 +2,48 @@ import copy
 import os
 import tempfile
 import unittest
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QListWidgetItem, QMainWindow, QWidget
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QLabel,
+    QListWidgetItem,
+    QMainWindow,
+    QWidget,
+)
 
 from src.core.preflight import PreflightReport
 from src.core.probe_runner import ProbeResult
 from src.core.run_summary import ChangeEntry, RunChangeSummary
 from src.core.task_contracts import (
-    BypassFileConfig, BypassRunConfig, PdfRunConfig, RunPlan,
-    SyncGroupConfig, SyncRunConfig, TaskStep,
+    BypassFileConfig,
+    BypassRunConfig,
+    PdfRunConfig,
+    RunPlan,
+    SyncGroupConfig,
+    SyncRunConfig,
+    TaskStep,
 )
 from src.ui.bypass_tab import BypassTab
 from src.ui.eml_tab import EMLTab
+from src.ui.main_window import MainWindow
 from src.ui.ocr_tab import OCRTab
 from src.ui.pdf_tab import PDFTab
 from src.ui.run_summary_dialog import (
-    RunSummaryDialog, SummaryProgressDialog, SummaryWorker,
-    analyze_run_summary, confirm_run_summary,
+    RunSummaryDialog,
+    SummaryProgressDialog,
+    SummaryWorker,
+    analyze_run_summary,
+    confirm_run_summary,
 )
 from src.ui.sync_tab import SyncTab
 from src.ui.task_tab import TaskTab
-from src.ui.main_window import MainWindow
 from src.utils.config_manager import ConfigManager
 
 

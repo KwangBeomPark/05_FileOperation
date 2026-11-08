@@ -1,7 +1,9 @@
-import sys
 import os
+import sys
 from pathlib import Path
+
 from PIL import Image
+
 
 def remove_background_and_crop(input_path, output_png_paths, output_ico_paths):
     img = Image.open(input_path).convert("RGBA")
@@ -11,7 +13,7 @@ def remove_background_and_crop(input_path, output_png_paths, output_ico_paths):
     new_data = []
     
     for item in data:
-        r, g, b, a = item
+        r, g, b, _a = item
         # Aggressively remove any bright background (Apple style light backgrounds)
         if r > 220 and g > 220 and b > 220:
             new_data.append((255, 255, 255, 0))

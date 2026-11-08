@@ -1,6 +1,7 @@
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
+
 
 class WorkflowWidget(QWidget):
     """워크플로우 단계 표시 위젯"""

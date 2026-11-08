@@ -3,7 +3,6 @@ import threading
 import unittest
 import uuid
 
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtTest import QSignalSpy, QTest

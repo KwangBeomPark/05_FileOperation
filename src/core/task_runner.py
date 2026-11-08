@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
+from typing import ClassVar
 
 from src.core.bypass_converter import BypassConverter
 from src.core.eml_converter import EMLConverter
@@ -61,7 +62,7 @@ class RunnerCallbacks:
 class TaskRunner:
     """Runs a RunPlan without depending on PyQt widgets or signals."""
 
-    STEP_NAMES = {
+    STEP_NAMES: ClassVar[dict[TaskStep, str]] = {
         TaskStep.SYNC: "Folder Sync",
         TaskStep.COLLECT_SYNC: "Collect Sync",
         TaskStep.EML: "EML Image",
@@ -197,8 +198,8 @@ class TaskRunner:
         self.is_running = False
         try:
             self.eml_converter.cancel()
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 - continue cancelling other components if this one fails.
+            logger.warning("EML converter cancellation failed")
         sync_manager = self.sync_manager
         if sync_manager is not None and hasattr(sync_manager, "cancel"):
             sync_manager.cancel()
@@ -509,7 +510,8 @@ class TaskRunner:
                             self.chained_image_paths.append(out_png)
                     else:
                         callbacks.log(self._text(f"      ✗ Conversion failed: {filename}", f"      ✗ 변환 실패: {filename}", f"      ✗ Konwersja nie powiodła się: {filename}"))
-                except Exception as file_err:
+                # Isolate each converter failure so subsequent EML files still run.
+                except Exception as file_err:  # noqa: BLE001
                     detail = self._runtime_text(file_err)
                     callbacks.log(self._text(f"      ✗ Error ({filename}): {detail}", f"      ✗ 오류 발생 ({filename}): {detail}", f"      ✗ Błąd ({filename}): {detail}"))
 
@@ -557,7 +559,8 @@ class TaskRunner:
                         self.chained_image_paths.append(img_out)
                 success_count += 1
                 msg = self._text(f"✓ PDF [{filename}] completed -> {len(image_paths)} images created", f"✓ PDF [{filename}] 완료 -> 이미지 {len(image_paths)}개 생성", f"✓ PDF [{filename}] zakończony -> utworzono {len(image_paths)} obrazów")
-            except Exception as file_err:
+            # Isolate each converter failure so subsequent PDF files still run.
+            except Exception as file_err:  # noqa: BLE001
                 detail = self._runtime_text(file_err)
                 msg = self._text(f"✗ PDF [{filename}] conversion failed: {detail}", f"✗ PDF [{filename}] 변환 실패: {detail}", f"✗ Konwersja PDF [{filename}] nie powiodła się: {detail}")
             callbacks.log(f"   {msg}")
@@ -614,7 +617,8 @@ class TaskRunner:
                 else:
                     detail = self._runtime_text(error_msg or self._text("not recognized", "미인식", "nierozpoznano"))
                     msg = self._text(f"✗ OCR failed (promotion not found): {filename} ({detail})", f"✗ OCR 분석 실패 (프로모션 미발견): {filename} ({detail})", f"✗ OCR nie powiódł się (brak promocji): {filename} ({detail})")
-            except Exception as file_err:
+            # Isolate each OCR failure so subsequent images still run.
+            except Exception as file_err:  # noqa: BLE001
                 detail = self._runtime_text(file_err)
                 msg = self._text(f"✗ OCR file error ({filename}): {detail}", f"✗ OCR 파일 분석 오류 ({filename}): {detail}", f"✗ Błąd pliku OCR ({filename}): {detail}")
             callbacks.log(f"   {msg}")
@@ -665,7 +669,8 @@ class TaskRunner:
                 else:
                     detail = self._bypass_message(msg)
                     rep_msg = self._text(f"✗ Conversion failed ({filename}): {detail}", f"✗ 파일 변환 실패 ({filename}): {detail}", f"✗ Konwersja nie powiodła się ({filename}): {detail}")
-            except Exception as file_err:
+            # Isolate each converter failure so subsequent tasks still run.
+            except Exception as file_err:  # noqa: BLE001
                 detail = self._runtime_text(file_err)
                 rep_msg = self._text(f"✗ File conversion error ({filename}): {detail}", f"✗ 파일 변환 오류 ({filename}): {detail}", f"✗ Błąd konwersji pliku ({filename}): {detail}")
             callbacks.log(f"   {rep_msg}")

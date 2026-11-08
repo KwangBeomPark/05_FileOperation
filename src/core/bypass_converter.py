@@ -1,15 +1,16 @@
+import base64
+import ctypes
+import html
+import logging
 import os
 import shutil
 import zipfile
-import base64
-import html
-import ctypes
 from ctypes import wintypes
-import logging
+
 from send2trash import send2trash
 
-from src.core.task_contracts import SourceDisposition
 from src.core.backup_recovery import record_backup_move
+from src.core.task_contracts import SourceDisposition
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,7 @@ class BypassConverter:
             with open(file_path, 'r+'):
                 pass
             return False
-        except IOError:
+        except OSError:
             return True
 
     def check_office_installed(self, app_name):
@@ -252,8 +253,8 @@ class BypassConverter:
         if app_name in self._office_installed_cache:
             return self._office_installed_cache[app_name]
 
-        import win32com.client
         import pythoncom
+        import win32com.client
 
         pythoncom.CoInitialize()
         try:
@@ -477,7 +478,7 @@ class BypassConverter:
                 success, err_msg = False, f"지원하지 않는 원본 파일 형식입니다: {src_ext}"
         except Exception as ex:
             success = False
-            err_msg = f"변환 실패 (알 수 없는 오류): {str(ex)}"
+            err_msg = f"변환 실패 (알 수 없는 오류): {ex!s}"
             logger.exception("Exception in convert_file")
 
         if not success:
@@ -562,7 +563,7 @@ class BypassConverter:
                 return True, f"SOURCE_BACKED_UP|{backup_path}"
             except Exception as backup_ex:
                 logger.error(f"Failed to move original file to backup {src_path}: {backup_ex}")
-                return False, f"SOURCE_BACKUP_FAILED|{str(backup_ex)}"
+                return False, f"SOURCE_BACKUP_FAILED|{backup_ex!s}"
 
         return True, "SOURCE_KEPT"
 
@@ -571,8 +572,8 @@ class BypassConverter:
         if not self.check_office_installed("Excel.Application"):
             return False, "Microsoft Excel이 이 컴퓨터에 설치되어 있지 않거나 COM 실행이 불가능합니다."
 
-        import win32com.client
         import pythoncom
+        import win32com.client
 
         # Excel 파일 형식 매핑
         # xlExcel12 = 50 (.xlsb)
@@ -599,15 +600,16 @@ class BypassConverter:
             wb.SaveAs(os.path.abspath(tgt_path), FileFormat=file_format)
             wb.Close(SaveChanges=False)
             return True, "성공"
-        except Exception as e:
+        # COM automation can fail with provider-specific errors at this boundary.
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Excel conversion failed: {e}")
-            return False, f"Excel 변환 중 오류: {str(e)}"
+            return False, f"Excel 변환 중 오류: {e!s}"
         finally:
             try:
                 if excel:
                     excel.Quit()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - COM shutdown must not mask the conversion result.
+                logger.warning("Excel COM shutdown failed")
             pythoncom.CoUninitialize()
 
     def _convert_powerpoint(self, src_path, tgt_path, target_ext):
@@ -615,8 +617,8 @@ class BypassConverter:
         if not self.check_office_installed("PowerPoint.Application"):
             return False, "Microsoft PowerPoint가 이 컴퓨터에 설치되어 있지 않거나 COM 실행이 불가능합니다."
 
-        import win32com.client
         import pythoncom
+        import win32com.client
 
         # PPT 파일 형식 매핑
         # ppSaveAsOpenXMLPresentation = 24 (.pptx)
@@ -640,15 +642,16 @@ class BypassConverter:
             pres.SaveAs(os.path.abspath(tgt_path), FileFormat=file_format)
             pres.Close()
             return True, "성공"
-        except Exception as e:
+        # COM automation can fail with provider-specific errors at this boundary.
+        except Exception as e:  # noqa: BLE001
             logger.error(f"PowerPoint conversion failed: {e}")
-            return False, f"PowerPoint 변환 중 오류: {str(e)}"
+            return False, f"PowerPoint 변환 중 오류: {e!s}"
         finally:
             try:
                 if powerpoint:
                     powerpoint.Quit()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - COM shutdown must not mask the conversion result.
+                logger.warning("PowerPoint COM shutdown failed")
             pythoncom.CoUninitialize()
 
     def _convert_word(self, src_path, tgt_path, target_ext):
@@ -656,8 +659,8 @@ class BypassConverter:
         if not self.check_office_installed("Word.Application"):
             return False, "Microsoft Word가 이 컴퓨터에 설치되어 있지 않거나 COM 실행이 불가능합니다."
 
-        import win32com.client
         import pythoncom
+        import win32com.client
 
         # Word 파일 형식 매핑
         # wdFormatDocument = 0 (.doc)
@@ -682,15 +685,16 @@ class BypassConverter:
             doc.SaveAs2(os.path.abspath(tgt_path), FileFormat=file_format)
             doc.Close(SaveChanges=False)
             return True, "성공"
-        except Exception as e:
+        # COM automation can fail with provider-specific errors at this boundary.
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Word conversion failed: {e}")
-            return False, f"Word 변환 중 오류: {str(e)}"
+            return False, f"Word 변환 중 오류: {e!s}"
         finally:
             try:
                 if word:
                     word.Quit()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - COM shutdown must not mask the conversion result.
+                logger.warning("Word COM shutdown failed")
             pythoncom.CoUninitialize()
 
     def _convert_pdf(self, src_path, tgt_path, target_ext, generate_pdf_html=False):
@@ -713,7 +717,7 @@ class BypassConverter:
                 primary_msg = "성공"
             except Exception as e:
                 logger.error(f"PDF ZIP conversion failed: {e}")
-                return False, f"PDF -> ZIP 압축 중 오류: {str(e)}"
+                return False, f"PDF -> ZIP 압축 중 오류: {e!s}"
         else:
             # 우회하지 않고 단순 복제 처리
             try:
@@ -721,7 +725,7 @@ class BypassConverter:
                 primary_success = True
                 primary_msg = "성공"
             except Exception as e:
-                return False, f"PDF 복제 오류: {str(e)}"
+                return False, f"PDF 복제 오류: {e!s}"
 
         if not primary_success:
             return False, primary_msg

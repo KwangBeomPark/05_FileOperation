@@ -5,7 +5,6 @@ from typing import Any
 
 from src.core.task_contracts import RunReport, TaskStep
 
-
 VALID_STATUS_KEYS = {
     "pending",
     "running",

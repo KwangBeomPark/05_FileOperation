@@ -52,7 +52,7 @@ def clean_legacy_startup_shortcuts() -> None:
             try:
                 legacy_path.unlink()
                 logger.info("Removed legacy startup shortcut: %s", legacy_path)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - best-effort cleanup must not prevent app startup.
                 logger.warning("Failed to remove legacy startup shortcut %s: %s", legacy_path, exc)
 
 
@@ -99,7 +99,7 @@ def _create_shortcut_wscript(
         shortcut.Description = f"{DISPLAY_NAME} (Background Tray)"
         shortcut.Save()
         return
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - COM failures vary by provider; use the documented fallback.
         logger.warning("win32com CreateShortcut failed (%s); falling back to PowerShell.", exc)
 
     def _ps_quote(val: str) -> str:
@@ -121,6 +121,7 @@ $taskShortcut.Save()
         ["powershell", "-NoProfile", "-EncodedCommand", encoded],
         capture_output=True,
         text=True,
+        check=False,  # The error text below is surfaced to the caller.
     )
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr.strip() or "PowerShell shortcut creation failed.")
@@ -149,7 +150,7 @@ def set_startup_enabled(enabled: bool) -> bool:
                 shortcut_path.unlink()
                 logger.info("Startup shortcut removed: %s", shortcut_path)
             return True
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - public startup toggle reports all shortcut failures.
         logger.error("Failed to set startup enabled (%s): %s", enabled, exc)
         return False
 

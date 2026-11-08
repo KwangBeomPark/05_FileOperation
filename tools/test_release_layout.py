@@ -8,7 +8,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -44,7 +43,7 @@ class ReleaseLayoutTests(unittest.TestCase):
                 patch.object(build_all, "LOCAL_BUILD_DIR", folder),
             ):
                 command = build_all.installer_command(compiler, "1.4.3")
-            compiled = subprocess.run(command[:1] + ["/Q"] + command[1:], capture_output=True, text=True)
+            compiled = subprocess.run(command[:1] + ["/Q"] + command[1:], capture_output=True, text=True, check=False)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
             self.assertEqual(payload.read_bytes(), b"unsigned-payload-fixture")
             self.assertTrue((folder / "App05_FileOps_Setup_v1.4.3.exe").exists())
@@ -185,7 +184,11 @@ class ReleaseLayoutTests(unittest.TestCase):
 
     def test_migration_names_are_injected_from_the_identity_contract(self):
         command = build_all.installer_command("iscc", "1.4.3")
-        from src.app_identity import LEGACY_INSTALL_DIRS, LEGACY_CONFIG_FILENAMES, INSTALL_DIR
+        from src.app_identity import (
+            INSTALL_DIR,
+            LEGACY_CONFIG_FILENAMES,
+            LEGACY_INSTALL_DIRS,
+        )
         self.assertIn('/DLegacyInstallDirs=' + ','.join((*LEGACY_INSTALL_DIRS, INSTALL_DIR)), command)
         self.assertIn('/DLegacyConfigNames=' + ','.join(LEGACY_CONFIG_FILENAMES), command)
 

@@ -4,7 +4,7 @@ import fnmatch
 import os
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 
 def is_file_ready(file_path: str, check_duration: float = 0.2) -> bool:

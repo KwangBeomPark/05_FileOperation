@@ -5,9 +5,9 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.core.ocr_processor import (
+    export_text_file,
     extract_by_rule,
     format_rename_filename,
-    export_text_file,
 )
 from src.core.sync_manager import SyncManager
 from src.core.task_contracts import (
@@ -118,7 +118,7 @@ class GeneralizationPhase1And2Tests(unittest.TestCase):
         self.assertEqual(len(actions), 1)
         self.assertEqual(actions[0]["filename"], os.path.join("nested", "sub", "valid.txt"))
 
-        success, fail, errors = manager.execute_sync(actions)
+        success, fail, _errors = manager.execute_sync(actions)
         self.assertEqual(success, 1)
         self.assertEqual(fail, 0)
         self.assertTrue(os.path.exists(os.path.join(dir_b, "nested", "sub", "valid.txt")))
@@ -175,7 +175,7 @@ class GeneralizationPhase1And2Tests(unittest.TestCase):
         actions = manager.analyze_sync()
         self.assertEqual(len(actions), 2)  # 1 to archive old in dir_b, 1 to copy new from dir_a to dir_b
 
-        success, fail, errors = manager.execute_sync(actions)
+        _success, fail, _errors = manager.execute_sync(actions)
         self.assertEqual(fail, 0)
         self.assertTrue(os.path.exists(os.path.join(dir_b, archive_dir, "data.txt")))
 

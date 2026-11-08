@@ -17,15 +17,21 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.app_identity import APP_EXE, INSTALLER_BASENAME, LAUNCHER_BASENAME
+from src.core.preflight import (
+    check_github_updater_settings as preflight_check_github_updater_settings,
+)
 from src.core.preflight import (
     check_ocr_engines as preflight_check_ocr_engines,
-    check_github_updater_settings as preflight_check_github_updater_settings,
+)
+from src.core.preflight import (
     check_office_apps as preflight_check_office_apps,
+)
+from src.core.preflight import (
     check_playwright_driver as preflight_check_playwright_driver,
 )
 from src.utils.config_manager import ConfigManager
 from src.version import APP_VERSION
-from src.app_identity import APP_EXE, INSTALLER_BASENAME, LAUNCHER_BASENAME
 
 RELEASE_DIR = ROOT / "release"
 
@@ -48,7 +54,7 @@ def check_import(module_name: str, label: str | None = None) -> bool:
     try:
         importlib.import_module(module_name)
         return status(True, label)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - Report import-time failures without aborting diagnostics.
         return status(False, label, str(exc))
 
 

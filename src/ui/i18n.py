@@ -10,7 +10,6 @@ from typing import Any
 
 from src.ui.collect_sync_text import COLLECT_TEXT
 
-
 SUPPORTED_LANGUAGES = ("en", "ko", "pl")
 WINDOWS_LANGUAGE_IDS = {0x09: "en", 0x12: "ko", 0x15: "pl"}
 
@@ -960,7 +959,7 @@ def detect_system_language(ui_language_id: int | None = None, locale_name: str |
     if ui_language_id is None and os.name == "nt":
         try:
             ui_language_id = ctypes.windll.kernel32.GetUserDefaultUILanguage()
-        except Exception:
+        except Exception:  # noqa: BLE001 - OS language detection must fall back if the platform API fails
             ui_language_id = None
     language = WINDOWS_LANGUAGE_IDS.get((ui_language_id or 0) & 0x03FF)
     if language:
@@ -968,7 +967,7 @@ def detect_system_language(ui_language_id: int | None = None, locale_name: str |
     if locale_name is None:
         try:
             locale_name = locale.getlocale()[0]
-        except Exception:
+        except Exception:  # noqa: BLE001 - locale detection must fall back to English on platform failure
             locale_name = None
     return normalize_language(locale_name) or "en"
 
@@ -1014,8 +1013,16 @@ def localize_static_text(text: str, language: str) -> str:
 
 def localize_widget_tree(root: Any, language: str) -> None:
     """Translate known static Qt labels while preserving each widget's original source text."""
-    from PyQt6.QtWidgets import QAbstractButton, QComboBox, QGroupBox, QLabel, QLineEdit, QTabWidget, QTableWidget
     from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import (
+        QAbstractButton,
+        QComboBox,
+        QGroupBox,
+        QLabel,
+        QLineEdit,
+        QTableWidget,
+        QTabWidget,
+    )
 
     for widget_type in (QAbstractButton, QLabel):
         for widget in root.findChildren(widget_type):

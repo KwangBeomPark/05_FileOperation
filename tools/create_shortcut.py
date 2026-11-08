@@ -41,7 +41,7 @@ $taskShortcut.Save()
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     result = subprocess.run(
         ["powershell", "-NoProfile", "-EncodedCommand", encoded],
-        capture_output=True, text=True,
+        capture_output=True, text=True, check=False,
     )
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or "Desktop shortcut creation failed.")

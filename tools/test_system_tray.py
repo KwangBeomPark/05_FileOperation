@@ -2,14 +2,13 @@ import os
 import unittest
 from unittest.mock import Mock, patch
 
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
-from src.ui.main_window import MainWindow
 from src.ui.i18n import tr
+from src.ui.main_window import MainWindow
 
 
 class SystemTrayTests(unittest.TestCase):

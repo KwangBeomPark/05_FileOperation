@@ -15,8 +15,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QListWidget,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -606,11 +606,11 @@ class TaskTab(TaskPanelMixin, QWidget):
 
     def capture_run_report(self, report):
         items = dict(self.config_manager.get("task_item_last_results", {}) or {})
-        timestamp = datetime.now().isoformat(timespec="seconds")
+        timestamp = datetime.now().isoformat(timespec="seconds")  # noqa: DTZ005 - persisted history uses naive local wall time
         for key, result in report.item_results.items():
-            items[key] = dict(status=result.status.name.lower(), timestamp=timestamp,
-                              success_count=result.success_count, total_count=result.total_count,
-                              detail=result.error_message or "\n".join(result.details[-3:]))
+            items[key] = {"status": result.status.name.lower(), "timestamp": timestamp,
+                              "success_count": result.success_count, "total_count": result.total_count,
+                              "detail": result.error_message or "\n".join(result.details[-3:])}
         self.config_manager.set("task_item_last_results", items)
         history = merge_run_report_history(
             self.config_manager.get("task_step_last_results", {}),
@@ -660,7 +660,7 @@ class TaskTab(TaskPanelMixin, QWidget):
             logger.exception("Could not update the run journal heartbeat")
 
     def _show_active_health(self):
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.now().strftime("%H:%M:%S")  # noqa: DTZ005 - health indicator displays local wall time
         self.run_health_label.setText(tr("run_health_active", self.language, timestamp=timestamp))
         self.run_health_label.setStyleSheet("font-size: 10px; color: #4ade80;")
 
@@ -773,7 +773,7 @@ class TaskTab(TaskPanelMixin, QWidget):
                         configs[step] = replace(values[0], groups=tuple(group for value in values for group in value.groups))
                 else:
                     configs[step] = self._build_step_config(step, tabs, selected_steps)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - isolate configuration failures by step for reporting
                 errors[step] = exc
         return configs, errors
 
@@ -798,7 +798,7 @@ class TaskTab(TaskPanelMixin, QWidget):
                 issues = report.blockers or report.warnings
                 self.set_row_readiness(index, "blocked" if report.blockers else "warning" if issues else "ready",
                                        "\n".join(issue.message for issue in issues))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - present per-row preflight failures without aborting refresh
                 self.set_row_readiness(index, "blocked", self._validation_detail(exc))
         self._refresh_start_button_state()
 
@@ -954,8 +954,8 @@ class TaskTab(TaskPanelMixin, QWidget):
         if self.folder_watcher:
             try:
                 self.folder_watcher.stop()
-            except Exception:
-                pass
+            except Exception:  # Watcher shutdown is best effort during UI cleanup.
+                logger.exception("Could not stop the folder watcher")
             self.folder_watcher = None
 
     def _handle_folder_watcher_files(self, changed_files: list):
@@ -1020,7 +1020,7 @@ class TaskTab(TaskPanelMixin, QWidget):
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
     def refresh_schedule_summary(self, now=None):
-        now = now or datetime.now()
+        now = now or datetime.now()  # noqa: DTZ005 - schedule comparisons use naive local wall time
         next_at = self._schedule_decision(now).next_at.strftime("%m/%d %H:%M")
         self.next_run_label.setText(
             "(" + tr("task_schedule_next_run", self.language, timestamp=next_at) + ")"
@@ -1109,7 +1109,7 @@ class TaskTab(TaskPanelMixin, QWidget):
                 or getattr(self.window(), "_run_confirmation_active", False)):
             return False
 
-        now = now or datetime.now()
+        now = now or datetime.now()  # noqa: DTZ005 - schedule comparisons use naive local wall time
         decision = self._schedule_decision(now)
         if not decision.should_start:
             return False
@@ -1229,7 +1229,7 @@ class TaskTab(TaskPanelMixin, QWidget):
                 elif row["step"] == TaskStep.COLLECT_SYNC and TaskStep.COLLECT_SYNC in configs:
                     config = replace(config, groups=configs[TaskStep.COLLECT_SYNC].groups + config.groups)
                 configs[row["step"]] = config
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - record a configuration failure for this execution item
                 items.append(ExecutionItem(row["key"], row["step"], row["name"], error=self._validation_detail(exc)))
         if not any(item.config is not None and not item.error for item in items):
             return self._reject_unrunnable_items(items, scheduled)
@@ -1371,7 +1371,7 @@ class TaskTab(TaskPanelMixin, QWidget):
             self.worker.report_ready.connect(self.capture_run_report)
             self.worker.finished.connect(lambda worker=self.worker: self._worker_stopped(worker))
             self.worker.start()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - restore UI state if Qt worker setup or start fails
             worker = self.worker
             self.worker = None
             if worker:
@@ -1481,7 +1481,7 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.run_health_label.setStyleSheet("font-size: 10px; color: #64748b;")
 
         if scheduled_run:
-            finished_time = datetime.now()
+            finished_time = datetime.now()  # noqa: DTZ005 - stored schedule timestamps use naive local wall time
             finished_at = finished_time.isoformat(timespec="seconds")
             started_time = parse_timestamp(self.config_manager.get("task_schedule_last_started_at", ""))
             duration = self._format_schedule_duration(started_time, finished_time) if started_time else "--:--:--"

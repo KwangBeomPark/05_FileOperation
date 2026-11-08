@@ -4,11 +4,11 @@ import time
 import unittest
 from unittest.mock import Mock, patch
 
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QWidget
 
+from src.core.preflight import PreflightReport
 from src.core.task_contracts import (
     BypassRunConfig,
     RunPlan,
@@ -20,7 +20,6 @@ from src.core.task_contracts import (
     SyncRunConfig,
     TaskStep,
 )
-from src.core.preflight import PreflightReport
 from src.ui.bypass_tab import BypassTab
 from src.ui.task_tab import TaskTab
 

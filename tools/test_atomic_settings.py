@@ -12,10 +12,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
-from src.ui.settings_dialog import SettingsDialog
-from src.utils.config_manager import ConfigManager
-from src.utils.atomic_write import atomic_write_json
 from src.core.preset_manager import apply_workflow_preset
+from src.ui.settings_dialog import SettingsDialog
+from src.utils.atomic_write import atomic_write_json
+from src.utils.config_manager import ConfigManager
 
 
 class AtomicSettingsTests(unittest.TestCase):
@@ -70,9 +70,8 @@ class AtomicSettingsTests(unittest.TestCase):
 
     def test_read_failure_does_not_treat_settings_as_corruption(self):
         original = Path(self.manager.config_path).read_bytes()
-        with patch("builtins.open", side_effect=PermissionError("locked")):
-            with self.assertRaises(OSError):
-                ConfigManager()
+        with patch("builtins.open", side_effect=PermissionError("locked")), self.assertRaises(OSError):
+            ConfigManager()
         self.assertEqual(Path(self.manager.config_path).read_bytes(), original)
         self.assertEqual(list(Path(self.manager.app_dir).glob("*.bak")), [])
 
@@ -138,18 +137,16 @@ class AtomicSettingsTests(unittest.TestCase):
     def test_preset_save_failure_is_not_reported_as_success(self):
         original = Path(self.manager.config_path).read_bytes()
         memory = copy.deepcopy(self.manager.config)
-        with patch("src.utils.atomic_write.os.replace", side_effect=PermissionError("locked")):
-            with self.assertRaises(OSError):
-                apply_workflow_preset(self.manager, {"sync_move_to_deleted": False})
+        with patch("src.utils.atomic_write.os.replace", side_effect=PermissionError("locked")), self.assertRaises(OSError):
+            apply_workflow_preset(self.manager, {"sync_move_to_deleted": False})
         self.assertEqual(Path(self.manager.config_path).read_bytes(), original)
         self.assertEqual(self.manager.config, memory)
 
     def test_unverified_corruption_backup_cannot_replace_original(self):
         path = Path(self.manager.config_path)
         path.write_bytes(b"broken original")
-        with patch("src.utils.config_manager.shutil.copy2", side_effect=lambda source, destination: Path(destination).write_bytes(b"wrong copy")):
-            with self.assertRaises(OSError):
-                ConfigManager()
+        with patch("src.utils.config_manager.shutil.copy2", side_effect=lambda source, destination: Path(destination).write_bytes(b"wrong copy")), self.assertRaises(OSError):
+            ConfigManager()
         self.assertEqual(path.read_bytes(), b"broken original")
 
 

@@ -411,7 +411,7 @@ class DownloadWorker(QThread):
                 self.finished.emit(False, "Cancelled")
             else:
                 self.finished.emit(True, self.dest_path)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - report download worker failures through its finished signal
             self.finished.emit(False, str(e))
             
     def cancel(self):
@@ -898,7 +898,7 @@ class MainWindow(QMainWindow):
                         self.collect_sync_tab.stop_all()
                         self.bypass_tab.stop_all()
                         os._exit(0)
-                    except Exception as err:
+                    except Exception as err:  # noqa: BLE001 - surface installer and shutdown failures in the UI
                         QMessageBox.critical(self, tr("run_error", self.language), self._runtime_error_text(err))
             else:
                 if result != "Cancelled":

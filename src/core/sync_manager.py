@@ -541,18 +541,20 @@ class SyncManager:
                             })
                             
                             # 만약 이 폴더에 최신 파일 본체도 존재하지 않는다면, 복사 액션도 함께 추가
-                            if not any(os.path.normcase(e["filename"]) == os.path.normcase(newest_filename) for e in folder_entries):
-                                # 중복 추가 방지를 위해 하나만 추가
-                                if not any(a["filename"] == newest_filename and a["target_folder"] == folder for a in actions):
-                                    actions.append({
-                                        "filename": newest_filename,
-                                        "status": "최신 업데이트",
-                                        "source_folder": newest_entry["folder"],
-                                        "target_folder": folder,
-                                        "action": "복사",
-                                        "size": newest_entry["size"],
-                                        "mtime": newest_entry["mtime"]
-                                    })
+                            # 중복 추가 방지를 위해 하나만 추가
+                            if (
+                                not any(os.path.normcase(e["filename"]) == os.path.normcase(newest_filename) for e in folder_entries)
+                                and not any(a["filename"] == newest_filename and a["target_folder"] == folder for a in actions)
+                            ):
+                                actions.append({
+                                    "filename": newest_filename,
+                                    "status": "최신 업데이트",
+                                    "source_folder": newest_entry["folder"],
+                                    "target_folder": folder,
+                                    "action": "복사",
+                                    "size": newest_entry["size"],
+                                    "mtime": newest_entry["mtime"]
+                                })
                         else:
                             if os.path.normcase(entry["full_path"]) == os.path.normcase(newest_entry["full_path"]):
                                 continue
@@ -808,7 +810,8 @@ class SyncManager:
                     filename = action['filename']
                     source = os.path.join(action['source_folder'], filename)
                     if action['action'] == '충돌 보존 백업':
-                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        # Preserve the local wall-clock timestamp in conflict backup names.
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')  # noqa: DTZ005
                         name, ext = os.path.splitext(os.path.basename(filename))
                         filename = os.path.join(os.path.dirname(filename), f'{name}_conflict_{timestamp}{ext}')
                     elif action['action'] != 'to_be_deleted이동':

@@ -1,7 +1,8 @@
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
+
 from src.app_identity import user_data_dir
 
 _logger_initialized = False
@@ -11,8 +12,8 @@ def _configure_console_encoding(stream):
     if hasattr(stream, "reconfigure"):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - arbitrary console streams can reject reconfiguration.
+            logging.getLogger(__name__).debug("Console encoding unchanged: %s", exc)
 
 
 def setup_logger(log_level=logging.INFO):
@@ -27,7 +28,7 @@ def setup_logger(log_level=logging.INFO):
 
     log_dir = str(user_data_dir() / 'logs')
 
-    today = datetime.now().strftime('%Y%m%d')
+    today = datetime.now(timezone.utc).astimezone().strftime('%Y%m%d')
     log_file_path = os.path.join(log_dir, f'sync_{today}.log')
 
     # 루트 로거 획득
@@ -52,7 +53,7 @@ def setup_logger(log_level=logging.INFO):
         file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - logging must remain available via console on any file handler failure.
         logger.warning("File logging unavailable at %s: %s. No alternate folder will be used.", log_dir, e)
 
     _logger_initialized = True

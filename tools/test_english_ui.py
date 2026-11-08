@@ -4,12 +4,11 @@ import re
 import unittest
 from unittest.mock import patch
 
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import (
-    QApplication,
     QAbstractButton,
+    QApplication,
     QComboBox,
     QGroupBox,
     QLabel,
@@ -27,7 +26,6 @@ from src.ui.settings_dialog import SettingsDialog
 from src.ui.sync_tab import SyncTab
 from src.ui.task_tab import TaskTab
 from src.utils.config_manager import ConfigManager
-
 
 KOREAN = re.compile(r"[가-힣]")
 

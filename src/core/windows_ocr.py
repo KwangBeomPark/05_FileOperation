@@ -8,7 +8,6 @@ from pathlib import Path
 
 from PIL import Image
 
-
 WINDOWS_OCR_MAX_DIMENSION = 2600
 
 
@@ -89,6 +88,7 @@ def _run_powershell(script_path: str, args: list[str], timeout_seconds: int) -> 
         encoding="utf-8",
         errors="replace",
         timeout=timeout_seconds,
+        check=False,
         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
     )
 

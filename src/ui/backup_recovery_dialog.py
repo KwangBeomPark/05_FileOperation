@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from threading import Event
 
-from PyQt6.QtCore import QThread, Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -228,7 +228,7 @@ class BackupRecoveryDialog(QDialog):
                 ))
             self.table.setItem(row, 1, original_item)
             self.table.setItem(row, 2, QTableWidgetItem(self._format_size(entry.size)))
-            self.table.setItem(row, 3, QTableWidgetItem(datetime.fromtimestamp(entry.modified_time).strftime("%Y-%m-%d %H:%M")))
+            self.table.setItem(row, 3, QTableWidgetItem(datetime.fromtimestamp(entry.modified_time).strftime("%Y-%m-%d %H:%M")))  # noqa: DTZ006 - display filesystem time in local wall time
             self.table.setItem(row, 4, QTableWidgetItem(entry.restore_target))
 
         if self.entries:

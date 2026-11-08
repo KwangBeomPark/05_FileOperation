@@ -20,8 +20,9 @@ def main():
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
         root = Path(__file__).resolve().parents[1]
         sys.path.insert(0, str(root))
-        from PyQt6.QtWidgets import QApplication
         from PyQt6.QtGui import QFontDatabase
+        from PyQt6.QtWidgets import QApplication
+
         from src.core.run_summary import ChangeEntry, RunChangeSummary
         from src.ui.main_window import app_stylesheet
         from src.ui.run_summary_dialog import RunSummaryDialog

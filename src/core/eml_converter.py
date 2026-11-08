@@ -1,9 +1,9 @@
 import html
+import logging
 import os
+import subprocess
 import sys
 import tempfile
-import logging
-import subprocess
 from email import policy
 from email.parser import BytesParser
 
@@ -46,7 +46,7 @@ class EMLConverter:
             with open(eml_path, 'rb') as f:
                 msg = BytesParser(policy=policy.default).parse(f)
         except Exception as e:
-            raise Exception(f"EML 파일 파싱 오류: {str(e)}") from e
+            raise Exception(f"EML 파일 파싱 오류: {e!s}") from e
 
         html_content = None
         text_content = None
@@ -136,7 +136,10 @@ class EMLConverter:
 
     def _get_playwright_install_command(self):
         try:
-            from playwright._impl._driver import compute_driver_executable, get_driver_env
+            from playwright._impl._driver import (
+                compute_driver_executable,
+                get_driver_env,
+            )
 
             node_path, cli_path = compute_driver_executable()
             if os.path.exists(node_path) and os.path.exists(cli_path):
@@ -231,5 +234,5 @@ class EMLConverter:
             if os.path.exists(tmp_path):
                 try:
                     os.remove(tmp_path)
-                except Exception:
-                    pass
+                except Exception:  # noqa: BLE001 - cleanup must not mask the conversion result.
+                    logger.warning("EML conversion temporary file cleanup failed")

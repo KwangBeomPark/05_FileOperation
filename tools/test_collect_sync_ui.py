@@ -8,11 +8,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PyQt6.QtCore import QCoreApplication, QEventLoop, QTimer, Qt
+from PyQt6.QtCore import QCoreApplication, QEventLoop, Qt, QTimer
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
-from src.core.collect_sync import ACTION_COPY, ACTION_ERROR, CollectAction, CollectReport
+from src.core.collect_sync import (
+    ACTION_COPY,
+    ACTION_ERROR,
+    CollectAction,
+    CollectReport,
+)
 from src.core.collect_sync_config import new_collect_group
 from src.ui.collect_sync_tab import CollectSyncTab, CollectWorker
 from src.ui.i18n import tr

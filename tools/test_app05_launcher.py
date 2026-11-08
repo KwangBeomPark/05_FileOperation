@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 from src.core.release_config import DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPOSITORY
 
-
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER_PATH = ROOT / "scripts" / "App05_FileOps_Launcher.pyw"
 loader = SourceFileLoader("app05_launcher", str(LAUNCHER_PATH))
@@ -72,9 +71,8 @@ class App05LauncherTests(unittest.TestCase):
             with patch("urllib.request.urlopen", return_value=FakeResponse(payload=payload)):
                 self.assertEqual(launcher.latest_setup_asset().name, expected["name"])
         duplicate = json.dumps({"tag_name": "v1.4.2", "assets": [enterprise, enterprise, public]}).encode()
-        with patch("urllib.request.urlopen", return_value=FakeResponse(payload=duplicate)):
-            with self.assertRaises(launcher.LauncherError):
-                launcher.latest_setup_asset()
+        with patch("urllib.request.urlopen", return_value=FakeResponse(payload=duplicate)), self.assertRaises(launcher.LauncherError):
+            launcher.latest_setup_asset()
 
     def test_true_legacy_paths_and_executable_names_remain_discoverable(self):
         for folder, exe_name in (
@@ -212,9 +210,8 @@ class App05LauncherTests(unittest.TestCase):
             "tag_name": "v1.2.3",
             "assets": [{"name": "IntegratedDataTool_Setup_v1.2.3.exe", "browser_download_url": "https://github.com/a/setup.exe"}]
         }'''
-        with patch("urllib.request.urlopen", return_value=FakeResponse(payload=payload)):
-            with self.assertRaises(launcher.LauncherError):
-                launcher.latest_setup_asset()
+        with patch("urllib.request.urlopen", return_value=FakeResponse(payload=payload)), self.assertRaises(launcher.LauncherError):
+            launcher.latest_setup_asset()
 
     def test_release_assets_redirect_domain_is_trusted(self):
         self.assertTrue(launcher.trusted_url("https://release-assets.githubusercontent.com/a/b"))
@@ -226,9 +223,8 @@ class App05LauncherTests(unittest.TestCase):
     def test_release_asset_rejects_duplicate_expected_installers(self):
         asset = b'{"name":"IntegratedDataTool_Setup_v1.2.3.exe","browser_download_url":"https://github.com/a/setup.exe","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
         payload = b'{"tag_name":"v1.2.3","assets":[' + asset + b"," + asset + b"]}"
-        with patch("urllib.request.urlopen", return_value=FakeResponse(payload=payload)):
-            with self.assertRaises(launcher.LauncherError):
-                launcher.latest_setup_asset()
+        with patch("urllib.request.urlopen", return_value=FakeResponse(payload=payload)), self.assertRaises(launcher.LauncherError):
+            launcher.latest_setup_asset()
 
     def test_download_accepts_verified_github_redirect(self):
         data = b"verified-installer"
@@ -251,14 +247,13 @@ class App05LauncherTests(unittest.TestCase):
         response = FakeResponse(chunks=[b"unsafe", b""], final_url="https://example.com/file.exe")
         with tempfile.TemporaryDirectory() as temp_dir:
             destination = Path(temp_dir) / "IntegratedDataTool_Setup_v1.2.3.exe"
-            with patch("urllib.request.build_opener", return_value=FakeOpener(response)):
-                with self.assertRaises(launcher.LauncherError):
-                    launcher.download_file(
-                        "https://github.com/owner/repo/releases/download/v1.2.3/IntegratedDataTool_Setup_v1.2.3.exe",
-                        destination,
-                        FakeProgress(),
-                        "a" * 64,
-                    )
+            with patch("urllib.request.build_opener", return_value=FakeOpener(response)), self.assertRaises(launcher.LauncherError):
+                launcher.download_file(
+                    "https://github.com/owner/repo/releases/download/v1.2.3/IntegratedDataTool_Setup_v1.2.3.exe",
+                    destination,
+                    FakeProgress(),
+                    "a" * 64,
+                )
             self.assertFalse(destination.exists())
             self.assertFalse(destination.with_suffix(destination.suffix + ".download").exists())
 
@@ -266,14 +261,13 @@ class App05LauncherTests(unittest.TestCase):
         response = FakeResponse(total_size=launcher.MAX_INSTALLER_BYTES + 1)
         with tempfile.TemporaryDirectory() as temp_dir:
             destination = Path(temp_dir) / "IntegratedDataTool_Setup_v1.2.3.exe"
-            with patch("urllib.request.build_opener", return_value=FakeOpener(response)):
-                with self.assertRaises(launcher.LauncherError):
-                    launcher.download_file(
-                        "https://github.com/owner/repo/releases/download/v1.2.3/IntegratedDataTool_Setup_v1.2.3.exe",
-                        destination,
-                        FakeProgress(),
-                        "a" * 64,
-                    )
+            with patch("urllib.request.build_opener", return_value=FakeOpener(response)), self.assertRaises(launcher.LauncherError):
+                launcher.download_file(
+                    "https://github.com/owner/repo/releases/download/v1.2.3/IntegratedDataTool_Setup_v1.2.3.exe",
+                    destination,
+                    FakeProgress(),
+                    "a" * 64,
+                )
             self.assertFalse(destination.exists())
 
 

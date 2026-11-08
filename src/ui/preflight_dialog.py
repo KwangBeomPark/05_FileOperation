@@ -3,12 +3,18 @@ from __future__ import annotations
 from threading import Event
 
 from PyQt6.QtCore import QEventLoop, QThread, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+)
 
 from src.core.preflight import check_run_plan
 from src.ui.i18n import choose, get_app_language
 from src.utils.logger import get_logger
-
 
 logger = get_logger()
 

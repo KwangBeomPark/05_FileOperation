@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 from src.utils.startup_manager import (
     STARTUP_SHORTCUT_NAME,
+    clean_legacy_startup_shortcuts,
     get_startup_folder,
     get_startup_shortcut_path,
-    clean_legacy_startup_shortcuts,
     is_startup_enabled,
     resolve_startup_target_and_arguments,
     set_startup_enabled,
@@ -57,7 +57,7 @@ class StartupManagerTests(unittest.TestCase):
     def test_resolve_startup_target_and_arguments_non_frozen(self):
         with patch.object(sys, "frozen", False, create=True):
             target, arguments, working_dir = resolve_startup_target_and_arguments()
-            self.assertTrue(target.endswith("python.exe") or target.endswith("pythonw.exe"))
+            self.assertTrue(target.endswith(("python.exe", "pythonw.exe")))
             self.assertIn("main.py", arguments)
             self.assertIn("--tray", arguments)
             self.assertTrue(Path(working_dir).is_dir())

@@ -7,11 +7,19 @@ from enum import Enum
 from threading import Event
 
 from src.core.preflight import (
+    check_ocr_engines,
     check_office_apps,
     check_office_imports,
-    check_ocr_engines,
     check_playwright_driver,
     required_office_apps,
+)
+from src.core.probe_runner import (
+    DEPENDENCY_TIMEOUT_SECONDS,
+    OFFICE_TIMEOUT_SECONDS,
+    PATH_TIMEOUT_SECONDS,
+    SMTP_TIMEOUT_SECONDS,
+    ProbeResult,
+    run_probe,
 )
 from src.core.task_contracts import (
     BypassRunConfig,
@@ -22,14 +30,6 @@ from src.core.task_contracts import (
     SourceDisposition,
     SyncRunConfig,
     TaskStep,
-)
-from src.core.probe_runner import (
-    DEPENDENCY_TIMEOUT_SECONDS,
-    OFFICE_TIMEOUT_SECONDS,
-    PATH_TIMEOUT_SECONDS,
-    SMTP_TIMEOUT_SECONDS,
-    ProbeResult,
-    run_probe,
 )
 from src.ui.i18n import choose, get_app_language
 

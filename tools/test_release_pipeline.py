@@ -2,9 +2,9 @@
 import json
 import tempfile
 import unittest
-from types import SimpleNamespace
 from contextlib import ExitStack
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts import build_all as build
@@ -104,9 +104,8 @@ class ReleasePipelineTests(unittest.TestCase):
         official = self.root / "release"
         official.mkdir()
         (official / "previous.exe").write_bytes(b"preserved")
-        with patch.object(build, "verify_signed_payload", side_effect=ValueError("Not signed")):
-            with self.assertRaises(ValueError):
-                build.promote_verified_release(self.version, None, overwrite=True)
+        with patch.object(build, "verify_signed_payload", side_effect=ValueError("Not signed")), self.assertRaises(ValueError):
+            build.promote_verified_release(self.version, None, overwrite=True)
         self.assertEqual((official / "previous.exe").read_bytes(), b"preserved")
 
     def test_promotion_preserves_previous_release_outside_active_folder(self):
@@ -128,16 +127,14 @@ class ReleasePipelineTests(unittest.TestCase):
         official.mkdir()
         previous = official / self.enterprise.name
         previous.write_bytes(b"previous signed version")
-        with patch.object(build, "verify_signed_payload"):
-            with self.assertRaises(SystemExit):
-                build.promote_verified_release(self.version, None, overwrite=False)
+        with patch.object(build, "verify_signed_payload"), self.assertRaises(SystemExit):
+            build.promote_verified_release(self.version, None, overwrite=False)
         self.assertEqual(previous.read_bytes(), b"previous signed version")
 
     def test_old_version_tag_stops_signing_before_building(self):
         result = lambda output: SimpleNamespace(returncode=0, stdout=output)
-        with patch.object(build.subprocess, "run", side_effect=[result("v1.4.2"), result("new"), result("old")]):
-            with self.assertRaisesRegex(SystemExit, "new APP_VERSION"):
-                build.ensure_version_not_reused(self.version)
+        with patch.object(build.subprocess, "run", side_effect=[result("v1.4.2"), result("new"), result("old")]), self.assertRaisesRegex(SystemExit, "new APP_VERSION"):
+            build.ensure_version_not_reused(self.version)
 
     def test_verification_shell_is_absolute_and_drops_powershell7_module_paths(self):
         command = build.authenticode_verification_command(self.app, "A" * 40)
@@ -148,9 +145,8 @@ class ReleasePipelineTests(unittest.TestCase):
         self.assertNotIn("PSModulePath", run.call_args.kwargs["env"])
 
     def test_missing_explicit_sign_tool_never_falls_back_to_path(self):
-        with patch.dict(build.os.environ, {"FILEOPS_SIGNTOOL_PATH": str(self.root / "missing.exe")}):
-            with self.assertRaisesRegex(SystemExit, "no fallback"):
-                build.find_signtool()
+        with patch.dict(build.os.environ, {"FILEOPS_SIGNTOOL_PATH": str(self.root / "missing.exe")}), self.assertRaisesRegex(SystemExit, "no fallback"):
+            build.find_signtool()
 
     def test_legacy_executables_are_not_deleted_before_successful_install(self):
         entries = build.legacy_shortcut_entries()
@@ -171,9 +167,8 @@ class ReleasePipelineTests(unittest.TestCase):
                 raise OSError("simulated promotion failure")
             return rename(path, target)
 
-        with patch.object(build, "verify_signed_payload"), patch.object(Path, "rename", fail_prepared):
-            with self.assertRaises(OSError):
-                build.promote_verified_release(self.version, None, overwrite=False)
+        with patch.object(build, "verify_signed_payload"), patch.object(Path, "rename", fail_prepared), self.assertRaises(OSError):
+            build.promote_verified_release(self.version, None, overwrite=False)
         self.assertEqual((official / "previous.exe").read_bytes(), b"preserved")
 
     def test_remote_assets_must_match_local_digests(self):
@@ -203,9 +198,8 @@ class ReleasePipelineTests(unittest.TestCase):
 
     def test_checksum_symlink_rejected_before_read(self):
         is_symlink = Path.is_symlink
-        with patch.object(Path, "is_symlink", lambda p: p.name == "SHA256SUMS.txt" or is_symlink(p)):
-            with self.assertRaisesRegex(ValueError, "Unsafe"):
-                publish.validate_release(self.folder, self.version, "abc123")
+        with patch.object(Path, "is_symlink", lambda p: p.name == "SHA256SUMS.txt" or is_symlink(p)), self.assertRaisesRegex(ValueError, "Unsafe"):
+            publish.validate_release(self.folder, self.version, "abc123")
 
     def test_signed_build_cannot_reuse_stale_exe_or_skip_tests(self):
         for skip_pyinstaller, skip_tests in ((True, False), (False, True)):

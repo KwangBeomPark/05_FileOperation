@@ -1,5 +1,5 @@
-from datetime import datetime
 import unittest
+from datetime import datetime
 
 from src.core.task_contracts import RunReport, StepResult, StepStatus, TaskStep
 from src.core.task_history import merge_run_report_history, normalize_step_history
@@ -25,7 +25,7 @@ class TaskHistoryTests(unittest.TestCase):
         )
         report = RunReport({TaskStep.BYPASS: result}, "body", "partial", False)
 
-        history = merge_run_report_history(existing, report, datetime(2026, 8, 8, 12, 30))
+        history = merge_run_report_history(existing, report, datetime(2026, 8, 8, 12, 30))  # noqa: DTZ001 - Existing history timestamps contract uses naive local time.
 
         self.assertEqual(history["sync"]["detail"], "old")
         self.assertEqual(history["bypass"]["status"], "partial")

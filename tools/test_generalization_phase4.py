@@ -10,8 +10,8 @@ import os
 import shutil
 import tempfile
 import unittest
-from unittest.mock import MagicMock, Mock, patch
 import urllib.error
+from unittest.mock import MagicMock, Mock, patch
 
 from src.core.notifier import (
     build_webhook_payload,

@@ -3,25 +3,29 @@ from __future__ import annotations
 from collections.abc import Callable
 from threading import Event
 
-from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QProgressBar,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
     QVBoxLayout,
 )
 
-from src.core.diagnostics import DiagnosticsCancelled, DiagnosticItem, DiagnosticStatus, run_diagnostics
+from src.core.diagnostics import (
+    DiagnosticItem,
+    DiagnosticsCancelled,
+    DiagnosticStatus,
+    run_diagnostics,
+)
 from src.core.task_contracts import RunPlan
 from src.ui.i18n import get_app_language, tr
 from src.utils.logger import get_logger
-
 
 logger = get_logger()
 

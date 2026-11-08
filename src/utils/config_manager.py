@@ -1,13 +1,16 @@
 import copy
 import json
-import os
-import threading
-import shutil
-import uuid
-from .atomic_write import atomic_write_json
-from .security import encrypt_data, decrypt_data
 import logging
+import os
+import shutil
+import threading
+import uuid
+from typing import ClassVar
+
 from src.app_identity import CONFIG_FILENAME, user_data_dir
+
+from .atomic_write import atomic_write_json
+from .security import decrypt_data, encrypt_data
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +20,7 @@ class ConfigManager:
     보안 데이터(GitHub Token 등)는 자동으로 DPAPI를 통해 암/복호화되어 보관됩니다.
     """
     
-    DEFAULT_CONFIG = {
+    DEFAULT_CONFIG: ClassVar[dict[str, object]] = {
         "config_version": 3,
 
         # PDF 변환 설정
@@ -103,7 +106,7 @@ class ConfigManager:
     }
     
     # DPAPI로 자동 암복호화할 보안 키 목록
-    SECURE_KEYS = ["github_token", "sender_password"]
+    SECURE_KEYS: ClassVar[list[str]] = ["github_token", "sender_password"]
 
     def __init__(self, config_file=CONFIG_FILENAME):
         self.config_file = config_file
@@ -134,7 +137,7 @@ class ConfigManager:
                     with open(self.config_path, 'r', encoding='utf-8') as f:
                         loaded = json.load(f)
                         if not isinstance(loaded, dict):
-                            raise ValueError("Configuration root must be an object.")
+                            raise ValueError("Configuration root must be an object.")  # noqa: TRY004 - invalid JSON data follows the corrupt-config recovery path.
                         config.update(loaded)
                         migrated = self._migrate_config(config, loaded)
                     logger.debug(f"Configuration loaded successfully from {self.config_path}")
@@ -233,10 +236,10 @@ class ConfigManager:
                 pass
             else:
                 if not isinstance(existing, dict):
-                    raise ValueError("Existing configuration root must be an object.")
+                    raise ValueError("Existing configuration root must be an object.")  # noqa: TRY004 - retain the existing invalid-config failure contract.
             atomic_write_json(self.config_path, config_dict, indent=4)
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - the atomic-save API reports any serialization or storage failure as False.
             logger.error(f"Failed to save configuration atomically: {e}")
             return False
 
@@ -251,7 +254,7 @@ class ConfigManager:
             if key in self.SECURE_KEYS and val:
                 try:
                     return decrypt_data(val)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - keep existing credential-provider failure behavior unchanged.
                     logger.error(f"Failed to automatically decrypt secure key '{key}': {e}")
                     return ""
             if isinstance(val, (list, dict)):
@@ -269,7 +272,7 @@ class ConfigManager:
                 try:
                     encrypted_val = encrypt_data(value)
                     draft[key] = encrypted_val
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - keep existing credential-provider failure behavior unchanged.
                     logger.error(f"Failed to automatically encrypt secure key '{key}': {e}")
                     # 보안 키는 암호화 실패 시 평문으로 저장하지 않습니다.
                     return False
@@ -303,7 +306,7 @@ class ConfigManager:
                 if key in self.SECURE_KEYS and value:
                     try:
                         value = encrypt_data(value)
-                    except Exception:
+                    except Exception:  # noqa: BLE001 - keep existing credential-provider failure behavior unchanged.
                         logger.error("Could not encrypt secure setting '%s'.", key)
                         return False
                 draft[key] = copy.deepcopy(value)

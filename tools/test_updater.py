@@ -1,5 +1,5 @@
-import os
 import hashlib
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -11,8 +11,8 @@ from src.core.release_config import (
     releases_page_url,
 )
 from src.core.updater import (
-    AutoUpdater,
     MAX_INSTALLER_BYTES,
+    AutoUpdater,
     detach_frozen_environment,
     is_trusted_download_url,
     launch_installer,
@@ -116,15 +116,13 @@ class UpdaterTests(unittest.TestCase):
 
     def test_download_rejects_non_https(self):
         updater = AutoUpdater()
-        with tempfile.NamedTemporaryFile() as file:
-            with self.assertRaises(ValueError):
-                updater.download_file("http://github.com/example/setup.exe", file.name, "a" * 64)
+        with tempfile.NamedTemporaryFile() as file, self.assertRaises(ValueError):
+            updater.download_file("http://github.com/example/setup.exe", file.name, "a" * 64)
 
     def test_download_rejects_untrusted_domain(self):
         updater = AutoUpdater()
-        with tempfile.NamedTemporaryFile() as file:
-            with self.assertRaises(ValueError):
-                updater.download_file("https://example.com/setup.exe", file.name, "a" * 64)
+        with tempfile.NamedTemporaryFile() as file, self.assertRaises(ValueError):
+            updater.download_file("https://example.com/setup.exe", file.name, "a" * 64)
 
     def test_trusted_url_requires_an_exact_known_host_without_a_port(self):
         self.assertTrue(is_trusted_download_url("https://release-assets.githubusercontent.com/file"))
@@ -199,9 +197,8 @@ class UpdaterTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             dest_path = f"{tmpdir}\\download.exe"
-            with patch("urllib.request.build_opener", return_value=FakeOpener(response)):
-                with self.assertRaises(OSError):
-                    updater.download_file("https://github.com/example/setup.exe", dest_path, "a" * 64)
+            with patch("urllib.request.build_opener", return_value=FakeOpener(response)), self.assertRaises(OSError):
+                updater.download_file("https://github.com/example/setup.exe", dest_path, "a" * 64)
 
             self.assertFalse(os.path.exists(dest_path))
 
@@ -213,9 +210,8 @@ class UpdaterTests(unittest.TestCase):
             dest_path = f"{tmpdir}\\download.exe"
             with open(dest_path, "wb") as file:
                 file.write(b"existing")
-            with patch("urllib.request.build_opener", return_value=FakeOpener(response)):
-                with self.assertRaises(OSError):
-                    updater.download_file("https://github.com/example/setup.exe", dest_path, hashlib.sha256(b"other").hexdigest())
+            with patch("urllib.request.build_opener", return_value=FakeOpener(response)), self.assertRaises(OSError):
+                updater.download_file("https://github.com/example/setup.exe", dest_path, hashlib.sha256(b"other").hexdigest())
 
             with open(dest_path, "rb") as file:
                 self.assertEqual(file.read(), b"existing")
@@ -226,9 +222,8 @@ class UpdaterTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             dest_path = f"{tmpdir}\\download.exe"
-            with patch("urllib.request.build_opener", return_value=FakeOpener(response)):
-                with self.assertRaises(ValueError):
-                    updater.download_file("https://github.com/example/setup.exe", dest_path, hashlib.sha256(b"data").hexdigest())
+            with patch("urllib.request.build_opener", return_value=FakeOpener(response)), self.assertRaises(ValueError):
+                updater.download_file("https://github.com/example/setup.exe", dest_path, hashlib.sha256(b"data").hexdigest())
             self.assertFalse(os.path.exists(dest_path))
 
     def test_download_rejects_oversized_content_length(self):
@@ -237,9 +232,8 @@ class UpdaterTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             dest_path = f"{tmpdir}\\download.exe"
-            with patch("urllib.request.build_opener", return_value=FakeOpener(response)):
-                with self.assertRaises(OSError):
-                    updater.download_file("https://github.com/example/setup.exe", dest_path, "a" * 64)
+            with patch("urllib.request.build_opener", return_value=FakeOpener(response)), self.assertRaises(OSError):
+                updater.download_file("https://github.com/example/setup.exe", dest_path, "a" * 64)
             self.assertFalse(os.path.exists(dest_path))
 
 

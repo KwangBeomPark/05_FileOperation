@@ -4,11 +4,10 @@ import ctypes
 import json
 import os
 import shutil
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
-
 
 BACKUP_FOLDER_NAME = "Original Backup"
 MANIFEST_FILENAME = ".fileops-backup.jsonl"

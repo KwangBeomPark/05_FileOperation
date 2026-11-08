@@ -19,14 +19,13 @@ if SRC_PATH not in sys.path:
 if __name__ == "__main__":
     multiprocessing.freeze_support()
 
-from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
+from src.app_identity import WINDOWS_APP_ID, asset_path
 from src.ui.main_window import MainWindow, app_stylesheet, create_dark_palette
 from src.ui.single_instance import SingleInstanceController
 from src.utils.logger import setup_logger
-from src.app_identity import WINDOWS_APP_ID, asset_path
-
 
 SINGLE_INSTANCE_NAME = WINDOWS_APP_ID
 
@@ -39,15 +38,15 @@ def parse_startup_arguments(argv):
 
 def run_headless(config_path: str | None = None) -> int:
     """Execute configured integrated tasks headlessly without displaying GUI."""
-    from src.utils.config_manager import ConfigManager
-    from src.core.task_runner import TaskRunner, RunnerCallbacks
     from src.core.task_contracts import (
+        OcrRunConfig,
         RunPlan,
-        TaskStep,
         SyncGroupConfig,
         SyncRunConfig,
-        OcrRunConfig,
+        TaskStep,
     )
+    from src.core.task_runner import RunnerCallbacks, TaskRunner
+    from src.utils.config_manager import ConfigManager
     from src.utils.logger import get_logger
 
     logger = get_logger()
@@ -124,7 +123,7 @@ def show_fatal_error(summary: str, details: str) -> None:
     message = f"{summary}\n\nCheck the log file for details.\n{details}"
     try:
         QMessageBox.critical(None, "FileOps Hub Startup Error", message)
-    except Exception:
+    except Exception:  # noqa: BLE001 - Qt can fail before its event loop starts; use the native fallback.
         if sys.platform == "win32":
             ctypes.windll.user32.MessageBoxW(None, message, "FileOps Hub Startup Error", 0x10)
 
@@ -147,8 +146,8 @@ def main() -> int:
         try:
             myappid = WINDOWS_APP_ID
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - Windows integration is optional at startup.
+            logging.getLogger(__name__).debug("Could not set Windows app ID: %s", exc)
 
     try:
         qt_argv, start_in_tray = parse_startup_arguments(sys.argv)
@@ -183,7 +182,7 @@ def main() -> int:
         exit_code = app.exec()
         instance_controller.close()
         return exit_code
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - top-level UI boundary reports unexpected startup failures.
         details = traceback.format_exc()
         logging.getLogger(__name__).critical("Application startup failed:\n%s", details)
         show_fatal_error("The application could not be started.", str(exc))

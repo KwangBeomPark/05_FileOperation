@@ -1,9 +1,19 @@
 import os
+
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
-    QPushButton, QFileDialog, QMessageBox, QDialogButtonBox
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
 )
+
 from src.ui.i18n import choose
+
 
 class EMLTaskDialog(QDialog):
     """

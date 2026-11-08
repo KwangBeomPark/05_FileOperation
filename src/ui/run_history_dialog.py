@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from typing import ClassVar
 
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QColor, QDesktopServices
@@ -29,7 +30,7 @@ class RunHistoryDialog(QDialog):
     COL_FEATURES = 3
     COL_DETAIL = 4
 
-    STATUS_COLORS = {
+    STATUS_COLORS: ClassVar[dict[str, str]] = {
         "running": "#38bdf8",
         "completed": "#4ade80",
         "partial": "#fbbf24",

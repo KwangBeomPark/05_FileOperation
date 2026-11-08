@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from src.utils.config_manager import ConfigManager
-from src.utils.security import encrypt_data, decrypt_data
 from src.app_identity import user_data_dir
+from src.utils.config_manager import ConfigManager
+from src.utils.security import decrypt_data, encrypt_data
 
 
 class ConfigSecurityTests(unittest.TestCase):

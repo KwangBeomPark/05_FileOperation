@@ -5,7 +5,15 @@ from unittest.mock import patch
 
 from PyQt6.QtWidgets import QMessageBox
 
-from src.core.task_contracts import BypassFileConfig, BypassRunConfig, EmlRunConfig, PdfRunConfig, SourceDisposition, SyncRunConfig, TaskValidationError
+from src.core.task_contracts import (
+    BypassFileConfig,
+    BypassRunConfig,
+    EmlRunConfig,
+    PdfRunConfig,
+    SourceDisposition,
+    SyncRunConfig,
+    TaskValidationError,
+)
 from src.ui.bypass_tab import BypassTab
 from src.ui.eml_tab import EMLTab
 from src.ui.pdf_tab import PDFTab

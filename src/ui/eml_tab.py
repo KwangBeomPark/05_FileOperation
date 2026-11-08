@@ -1,18 +1,35 @@
 import os
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QTextEdit, QProgressBar, QMessageBox, QGroupBox,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
-)
+
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush
+from PyQt6.QtGui import QBrush, QColor
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.core.eml_converter import EMLConverter
-from src.core.task_contracts import EmlRunConfig, EmlTaskConfig, RunPlan, TaskStep, TaskValidationError
-from src.ui.run_summary_dialog import confirm_run_summary
+from src.core.task_contracts import (
+    EmlRunConfig,
+    EmlTaskConfig,
+    RunPlan,
+    TaskStep,
+    TaskValidationError,
+)
 from src.ui.eml_task_dialog import EMLTaskDialog
-from src.ui.toast_notification import show_toast
 from src.ui.i18n import choose, get_app_language, tr
+from src.ui.run_summary_dialog import confirm_run_summary
+from src.ui.toast_notification import show_toast
 from src.ui.workflow_widget import WorkflowWidget
 from src.utils.logger import get_logger
 
@@ -76,7 +93,7 @@ class EMLWorker(QThread):
                     for f in os.listdir(src)
                     if f.lower().endswith('.eml')
                 ]
-            except Exception as e:
+            except (OSError, TypeError, ValueError) as e:
                 self.task_status_changed.emit(task_idx, self._msg("eml_failed_folder_read"))
                 self.log_signal.emit(self._msg("eml_folder_read_log", detail=e))
                 continue
@@ -92,7 +109,7 @@ class EMLWorker(QThread):
             # 저장 대상 폴더 자동 생성 시도
             try:
                 os.makedirs(tgt, exist_ok=True)
-            except Exception as e:
+            except (OSError, TypeError, ValueError) as e:
                 self.task_status_changed.emit(task_idx, self._msg("eml_failed_output_folder"))
                 self.log_signal.emit(self._msg("eml_output_folder_log", path=tgt, detail=e))
                 continue
@@ -117,7 +134,7 @@ class EMLWorker(QThread):
                         self.log_signal.emit(self._msg("eml_saved_log", filename=out_png_name))
                     else:
                         self.log_signal.emit(self._msg("eml_conversion_failed_log", filename=filename))
-                except Exception as file_err:
+                except Exception as file_err:  # noqa: BLE001 - isolate converter failures to this file
                     self.log_signal.emit(self._msg("eml_file_error_log", filename=filename, detail=file_err))
                     
             if not self.is_running:

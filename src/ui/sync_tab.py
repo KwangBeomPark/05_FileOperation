@@ -227,7 +227,7 @@ class SyncWorker(QThread):
                     total_fail,
                     all_errors
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - report unexpected worker failures to the UI
             logger.error(f"Error in SyncWorker thread: {e}")
             self.finished.emit(False, 0, 1, [str(e)])
 
@@ -748,7 +748,7 @@ class SyncTab(QWidget):
 
         mode_val = str(group.get("sync_mode", "two_way") or "two_way")
         mode_idx = self.sync_mode_combo.findData(mode_val)
-        self.sync_mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
+        self.sync_mode_combo.setCurrentIndex(max(mode_idx, 0))
         self.subfolders_check.setChecked(bool(group.get("include_subfolders", False)))
         self.date_latest_check.setChecked(bool(group.get("date_latest_only", False)))
         archive_mode = group.get("date_archive_mode", "folder")
@@ -984,7 +984,7 @@ class SyncTab(QWidget):
             if act["action"] in ("보류", "날짜 보류"):
                 mtime_str = self._sync_text(act.get("reason") or act.get("status", ""))
             elif act.get("mtime"):
-                mtime_str = datetime.fromtimestamp(act["mtime"]).strftime("%Y-%m-%d %H:%M")
+                mtime_str = datetime.fromtimestamp(act["mtime"]).strftime("%Y-%m-%d %H:%M")  # noqa: DTZ006 - display filesystem time in local wall time
             else:
                 mtime_str = self._sync_text(act.get("details", act.get("reason", "")))
             details_item = QTableWidgetItem(mtime_str)
@@ -1091,9 +1091,8 @@ class SyncTab(QWidget):
         percent = int((current / total) * 100) if total > 0 else 0
         self.progress_bar.setValue(percent)
         self.progress_bar.setFormat(f"{percent}% ({current}/{total})")
-        if parent_win := self.window():
-            if hasattr(parent_win, 'status_bar'):
-                parent_win.status_bar.showMessage(self._sync_text(status_msg))
+        if (parent_win := self.window()) and hasattr(parent_win, 'status_bar'):
+            parent_win.status_bar.showMessage(self._sync_text(status_msg))
 
     def on_sync_finished(self, success, success_count, fail_count, errors):
         self.is_running = False

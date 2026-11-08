@@ -5,9 +5,19 @@ from dataclasses import dataclass, field
 from enum import Enum
 from threading import Event
 
+from src.core.probe_runner import (
+    DEPENDENCY_TIMEOUT_SECONDS,
+    OFFICE_TIMEOUT_SECONDS,
+    ProbeResult,
+    run_probe,
+)
 from src.core.release_config import DEFAULT_GITHUB_REPOSITORY_SLUG
-from src.core.task_contracts import BypassRunConfig, RunPlan, SourceDisposition, TaskStep
-from src.core.probe_runner import DEPENDENCY_TIMEOUT_SECONDS, OFFICE_TIMEOUT_SECONDS, ProbeResult, run_probe
+from src.core.task_contracts import (
+    BypassRunConfig,
+    RunPlan,
+    SourceDisposition,
+    TaskStep,
+)
 from src.ui.i18n import choose, get_app_language
 
 

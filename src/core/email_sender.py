@@ -1,6 +1,7 @@
 import smtplib
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
 from src.utils.logger import get_logger
 
 logger = get_logger()
@@ -84,7 +85,7 @@ def send_email(
         logger.error(err_msg)
         return False, err_msg
     except Exception as e:
-        err_msg = f"이메일 전송 중 에러가 발생했습니다: {str(e)}"
+        err_msg = f"이메일 전송 중 에러가 발생했습니다: {e!s}"
         logger.error(err_msg)
         return False, err_msg
     finally:

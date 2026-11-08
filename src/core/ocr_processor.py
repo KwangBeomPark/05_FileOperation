@@ -1,9 +1,12 @@
+import os
+import re
+from typing import ClassVar
+
 import pytesseract
 from PIL import Image
-import re
-import os
 
 from src.core.windows_ocr import extract_text_with_windows_ocr, windows_ocr_available
+
 
 class OCRProcessor:
     """이미지에서 텍스트를 추출하고 프로모션 번호를 찾는 클래스.
@@ -97,7 +100,7 @@ class OCRProcessor:
 
         raise Exception("OCR 텍스트 추출 실패: " + " / ".join(errors))
     
-    EXTRACTION_PRESETS = {
+    EXTRACTION_PRESETS: ClassVar[dict[str, str]] = {
         "promotion": r"PL-[A-Z]TS[A-Z]-202\d{5}-\d{4}",
         "invoice_number": r"\b(?:INVOICE|INV|DOC|NO|번호)[ \t#:._-]*([A-Z0-9-]*\d[A-Z0-9-]{2,24})",
         "date_ymd": r"(20\d{2}[-./]\d{2}[-./]\d{2})",
@@ -166,7 +169,8 @@ class OCRProcessor:
         orig_basename = os.path.basename(image_path)
         orig_stem, ext = os.path.splitext(orig_basename)
         safe_match = cls.sanitize_filename_token(extracted_value) or orig_stem
-        date_str = now_date or datetime.now().strftime("%Y%m%d")
+        # Preserve the local calendar date in user-visible filenames.
+        date_str = now_date or datetime.now().strftime("%Y%m%d")  # noqa: DTZ005
         seq_str = f"{max(1, int(seq)):03d}"
 
         template = (rename_template or "{match}").strip()

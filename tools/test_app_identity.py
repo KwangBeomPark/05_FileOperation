@@ -6,11 +6,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.app_identity import APP_EXE, INSTALL_DIR, asset_path, installer_filenames, installer_names_for_tag, user_data_dir
-from src.utils.config_manager import ConfigManager
+from src.app_identity import (
+    APP_EXE,
+    INSTALL_DIR,
+    asset_path,
+    installer_filenames,
+    installer_names_for_tag,
+    user_data_dir,
+)
 from src.core.updater import installer_names_for_tag as updater_names
-from src.utils import logger as app_logger
 from src.ui.task_tab import TaskTab
+from src.utils import logger as app_logger
+from src.utils.config_manager import ConfigManager
 
 
 class AppIdentityTests(unittest.TestCase):

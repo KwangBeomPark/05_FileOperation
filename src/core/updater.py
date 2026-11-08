@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import os
 import re
 import ssl
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
 from src.app_identity import PRODUCT_ID, installer_names_for_tag
-
 from src.core.release_config import (
     DEFAULT_GITHUB_OWNER,
     DEFAULT_GITHUB_REPOSITORY,
@@ -193,7 +192,7 @@ class AutoUpdater:
                     raise ValueError(f"신뢰할 수 없는 최종 다운로드 주소입니다: {response.geturl()}")
                 total_size = int(response.info().get("Content-Length", 0))
                 if total_size > MAX_INSTALLER_BYTES:
-                    raise IOError(f"업데이트 파일이 허용 크기를 초과했습니다: {total_size} bytes")
+                    raise OSError(f"업데이트 파일이 허용 크기를 초과했습니다: {total_size} bytes")
                 downloaded = 0
                 digest = hashlib.sha256()
                 with partial.open("wb") as file:
@@ -205,14 +204,14 @@ class AutoUpdater:
                         digest.update(chunk)
                         downloaded += len(chunk)
                         if downloaded > MAX_INSTALLER_BYTES:
-                            raise IOError(f"업데이트 파일이 허용 크기를 초과했습니다: {downloaded} bytes")
+                            raise OSError(f"업데이트 파일이 허용 크기를 초과했습니다: {downloaded} bytes")
                         if progress_callback:
                             progress_callback(downloaded, total_size)
 
                 if total_size > 0 and downloaded != total_size:
-                    raise IOError(f"불완전한 다운로드 감지: {downloaded}/{total_size} bytes 수신됨.")
+                    raise OSError(f"불완전한 다운로드 감지: {downloaded}/{total_size} bytes 수신됨.")
                 if digest.hexdigest().lower() != str(expected_sha256).lower():
-                    raise IOError("업데이트 파일 SHA-256 검증에 실패했습니다.")
+                    raise OSError("업데이트 파일 SHA-256 검증에 실패했습니다.")
                 os.replace(partial, destination)
             return True
         except Exception as exc:

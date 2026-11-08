@@ -27,7 +27,8 @@ def parse_timestamp(value: object) -> datetime | None:
 def parse_schedule_time(value: object, fallback: time = time(18, 0)) -> time:
     text = str(value or "").strip()
     try:
-        return datetime.strptime(text, "%H:%M").time()
+        # The schedule is a local wall-clock time, not a timestamp with an offset.
+        return datetime.strptime(text, "%H:%M").time()  # noqa: DTZ007
     except ValueError:
         return fallback
 

@@ -3,7 +3,6 @@ import unittest
 from datetime import datetime, timedelta
 from unittest.mock import Mock
 
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QMainWindow
@@ -37,16 +36,16 @@ class FakeConfig:
 class SchedulePolicyTests(unittest.TestCase):
     def test_waits_until_scheduled_time(self):
         decision = evaluate_daily_schedule(
-            now=datetime(2026, 8, 8, 8, 59),
+            now=datetime(2026, 8, 8, 8, 59),  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
             schedule_time="09:00",
         )
         self.assertFalse(decision.should_start)
         self.assertEqual(decision.status, "waiting")
-        self.assertEqual(decision.next_at, datetime(2026, 8, 8, 9, 0))
+        self.assertEqual(decision.next_at, datetime(2026, 8, 8, 9, 0))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
 
     def test_prestart_failure_uses_bounded_retry_delay(self):
         decision = evaluate_daily_schedule(
-            now=datetime(2026, 8, 8, 9, 5),
+            now=datetime(2026, 8, 8, 9, 5),  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
             schedule_time="09:00",
             attempt_date="2026-08-08",
             attempt_count=1,
@@ -54,11 +53,11 @@ class SchedulePolicyTests(unittest.TestCase):
         )
         self.assertFalse(decision.should_start)
         self.assertEqual(decision.status, "retry_wait")
-        self.assertEqual(decision.next_at, datetime(2026, 8, 8, 9, 10))
+        self.assertEqual(decision.next_at, datetime(2026, 8, 8, 9, 10))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
 
     def test_attempt_limit_defers_until_tomorrow(self):
         decision = evaluate_daily_schedule(
-            now=datetime(2026, 8, 8, 9, 30),
+            now=datetime(2026, 8, 8, 9, 30),  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
             schedule_time="09:00",
             attempt_date="2026-08-08",
             attempt_count=3,
@@ -66,17 +65,17 @@ class SchedulePolicyTests(unittest.TestCase):
         )
         self.assertFalse(decision.should_start)
         self.assertEqual(decision.status, "attempts_exhausted")
-        self.assertEqual(decision.next_at, datetime(2026, 8, 9, 9, 0))
+        self.assertEqual(decision.next_at, datetime(2026, 8, 9, 9, 0))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
 
     def test_started_run_is_never_repeated_the_same_day(self):
         decision = evaluate_daily_schedule(
-            now=datetime(2026, 8, 8, 18, 0),
+            now=datetime(2026, 8, 8, 18, 0),  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
             schedule_time="09:00",
             last_started_at="2026-08-08T09:01:00",
         )
         self.assertFalse(decision.should_start)
         self.assertEqual(decision.status, "already_started")
-        self.assertEqual(decision.next_at, datetime(2026, 8, 9, 9, 0))
+        self.assertEqual(decision.next_at, datetime(2026, 8, 9, 9, 0))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
 
 
 class ScheduledRunIntegrationTests(unittest.TestCase):
@@ -101,24 +100,24 @@ class ScheduledRunIntegrationTests(unittest.TestCase):
             return False
 
         self.tab.start_all_tasks = Mock(side_effect=reject_start)
-        self.assertFalse(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 0)))
+        self.assertFalse(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 0)))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
         self.assertEqual(self.config.get("task_schedule_attempt_count"), 1)
         self.assertEqual(self.config.get("task_schedule_last_run_date", ""), "")
         self.assertIn("Sync folder", self.config.get("task_schedule_last_failure_reason"))
 
-        self.assertFalse(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 5)))
+        self.assertFalse(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 5)))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
         self.assertEqual(self.tab.start_all_tasks.call_count, 1)
-        self.assertFalse(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 10)))
-        self.assertFalse(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 20)))
+        self.assertFalse(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 10)))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
+        self.assertFalse(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 20)))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
         self.assertEqual(self.tab.start_all_tasks.call_count, 3)
         self.assertEqual(self.config.get("task_schedule_attempt_count"), 3)
 
-        self.assertFalse(self.tab.check_scheduled_run(datetime(2026, 8, 8, 10, 0)))
+        self.assertFalse(self.tab.check_scheduled_run(datetime(2026, 8, 8, 10, 0)))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
         self.assertEqual(self.tab.start_all_tasks.call_count, 3)
 
     def test_started_run_records_day_and_completion_outcome(self):
         self.tab.start_all_tasks = Mock(return_value=True)
-        self.assertTrue(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 0)))
+        self.assertTrue(self.tab.check_scheduled_run(datetime(2026, 8, 8, 9, 0)))  # noqa: DTZ001 - Existing local schedule contract uses naive local time.
         self.assertEqual(self.config.get("task_schedule_last_run_date"), "2026-08-08")
         self.assertEqual(self.config.get("task_schedule_last_started_at"), "2026-08-08T09:00:00")
         self.assertEqual(self.config.get("task_schedule_last_finished_at"), "")
@@ -135,7 +134,7 @@ class ScheduledRunIntegrationTests(unittest.TestCase):
         self.assertIn("Finished at", self.tab.log_area.toPlainText())
 
     def test_failed_scheduled_run_records_start_end_and_reason(self):
-        started_at = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="seconds")
+        started_at = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="seconds")  # noqa: DTZ005 - Existing local schedule contract uses naive local time.
         self.config.update({
             "task_schedule_last_started_at": started_at,
             "task_schedule_last_finished_at": "",
