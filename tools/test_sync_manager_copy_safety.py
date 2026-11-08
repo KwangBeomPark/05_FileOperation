@@ -91,7 +91,7 @@ class SyncCopySafetyTests(unittest.TestCase):
                         folders = [Path(temp) / c for c in ('a', 'b', 'c')]
                         for folder in folders:
                             folder.mkdir()
-                        for folder, content in zip(folders[:2], ('first', 'other')):
+                        for folder, content in zip(folders[:2], ('first', 'other'), strict=True):
                             path = folder / name
                             path.write_text(content, encoding='utf-8')
                             os.utime(path, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
@@ -156,7 +156,7 @@ class SyncCopySafetyTests(unittest.TestCase):
         for name in ('doc.txt', 'doc_v1.0.txt'):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
                 folders = [Path(temp) / c for c in ('a', 'b', 'c')]
-                for folder, content in zip(folders, ('same', 'same', 'diff')):
+                for folder, content in zip(folders, ('same', 'same', 'diff'), strict=True):
                     folder.mkdir()
                     path = folder / name
                     path.write_text(content, encoding='utf-8')
