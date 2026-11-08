@@ -13,6 +13,10 @@ SA Team에는 EML 변환 / PDF 변환 / 이미지 읽기 하위 탭이 있습니
 | 화면·설정 대화상자 | `src/ui/`, `src/ui/settings_dialog.py` |
 | 작업 실행·프리셋·이력 | `src/core/`, `src/core/preset_manager.py`, `src/core/run_journal.py` |
 | 읽기 전용 변경 예상·공통 확인창 | `src/core/run_summary.py`, `src/ui/run_summary_dialog.py` |
+| 일반 폴더 동기화·보류 결과 | `src/core/sync_manager.py` |
+| 날짜 버전 동기화 | `src/core/date_sync.py` |
+| 수동 구버전 정리·선택 화면 | `src/core/version_cleanup.py`, `src/ui/version_cleanup_dialog.py` |
+| Windows 휴지통 처리·결과 판정 | `src/core/recycle_direct.py`, `src/core/recycle_policy.py` |
 | 제품 식별자·호환 이름·활성 저장소 | `src/app_identity.py` |
 | 설정 우선순위·암호화 | `src/utils/config_manager.py`, `src/utils/security.py` |
 | 완전한 파일 저장 후 교체 | `src/utils/atomic_write.py` |
@@ -26,5 +30,7 @@ SA Team에는 EML 변환 / PDF 변환 / 이미지 읽기 하위 탭이 있습니
 `scripts/App05_FileOps.spec`는 기존 호출의 호환 진입점이며 설계 원본은 `installer/`에 한 번만 둡니다. `build/`·`dist/`는 임시·검증 출력, `release/`는 검증한 공식 서명 파일입니다. `UserSetting/`과 개인 작업 메모·인증 자료는 공개 저장소에 넣지 않습니다.
 
 설정 대화상자는 모든 입력을 확인하고 한 번에 저장합니다. 실패하면 기존 디스크·메모리 값을 유지하고 대화상자에서 실패를 표시합니다. 비밀번호·토큰은 Windows 사용자에게 연결된 암호화 값입니다.
+
+일반 동기화에서는 교체할 파일을 임시 위치에 복사·검증한 뒤 기존 파일 보관과 설치를 진행하고, 설치 실패 시 기존 파일 복원을 시도하는 흐름을 검수 중입니다. 대상이 더 최신인 항목은 삭제나 덮어쓰기가 아닌 보류로 표시하는 변경도 검수 중입니다. 이 변경의 검증과 독립 리뷰는 아직 진행 중이며, 설치된 앱이나 모든 저장소 환경에서의 동작을 보증하지 않습니다. 수동 구버전 정리는 일반 동기화 및 예약 실행과 별도이며, 날짜 동기화의 휴지통 경로와 수동 정리의 휴지통 경로는 구분해야 합니다.
 
 [백업·복원 안내](USER_DATA.md)는 설정·로그·실행 이력과 외부 업무 파일의 차이를 설명합니다. [이번 검수](STANDARDIZATION_PHASE3_5_REVIEW.md)는 자동 검사와 남은 실제 환경 검수를 구분합니다.

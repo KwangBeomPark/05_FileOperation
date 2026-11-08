@@ -91,6 +91,63 @@ class RunSummaryDialogTests(unittest.TestCase):
         self.assertTrue(dialog.run_button.isEnabled())
         self.assertTrue(dialog.acknowledgement.isHidden())
 
+    def test_held_reason_and_target_are_visible_in_all_languages(self):
+        for language, expected in (("en", "Target version is higher"), ("ko", "대상 버전이 더 높아"), ("pl", "Wersja docelowa jest wyższa")):
+            summary = RunChangeSummary(entries=[ChangeEntry("sync", "g", "held", "source", "target/path", reason="Target has a newer version")], counts={"held": 1}, total_entries=1)
+            dialog = RunSummaryDialog(summary, language)
+            self.addCleanup(dialog.deleteLater)
+            self.assertIn("target/path", dialog.table.item(0, 3).text())
+            self.assertIn(expected, dialog.table.item(0, 3).text())
+
+    def test_same_version_time_tie_reason_is_translated(self):
+        reason = "Same version files differ with equal modification times"
+        for language, expected in (("en", "same modification time"), ("ko", "수정 시각이 같아"), ("pl", "ten sam czas modyfikacji")):
+            summary = RunChangeSummary(entries=[ChangeEntry("sync", "g", "held", "source", "target/path", reason=reason)], counts={"held": 1}, total_entries=1)
+            dialog = RunSummaryDialog(summary, language)
+            self.addCleanup(dialog.deleteLater)
+            self.assertIn(expected, dialog.table.item(0, 3).text())
+
+    def test_plain_file_hold_reasons_are_translated(self):
+        cases = (
+            ("Different contents with identical modification times", "수정 시각이 같아", "identical", "czas modyfikacji"),
+            ("Filename case differs", "대소문자가 달라", "capitalization", "wielkością liter"),
+        )
+        for reason, korean, english, polish in cases:
+            for language, expected in (("ko", korean), ("en", english), ("pl", polish)):
+                summary = RunChangeSummary(entries=[ChangeEntry("sync", "g", "held", "source", "target/path", reason=reason)], counts={"held": 1}, total_entries=1)
+                dialog = RunSummaryDialog(summary, language)
+                self.addCleanup(dialog.deleteLater)
+                self.assertIn(expected, dialog.table.item(0, 3).text())
+
+    def test_sync_preview_shows_hold_reason_even_with_mtime(self):
+        for language, expected in (("en", "Target version is higher"), ("ko", "대상 버전이 더 높아"), ("pl", "Wersja docelowa jest wyższa")):
+            tab = SyncTab(FakeConfig(language))
+            self.addCleanup(tab.deleteLater)
+            tab.on_dry_run_finished([{"group_name": "g", "filename": "report_v2.txt", "action": "보류", "source_folder": "source", "target_folder": "target", "mtime": 1, "reason": "Target has a newer version"}])
+            self.assertIn(expected, tab.table_widget.item(0, 5).text())
+            self.assertEqual(tab.table_widget.item(0, 4).toolTip(), "target")
+
+    def test_zero_delete_is_hidden_but_real_and_pending_delete_are_visible(self):
+        for count, pending, visible in ((0, set(), False), (1, set(), True), (0, {"delete"}, True)):
+            summary = RunChangeSummary(counts={"delete": count}, pending_counts=pending)
+            dialog = RunSummaryDialog(summary, "en")
+            self.addCleanup(dialog.deleteLater)
+            self.assertEqual("Permanent delete:" in dialog.totals_label.text(), visible)
+
+    def test_actual_delete_and_replace_entries_remain_visible(self):
+        summary = RunChangeSummary(
+            entries=[ChangeEntry("other", "", "delete", "old.txt", ""),
+                     ChangeEntry("pdf", "", "replace", "source.pdf", "")],
+            counts={"delete": 1, "replace": 1}, risks=["delete_policy", "replace_policy"], total_entries=2,
+        )
+        dialog = RunSummaryDialog(summary, "en")
+        self.addCleanup(dialog.deleteLater)
+        self.assertIn("Permanent delete: 1", dialog.totals_label.text())
+        self.assertIn("Recycle / delete source after conversion: 1", dialog.totals_label.text())
+        self.assertEqual(dialog.table.item(0, 1).text(), "Permanent delete")
+        self.assertIn("permanently deleted", dialog.risk_label.text())
+        self.assertFalse(dialog.run_button.isEnabled())
+
     def test_cancel_does_not_reanalyze_or_execute(self):
         with (patch("src.ui.run_summary_dialog.analyze_run_summary", return_value=(self.summary, "", False)) as analyze,
               patch.object(RunSummaryDialog, "exec", return_value=QDialog.DialogCode.Rejected)):
@@ -113,6 +170,17 @@ class RunSummaryDialogTests(unittest.TestCase):
             self.assertTrue(confirm_run_summary(self.parent, RunPlan(), self.config))
         self.assertEqual(analyze.call_count, 2)
         self.assertTrue(analyze.call_args.kwargs["recheck"])
+
+    def test_approval_is_blocked_when_manifest_cannot_be_attached(self):
+        class LockedPlan:
+            __slots__ = ()
+
+        with (patch("src.ui.run_summary_dialog.analyze_run_summary", return_value=(self.summary, "", False)),
+              patch.object(RunSummaryDialog, "exec", return_value=QDialog.DialogCode.Accepted),
+              patch("src.ui.run_summary_dialog.QMessageBox.warning") as warning):
+            self.assertFalse(confirm_run_summary(self.parent, LockedPlan(), self.config))
+        warning.assert_called_once()
+        self.assertFalse(self.parent._run_confirmation_active)
 
     def test_scheduled_run_logs_without_showing_confirmation(self):
         with (patch("src.ui.run_summary_dialog.analyze_run_summary", return_value=(self.summary, "", False)) as analyze,

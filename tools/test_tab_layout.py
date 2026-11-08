@@ -8,9 +8,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from src.app_identity import asset_path
 from src.core.task_contracts import TaskStep
 from src.ui.i18n import tr
-from src.ui.main_window import MainWindow
+from src.ui.main_window import MainWindow, app_stylesheet
 from src.ui.task_tab import TaskTab
 from src.utils.config_manager import ConfigManager
 
@@ -61,6 +62,13 @@ class TabLayoutTests(unittest.TestCase):
         self.assertEqual([tabs.widget(index) for index in range(5)],
                          [self.window.task_tab, self.window.sync_tab, self.window.collect_sync_tab,
                           self.window.bypass_tab, self.window.sa_team_tabs])
+
+    def test_indicator_assets_are_resolved_in_application_stylesheet(self):
+        stylesheet = app_stylesheet()
+        for filename in ("checkmark.svg", "radio-dot.svg"):
+            self.assertTrue(asset_path(filename).is_file())
+            self.assertIn(asset_path(filename).as_posix(), stylesheet)
+        self.assertNotIn("__FILEOPS_", stylesheet)
 
     def test_sa_team_contains_original_feature_widgets_in_order(self):
         tabs = self.window.sa_team_tabs

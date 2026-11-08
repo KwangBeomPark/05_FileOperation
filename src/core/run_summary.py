@@ -32,6 +32,8 @@ class ChangeEntry:
     source: str
     target: str
     count: int | None = 1
+    filename: str = ""
+    reason: str = ""
 
 
 @dataclass
@@ -43,6 +45,7 @@ class RunChangeSummary:
     total_entries: int = 0
     fingerprint: str = ""
     pending_counts: list[str] = field(default_factory=list)
+    approved_manifest: list[dict] = field(default_factory=list)
 
     @property
     def requires_acknowledgement(self) -> bool:
@@ -54,6 +57,7 @@ class _SummaryBuilder:
         self.summary = RunChangeSummary()
         self.observations = {}
         self.actions = []
+        self.approved_manifest = []
 
     def observe(self, path: str, *, required=False):
         path = os.path.abspath(path)
@@ -74,8 +78,8 @@ class _SummaryBuilder:
         if len(self.observations) > OBSERVATION_LIMIT:
             raise ValueError("Preview exceeds 100000 observed paths; use a smaller scope.")
 
-    def add(self, step, group, action, source, target, count=1):
-        entry = ChangeEntry(step.value, group, action, source, target, count)
+    def add(self, step, group, action, source, target, count=1, filename="", reason=""):
+        entry = ChangeEntry(step.value, group, action, source, target, count, filename=filename, reason=reason)
         self.summary.total_entries += 1
         if len(self.summary.entries) < DISPLAY_LIMIT:
             self.summary.entries.append(entry)
@@ -83,6 +87,19 @@ class _SummaryBuilder:
         if count is None and action not in self.summary.pending_counts:
             self.summary.pending_counts.append(action)
         self.actions.append(json.dumps(asdict(entry), ensure_ascii=False, sort_keys=True))
+        manifest_entry = {
+            "step": step.value,
+            "group": group,
+            "action": action,
+            "source": os.path.normcase(os.path.abspath(source)) if source else "",
+            "target": os.path.normcase(os.path.abspath(target)) if target else "",
+            "filename": os.path.normcase(filename) if filename else "",
+        }
+        if step == TaskStep.SYNC and action in ("copy", "archive", "conflict_backup") and source:
+            snapshot = self.observations.get(os.path.abspath(source))
+            if snapshot is not None:
+                manifest_entry["source_snapshot"] = snapshot
+        self.approved_manifest.append(manifest_entry)
 
     def risk(self, code):
         if code not in self.summary.risks:
@@ -104,25 +121,42 @@ class _SummaryBuilder:
             if manager.scan_errors:
                 raise OSError(str(manager.scan_errors[0]))
             self.observations.update(manager.scan_observations)
-            if not group.move_to_deleted:
-                # A later overlapping group may discover more deletions at execution.
-                self.risk("delete_policy")
             for action in actions:
                 source = os.path.join(action["source_folder"], action["filename"])
                 target = os.path.join(action["target_folder"], action["filename"])
+                if action["action"] in ("날짜 보류", "보류"):
+                    if action["action"] == "보류":
+                        source = action["source_folder"]
+                    self.add(TaskStep.SYNC, group.name, "held", source, target, filename=action.get("filename", ""), reason=action.get("reason") or action.get("status", ""))
+                    continue
+                if action["action"] == "날짜 동기화":
+                    if not action["existing"]:
+                        self.observe(target)
+                        self.add(TaskStep.SYNC, group.name, "copy", source, target, filename=action["filename"])
+                    archive_mode = getattr(group, "date_archive_mode", "folder")
+                    for old in action["old"]:
+                        old_path = os.path.join(action["target_folder"], old["filename"])
+                        if archive_mode == "trash":
+                            self.add(TaskStep.SYNC, group.name, "trash", old_path, "", filename=old["filename"])
+                        else:
+                            archive = os.path.join(action["target_folder"], manager.archive_folder_name, os.path.dirname(old["filename"]))
+                            self.add(TaskStep.SYNC, group.name, "archive", old_path, archive, filename=old["filename"])
+                        self.risk("move_sources")
+                    continue
                 if action["action"] == "복사":
                     kind = "copy"
                     self.observe(target)
                 elif action["action"] == "to_be_deleted이동":
-                    kind = "archive" if group.move_to_deleted else "delete"
-                    self.risk("move_sources" if group.move_to_deleted else "delete_policy")
+                    kind = "archive"
+                    target = os.path.join(action["source_folder"], manager.archive_folder_name, os.path.dirname(action["filename"]))
+                    self.risk("move_sources")
                 elif action["action"] == "충돌 보존 백업":
                     kind = "conflict_backup"
                     target = os.path.join(action["source_folder"], manager.archive_folder_name)
                     self.risk("conflicts")
                 else:
                     raise ValueError(f"Unsupported synchronization action: {action['action']}")
-                self.add(TaskStep.SYNC, group.name, kind, source, target if kind != "delete" else "")
+                self.add(TaskStep.SYNC, group.name, kind, source, target if kind != "delete" else "", filename=action.get("filename", ""))
         if len(config.sync_groups) > 1:
             self.note("sync_estimate")
 
@@ -224,4 +258,5 @@ def build_run_summary(plan: RunPlan) -> RunChangeSummary:
         builder.note("step_estimates")
     payload = {"plan": asdict(plan), "files": sorted(builder.observations.items()), "actions": sorted(builder.actions)}
     builder.summary.fingerprint = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    builder.summary.approved_manifest = list(builder.approved_manifest)
     return builder.summary

@@ -71,9 +71,11 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "tips": [
                 "Use separate groups for folder sets that should run together.",
                 "Changing a folder invalidates the previous preview and requires a new preview.",
+                "Date-version sync handles valid vYYYYMMDD suffixes. Separate old-version cleanup analyzes each current-group folder for dated and numeric versions such as v20260103 and v1.2.",
             ],
             "cautions": [
                 "Files with competing recent changes are preserved as conflict backups instead of being overwritten silently.",
+                "Normal sync cannot use the Recycle Bin. A legacy Recycle Bin setting remains blocked until you explicitly select the folder option. Manual cleanup execution is unavailable until safety verification is complete.",
             ],
         },
         "eml": {
@@ -216,9 +218,11 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "tips": [
                 "항상 함께 동기화할 폴더 묶음별로 그룹을 나누면 관리하기 쉽습니다.",
                 "폴더를 추가하거나 제거하면 이전 미리보기는 자동으로 무효화되므로 다시 분석해야 합니다.",
+                "날짜 버전 동기화는 유효한 vYYYYMMDD 파일을 처리합니다. 별도 구버전 정리는 현재 그룹의 폴더별로 v20260103과 v1.2 같은 날짜·숫자 버전을 분석합니다.",
             ],
             "cautions": [
                 "여러 위치에서 동시에 수정된 파일은 조용히 덮어쓰지 않고 충돌 백업으로 보존합니다.",
+                "일반 동기화는 휴지통을 사용할 수 없습니다. 기존 휴지통 설정은 폴더 방식을 직접 선택하기 전까지 차단됩니다. 수동 정리 실행은 안전 검증 완료 전까지 사용할 수 없습니다.",
             ],
         },
         "eml": {
@@ -329,8 +333,8 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "title": "Synchronizacja folderów",
             "summary": "Porównaj co najmniej dwa foldery, sprawdź plan zmian, a następnie wykonaj synchronizację.",
             "steps": ["Utwórz lub wybierz grupę synchronizacji.", "Dodaj do grupy co najmniej dwa foldery.", "Wybierz Podgląd synchronizacji i sprawdź kopie, archiwizacje oraz konflikty.", "Gdy podgląd jest aktualny, wybierz Synchronizuj wszystko i potwierdź."],
-            "tips": ["Twórz osobne grupy dla folderów uruchamianych razem.", "Zmiana folderu unieważnia poprzedni podgląd."],
-            "cautions": ["Konkurencyjne zmiany są zachowywane jako kopie konfliktu zamiast cichego nadpisania."],
+            "tips": ["Twórz osobne grupy dla folderów uruchamianych razem.", "Zmiana folderu unieważnia poprzedni podgląd.", "Osobne czyszczenie analizuje każdy folder grupy pod kątem wersji datowanych i liczbowych, np. v20260103 oraz v1.2."],
+            "cautions": ["Konkurencyjne zmiany są zachowywane jako kopie konfliktu zamiast cichego nadpisania.", "Zwykła synchronizacja nie korzysta z kosza. Stare ustawienie pozostaje zablokowane do ręcznego wyboru folderu. Ręczne czyszczenie jest niedostępne do zakończenia weryfikacji bezpieczeństwa."],
         },
         "eml": {
             "title": "Konwersja EML",

@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.core.run_summary import DISPLAY_LIMIT, build_run_summary
+from src.core.sync_manager import SyncManager, check_approved_sync_action
 from src.core.task_contracts import (
     BypassFileConfig, BypassRunConfig, EmlRunConfig, EmlTaskConfig, OcrRunConfig,
     PdfRunConfig, RunPlan, SourceDisposition, SyncGroupConfig, SyncRunConfig, TaskStep,
@@ -48,26 +49,80 @@ class RunSummaryTests(unittest.TestCase):
         self.assertEqual({str(p): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}, before)
         self.assertFalse((self.target / "to be deleted").exists())
 
-    def test_disabled_archive_means_permanent_deletion_not_recycle(self):
+    def test_legacy_disabled_archive_is_previewed_as_preservation(self):
         self.file(self.source, "sample.txt")
         old = self.file(self.target, "sample.txt", b"older")
         stamp = time.time() - 60
         os.utime(old, (stamp, stamp))
         summary = build_run_summary(self.sync_plan(move_to_deleted=False))
-        self.assertEqual(summary.counts["delete"], 1)
-        self.assertNotIn("archive", summary.counts)
-        self.assertIn("delete_policy", summary.risks)
-        self.assertEqual(next(row.target for row in summary.entries if row.action == "delete"), "")
+        self.assertEqual(summary.counts["archive"], 1)
+        self.assertNotIn("delete", summary.counts)
+        self.assertIn("move_sources", summary.risks)
+        self.assertNotIn("delete_policy", summary.risks)
 
-    def test_delete_policy_visible_even_if_no_current_actions(self):
+    def test_legacy_disabled_archive_does_not_advertise_delete_policy(self):
         summary = build_run_summary(self.sync_plan(move_to_deleted=False))
         self.assertEqual(summary.total_entries, 0)
-        self.assertIn("delete_policy", summary.risks)
+        self.assertNotIn("delete_policy", summary.risks)
+
+    def test_legacy_false_preview_manifest_authorizes_archive_not_delete(self):
+        self.file(self.source, "sample.txt", b"new")
+        old = self.file(self.target, "sample.txt", b"old")
+        stamp = time.time() - 60
+        os.utime(old, (stamp, stamp))
+        summary = build_run_summary(self.sync_plan(move_to_deleted=False))
+        manager = SyncManager([str(self.source), str(self.target)], move_to_deleted=False,
+                              group_name="daily", approved_actions=summary.approved_manifest)
+        result = manager.execute_sync(manager.analyze_sync())
+        self.assertEqual(result.fail, 0, result.errors)
+        self.assertEqual((self.target / "sample.txt").read_bytes(), b"new")
+        self.assertEqual((self.target / "to be deleted" / "sample.txt").read_bytes(), b"old")
+
+    def test_approved_preview_blocks_target_edited_before_execution_analysis(self):
+        self.file(self.source, "sample.txt", b"source")
+        old = self.file(self.target, "sample.txt", b"old")
+        os.utime(old, (1_600_000_000, 1_600_000_000))
+        summary = build_run_summary(self.sync_plan(sync_mode="one_way"))
+        Path(old).write_bytes(b"new target edit")
+        manager = SyncManager([str(self.source), str(self.target)], sync_mode="one_way",
+                              group_name="daily", approved_actions=summary.approved_manifest)
+        result = manager.execute_sync(manager.analyze_sync())
+        self.assertGreater(result.fail, 0)
+        self.assertEqual(Path(old).read_bytes(), b"new target edit")
+        self.assertFalse((self.target / "to be deleted").exists())
+
+    def test_approved_preview_blocks_source_edited_before_execution_analysis(self):
+        source = self.file(self.source, "sample.txt", b"source")
+        old = self.file(self.target, "sample.txt", b"old")
+        os.utime(old, (1_600_000_000, 1_600_000_000))
+        summary = build_run_summary(self.sync_plan(sync_mode="one_way"))
+        Path(source).write_bytes(b"new source edit")
+        manager = SyncManager([str(self.source), str(self.target)], sync_mode="one_way",
+                              group_name="daily", approved_actions=summary.approved_manifest)
+        result = manager.execute_sync(manager.analyze_sync())
+        self.assertGreater(result.fail, 0)
+        self.assertEqual(Path(old).read_bytes(), b"old")
+        self.assertFalse((self.target / "to be deleted").exists())
+
+    def test_other_steps_cannot_authorize_a_sync_action(self):
+        path = self.file(self.source, "sample.txt")
+        manifest = [{"step": "bypass", "action": "archive", "source": os.path.normcase(os.path.abspath(path))}]
+        self.assertFalse(check_approved_sync_action(manifest, "archive", path, group_name="daily"))
 
     def test_missing_sync_folder_is_not_reported_as_zero_changes(self):
         self.target.rmdir()
         with self.assertRaises(FileNotFoundError):
             build_run_summary(self.sync_plan())
+
+    def test_newer_target_hold_keeps_path_and_reason_out_of_manifest_path(self):
+        self.file(self.source, "report_v1.txt")
+        self.file(self.target, "report_v2.txt")
+        summary = build_run_summary(self.sync_plan(sync_mode="one_way"))
+        held = next(entry for entry in summary.entries if entry.action == "held")
+        self.assertEqual(held.target, str(self.target / "report_v2.txt"))
+        self.assertEqual(held.reason, "Target has a newer version")
+        manifest = next(row for row in summary.approved_manifest if row["action"] == "held")
+        self.assertEqual(manifest["target"], os.path.normcase(os.path.abspath(held.target)))
 
     def test_scan_failure_is_not_reported_as_zero_changes(self):
         with patch("src.core.sync_manager.os.listdir", side_effect=PermissionError("denied")):
@@ -75,8 +130,10 @@ class RunSummaryTests(unittest.TestCase):
                 build_run_summary(self.sync_plan())
 
     def test_conflicting_copies_are_labeled_as_preserved(self):
-        self.file(self.source, "sample.txt", b"new")
-        self.file(self.target, "sample.txt", b"different")
+        source = self.file(self.source, "sample.txt", b"new")
+        target = self.file(self.target, "sample.txt", b"different")
+        os.utime(source, (1_700_000_005, 1_700_000_005))
+        os.utime(target, (1_700_000_000, 1_700_000_000))
         summary = build_run_summary(self.sync_plan())
         self.assertEqual(summary.counts["conflict_backup"], 1)
         self.assertIn("conflicts", summary.risks)

@@ -22,7 +22,7 @@ if __name__ == "__main__":
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QIcon
 
-from src.ui.main_window import APP_STYLESHEET, MainWindow, create_dark_palette
+from src.ui.main_window import MainWindow, app_stylesheet, create_dark_palette
 from src.ui.single_instance import SingleInstanceController
 from src.utils.logger import setup_logger
 from src.app_identity import WINDOWS_APP_ID, asset_path
@@ -68,6 +68,8 @@ def run_headless(config_path: str | None = None) -> int:
                     exclude_patterns=list(g.get("exclude_patterns", [])),
                     include_subfolders=bool(g.get("include_subfolders", False)),
                     sync_mode=str(g.get("sync_mode", "two_way")),
+                    date_latest_only=bool(g.get("date_latest_only", False)),
+                    date_archive_mode=str(g.get("date_archive_mode", "folder")),
                 )
                 for g in valid_groups
             ]
@@ -166,7 +168,7 @@ def main() -> int:
 
         app.setStyle("Fusion")
         app.setPalette(create_dark_palette())
-        app.setStyleSheet(APP_STYLESHEET)
+        app.setStyleSheet(app_stylesheet())
         window = MainWindow()
         instance_controller.activation_requested.connect(window.show_from_tray)
         if not app_icon.isNull():

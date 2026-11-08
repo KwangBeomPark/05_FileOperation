@@ -42,6 +42,7 @@ from src.ui.i18n import (
 )
 from src.ui.run_summary_dialog import confirm_run_summary
 from src.ui.toast_notification import show_toast
+from src.ui.version_cleanup_dialog import VersionCleanupDialog
 from src.ui.workflow_widget import WorkflowWidget
 from src.utils.logger import get_logger
 
@@ -53,12 +54,30 @@ DEFAULT_SYNC_GROUP_NAMES = {
     "Domyślna grupa synchronizacji",
 }
 
+def date_preview_rows(actions):
+    """Project a date-family operation into visible copy and archive rows."""
+    rows = []
+    for action in actions:
+        if action["action"] != "날짜 동기화":
+            rows.append(action)
+            continue
+        if not action["existing"]:
+            rows.append({**action, "action": "복사"})
+        for old in action["old"]:
+            if action.get("date_archive_mode") == "trash":
+                rows.append({**action, "action": "휴지통이동", "filename": old["filename"], "source_folder": action["target_folder"], "target_folder": "Recycle Bin"})
+                continue
+            archive_dir = os.path.join(action["target_folder"], action.get("archive_folder_name", "to be deleted"), os.path.dirname(old["filename"]))
+            rows.append({**action, "action": "to_be_deleted이동", "filename": old["filename"], "source_folder": action["target_folder"], "target_folder": archive_dir})
+    return rows
+
+
 class SyncWorker(QThread):
     progress = pyqtSignal(int, int, str) # current, total, status_msg
     finished = pyqtSignal(bool, int, int, list) # success, success_count, fail_count, errors
     dry_run_finished = pyqtSignal(list) # actions
     
-    def __init__(self, sync_groups, config_manager, is_dry_run=True):
+    def __init__(self, sync_groups, config_manager, is_dry_run=True, approved_actions=None):
         super().__init__()
         self.sync_groups = sync_groups
         self.config_manager = config_manager
@@ -66,6 +85,7 @@ class SyncWorker(QThread):
         self.is_cancelled = False
         self.current_manager = None
         self.language = get_app_language(config_manager)
+        self.approved_actions = approved_actions
 
     def _t(self, english, korean, polish=None):
         return choose(self.language, english, korean, polish)
@@ -84,6 +104,10 @@ class SyncWorker(QThread):
             exclude_patterns=list(group.get("exclude_patterns", [])),
             include_subfolders=bool(group.get("include_subfolders", False)),
             sync_mode=str(group.get("sync_mode", "two_way") or "two_way"),
+            date_latest_only=bool(group.get("date_latest_only", False)),
+            date_archive_mode=str(group.get("date_archive_mode", "folder") or "folder"),
+            approved_actions=self.approved_actions,
+            group_name=group.get("name", ""),
         )
             
     def run(self):
@@ -95,7 +119,8 @@ class SyncWorker(QThread):
                 self.progress.emit(0, len(self.sync_groups), self._t("Analyzing all synchronization folders and files...", "동기화 대상 폴더 및 파일 전체 분석 중...", "Analizowanie wszystkich folderów i plików synchronizacji..."))
                 for i, group in enumerate(self.sync_groups):
                     if self.is_cancelled:
-                        break
+                        self.finished.emit(False, 0, 1, [self._t("Preview cancelled.", "미리보기가 취소되었습니다.", "Anulowano podgląd.")])
+                        return
                     folders = group.get("folders", [])
                     if len(folders) < 2:
                         continue # 최소 2개 미만 폴더 그룹은 동기화할 수 없으므로 건너뜀
@@ -103,10 +128,19 @@ class SyncWorker(QThread):
                     self.progress.emit(i, len(self.sync_groups), self._t(f"Analyzing: {group['name']}...", f"분석 중: {group['name']} ...", f"Analizowanie: {group['name']}..."))
                     self.current_manager = self._create_manager(group, move_to_deleted)
                     actions = self.current_manager.analyze_sync()
+                    if self.is_cancelled:
+                        self.finished.emit(False, 0, 1, [self._t("Preview cancelled.", "미리보기가 취소되었습니다.", "Anulowano podgląd.")])
+                        return
+                    scan_errors = getattr(self.current_manager, "scan_errors", [])
+                    if scan_errors:
+                        self.finished.emit(False, 0, len(scan_errors), [str(error) for error in scan_errors])
+                        return
                     
                     # 액션 정보에 그룹명 추가 (테이블 표시용)
                     for act in actions:
                         act["group_name"] = group["name"]
+                        act["archive_folder_name"] = self.current_manager.archive_folder_name
+                        act["date_archive_mode"] = getattr(self.current_manager, "date_archive_mode", "folder")
                     
                     all_actions.extend(actions)
                     
@@ -121,6 +155,7 @@ class SyncWorker(QThread):
                 for i, group in enumerate(self.sync_groups):
                     if self.is_cancelled:
                         all_errors.append(self._t("The operation was stopped by the user.", "사용자에 의해 전체 작업이 중단되었습니다.", "Operacja została zatrzymana przez użytkownika."))
+                        total_fail += 1
                         break
                         
                     folders = group.get("folders", [])
@@ -133,10 +168,19 @@ class SyncWorker(QThread):
                     self.current_manager = self._create_manager(group, move_to_deleted)
                     actions = self.current_manager.analyze_sync()
                     
+                    scan_errs = getattr(self.current_manager, "scan_errors", [])
+                    if scan_errs:
+                        for se in scan_errs:
+                            all_errors.append(f"[{group['name']}] {se}")
+                            total_fail += 1
+                        continue
+
                     if not actions:
                         continue # 이 그룹은 동기화할 파일이 없음
                         
                     if self.is_cancelled:
+                        all_errors.append(self._t("The operation was stopped by the user.", "사용자에 의해 전체 작업이 중단되었습니다.", "Operacja została zatrzymana przez użytkownika."))
+                        total_fail += 1
                         break
                         
                     group_index = i
@@ -158,18 +202,27 @@ class SyncWorker(QThread):
                             )
                         )
                         
-                    s_count, f_count, errs = self.current_manager.execute_sync(actions, progress_callback=callback)
+                    sync_res = self.current_manager.execute_sync(actions, progress_callback=callback)
+                    s_count = sync_res[0]
+                    f_count = sync_res[1]
+                    errs = list(sync_res[2])
+                    held_items = list(getattr(sync_res, "held", []))
+
                     total_success += s_count
                     total_fail += f_count
                     if errs:
                         all_errors.extend([f"[{group['name']}] {e}" for e in errs])
+                    if held_items:
+                        total_fail += len(held_items)
+                        all_errors.extend([f"[{group['name']}] [HELD] {h}" for h in held_items])
                         
                 # 마지막 진행도 100%
                 if not self.is_cancelled:
                     self.progress.emit(len(self.sync_groups), len(self.sync_groups), self._t("All synchronization groups completed.", "전체 동기화 완료.", "Zakończono wszystkie grupy synchronizacji."))
                     
+                overall_success = (not self.is_cancelled) and (total_fail == 0) and (len(all_errors) == 0)
                 self.finished.emit(
-                    not self.is_cancelled and total_fail == 0,
+                    overall_success,
                     total_success,
                     total_fail,
                     all_errors
@@ -189,10 +242,12 @@ class SyncTab(QWidget):
         self._ui_locked = False
         self._analysis_is_current = False
         self._analysis_has_actions = False
+        self._analysis_has_holds = False
         self.worker = None
         
         self.init_ui()
         self.load_saved_data()
+        self.refresh_language()
         self.setAcceptDrops(True)
 
     @property
@@ -206,6 +261,27 @@ class SyncTab(QWidget):
         return tr(key, self.language, **values)
 
     def _sync_text(self, value):
+        reasons = {
+            "Conflicting content for the same date": self._t("Different contents share the same date", "같은 날짜 파일의 내용이 달라 보류", "Różne treści mają tę samą datę"),
+            "Target has a newer date": self._t("Target has a newer date", "대상에 더 최신 날짜 파일이 있어 보류", "Folder docelowy ma nowszą datę"),
+            "대상에 원본보다 높은 버전이 있어 보류": self._t("Target version is higher; held, no changes", "대상 버전이 더 높아 보류, 변경 안함", "Wersja docelowa jest wyższa; wstrzymano, bez zmian"),
+            "Target has a newer version": self._t("Target version is higher; held, no changes", "대상 버전이 더 높아 보류, 변경 안함", "Wersja docelowa jest wyższa; wstrzymano, bez zmian"),
+            "Target has an equivalent version with a different filename": self._t("Target has an equivalent version with a different filename; held, no changes", "대상에 버전은 같지만 파일명이 달라 보류, 변경 안함", "Cel ma równoważną wersję pod inną nazwą; wstrzymano, bez zmian"),
+            "Same version files differ with equal modification times": self._t("Same-version files differ but have the same modification time; held", "같은 버전의 내용이 다르지만 수정 시각이 같아 보류", "Pliki tej samej wersji różnią się, lecz mają ten sam czas modyfikacji; wstrzymano"),
+            "Different contents with identical modification times": self._t("Contents differ but modification times are identical; held", "파일 내용이 다르지만 수정 시각이 같아 보류", "Treść plików jest różna, ale czas modyfikacji jest taki sam; wstrzymano"),
+            "Filename case differs": self._t("Filename capitalization differs; held", "파일 이름의 대소문자가 달라 보류", "Nazwy plików różnią się wielkością liter; wstrzymano"),
+        }
+        if isinstance(value, str) and value in reasons:
+            return reasons[value]
+        if isinstance(value, str):
+            value = value.replace("대상에 원본보다 높은 버전이 있어 보류", reasons["대상에 원본보다 높은 버전이 있어 보류"])
+            value = value.replace("Target has a newer version", reasons["Target has a newer version"])
+            value = value.replace("Target has an equivalent version with a different filename", reasons["Target has an equivalent version with a different filename"])
+            value = value.replace("Same version files differ with equal modification times", reasons["Same version files differ with equal modification times"])
+            value = value.replace("Different contents with identical modification times", reasons["Different contents with identical modification times"])
+            value = value.replace("Filename case differs", reasons["Filename case differs"])
+            value = value.replace("Target has a newer date", reasons["Target has a newer date"])
+            value = value.replace("Conflicting content for the same date", reasons["Conflicting content for the same date"])
         if self.language == "ko" or not isinstance(value, str):
             return value
         replacements = {
@@ -214,12 +290,18 @@ class SyncTab(QWidget):
             "구버전 정리": self._t("Archive older version", "구버전 정리", "Archiwizacja starszej wersji"),
             "동시 수정 충돌": self._t("Concurrent modification conflict", "동시 수정 충돌", "Konflikt równoczesnych zmian"),
             "충돌 보존 백업": self._t("Preserve conflict backup", "충돌 보존 백업", "Kopia zapasowa konfliktu"),
+            "날짜 동기화": self._t("Sync date versions", "날짜 동기화", "Synchronizuj wersje datowane"),
+            "날짜 보류": self._t("Date family held", "날짜 보류", "Wersja datowana wstrzymana"),
+            "보류": self._t("Held", "보류", "Wstrzymane"),
+            "대상에 원본보다 높은 버전이 있어 보류": self._t("Target version is higher; held, no changes", "대상 버전이 더 높아 보류, 변경 안함", "Wersja docelowa jest wyższa; wstrzymano, bez zmian"),
+            "휴지통이동": self._t("Move to Recycle Bin", "휴지통으로 이동", "Przenieś do kosza"),
             "충돌 백업 후 최신 업데이트": self._t("Back up conflict, then update", "충돌 백업 후 최신 업데이트", "Kopia konfliktu, następnie aktualizacja"),
             "to_be_deleted이동": self._t("Move to 'to be deleted'", "to_be_deleted이동", "Przenieś do 'to be deleted'"),
             "복사": self._t("Copy", "복사", "Kopiowanie"),
             "사용자에 의해 작업이 중단되었습니다.": self._t("The operation was stopped by the user.", "사용자에 의해 작업이 중단되었습니다.", "Operacja została zatrzymana przez użytkownika."),
             "동기화 완료": self._t("Synchronization completed", "동기화 완료", "Synchronizacja zakończona"),
             "처리 중": self._t("Processing", "처리 중", "Przetwarzanie"),
+            "오류": self._t("Error", "오류", "Błąd"),
         }
         return replace_phrases(value, replacements)
 
@@ -236,11 +318,21 @@ class SyncTab(QWidget):
             self._t("4. Review Results", "4. 결과 확인", "4. Sprawdź wyniki"),
         ])
         self.analyze_btn.setText(self._t("Preview Sync", "동기화 미리보기", "Podgląd synchronizacji"))
+        self.cleanup_btn.setText(self._t("Clean up old versions", "구버전 정리", "Usuń stare wersje"))
         self.sync_btn.setText(self._t("Synchronize All", "전체 동기화", "Synchronizuj wszystko"))
         self.sync_mode_label.setText(self._t("Mode:", "동기화 방식:", "Tryb:"))
         self.sync_mode_combo.setItemText(0, self._t("Two-way (Latest Wins)", "양방향 (최신 파일 기준)", "Dwukierunkowo (najnowszy)"))
         self.sync_mode_combo.setItemText(1, self._t("One-way (1st Folder -> Others)", "단방향 (첫 번째 폴더 -> 나머지 배포)", "Jednokierunkowo (1. folder -> reszta)"))
         self.subfolders_check.setText(self._t("Include Subfolders", "하위 폴더 포함(재귀)", "Uwzględnij podfoldery"))
+        self.date_latest_check.setText(self._t("Only filename date versions (vYYYYMMDD)", "파일명 날짜 버전만 동기화 (vYYYYMMDD)", "Tylko wersje z datą w nazwie (vYYYYMMDD)"))
+        self.date_archive_label.setText(self._t("Old date files:", "날짜 구버전 처리:", "Stare pliki datowane:"))
+        self.date_archive_combo.setItemText(0, self._t("Legacy Recycle Bin setting blocked: select folder", "기존 휴지통 설정 차단됨: 폴더 방식을 선택하세요", "Stare ustawienie kosza zablokowane: wybierz folder"))
+        self.date_archive_combo.setItemText(1, self._t("'to be deleted' folder (or configured name)", "'to be deleted' 폴더로 이동 (이름 변경 가능)", "Folder 'to be deleted' (nazwa zmienna)"))
+        self.date_archive_combo.setToolTip(self._t(
+            "The legacy Recycle Bin setting is blocked in normal sync. Explicitly select the folder option to change it.",
+            "기존 휴지통 설정은 일반 동기화에서 차단됩니다. 변경하려면 폴더 방식을 직접 선택하세요.",
+            "Stare ustawienie kosza jest blokowane w zwykłej synchronizacji. Aby je zmienić, wybierz folder."
+        ))
         self.exclude_label.setText(self._t("Exclude:", "제외 패턴:", "Wyklucz:"))
         self.archive_label.setText(self._t("Archive Dir:", "백업 폴더명:", "Folder archiwum:"))
         for index, group in enumerate(self.sync_groups):
@@ -314,6 +406,20 @@ class SyncTab(QWidget):
 
         self.subfolders_check = QCheckBox(self._t("Include Subfolders", "하위 폴더 포함(재귀)", "Uwzględnij podfoldery"))
         self.subfolders_check.stateChanged.connect(self.on_group_options_changed)
+        self.date_latest_check = QCheckBox(self._t("Only filename date versions (vYYYYMMDD)", "파일명 날짜 버전만 동기화 (vYYYYMMDD)", "Tylko wersje z datą w nazwie (vYYYYMMDD)"))
+        self.date_latest_check.stateChanged.connect(self.on_group_options_changed)
+
+        date_options_h_layout = QHBoxLayout()
+        self.date_archive_label = QLabel(self._t("Old date files:", "날짜 구버전 처리:", "Stare pliki datowane:"))
+        self.date_archive_combo = QComboBox()
+        self.date_archive_combo.addItem("", None)
+        self.date_archive_combo.addItem("", "folder")
+        self.date_archive_combo.model().item(0).setEnabled(False)
+        self.date_archive_combo.currentIndexChanged.connect(self.on_archive_mode_changed)
+        date_options_h_layout.addWidget(self.date_latest_check)
+        date_options_h_layout.addWidget(self.date_archive_label)
+        date_options_h_layout.addWidget(self.date_archive_combo)
+        date_options_h_layout.addStretch()
 
         self.exclude_label = QLabel(self._t("Exclude:", "제외 패턴:", "Wyklucz:"))
         self.exclude_input = QLineEdit()
@@ -329,6 +435,7 @@ class SyncTab(QWidget):
         options_h_layout.addWidget(self.sync_mode_label)
         options_h_layout.addWidget(self.sync_mode_combo)
         options_h_layout.addWidget(self.subfolders_check)
+        group_layout.addLayout(date_options_h_layout)
         options_h_layout.addWidget(self.exclude_label)
         options_h_layout.addWidget(self.exclude_input, 1)
         options_h_layout.addWidget(self.archive_label)
@@ -383,6 +490,9 @@ class SyncTab(QWidget):
         
         btn_h_layout.addWidget(self.analyze_btn)
         btn_h_layout.addWidget(self.sync_btn)
+        self.cleanup_btn = QPushButton()
+        self.cleanup_btn.clicked.connect(self.open_version_cleanup)
+        btn_h_layout.addWidget(self.cleanup_btn)
         btn_h_layout.addWidget(self.stop_btn)
         control_layout.addLayout(btn_h_layout)
         
@@ -419,6 +529,9 @@ class SyncTab(QWidget):
         """실행 중 UI 잠금을 위한 유틸리티"""
         self._ui_locked = not enabled
         self.group_combo.setEnabled(enabled)
+        for widget in (self.sync_mode_combo, self.subfolders_check, self.date_latest_check,
+                       self.date_archive_combo, self.exclude_input, self.archive_input):
+            widget.setEnabled(enabled)
         for btn in self.findChildren(QPushButton):
             if btn not in (self.stop_btn,):
                 btn.setEnabled(enabled)
@@ -497,6 +610,7 @@ class SyncTab(QWidget):
     def _invalidate_analysis(self, folders_changed=False):
         self._analysis_is_current = False
         self._analysis_has_actions = False
+        self._analysis_has_holds = False
         self.table_widget.setRowCount(0)
         if folders_changed:
             self.plan_summary_label.setText(
@@ -530,7 +644,9 @@ class SyncTab(QWidget):
                 self.workflow_widget.set_active_step(1)
         elif not self._analysis_has_actions:
             analyze_reason = self._t("Run the preview again.", "미리보기를 다시 실행할 수 있습니다.", "Możesz ponownie uruchomić podgląd.")
-            sync_reason = self._t("No changes need synchronization.", "동기화할 변경 사항이 없습니다.", "Brak zmian wymagających synchronizacji.")
+            sync_reason = (self._t("Only held items remain; review the list.", "보류 항목만 있습니다. 목록을 확인해 주세요.", "Pozostały tylko wstrzymane pozycje; sprawdź listę.")
+                           if self._analysis_has_holds else
+                           self._t("No changes need synchronization.", "동기화할 변경 사항이 없습니다.", "Brak zmian wymagających synchronizacji."))
             self.workflow_widget.set_active_step(3)
         else:
             analyze_reason = self._t("Refresh the preview.", "미리보기를 새로 확인합니다.", "Odśwież podgląd.")
@@ -550,7 +666,7 @@ class SyncTab(QWidget):
                 )
                 hint_text = f"💡 {analyze_reason} {safe_note}"
             elif not self._analysis_has_actions:
-                hint_text = f"✅ {sync_reason}"
+                hint_text = f"{'⚠️' if self._analysis_has_holds else '✅'} {sync_reason}"
             else:
                 hint_text = f"💡 {sync_reason}"
             self.action_hint_label.setText(hint_text)
@@ -568,10 +684,10 @@ class SyncTab(QWidget):
             # 하위 호환성 마이그레이션
             self.sync_groups = [{"name": "Default Sync Group", "folders": old_folders}]
         else:
-            self.sync_groups = [{"name": "Default Sync Group", "folders": []}]
+            self.sync_groups = [{"name": "Default Sync Group", "folders": [], "date_archive_mode": "folder"}]
             
         if not self.sync_groups: # 만약 비어있다면 최소 1개 보장
-            self.sync_groups = [{"name": "Default Sync Group", "folders": []}]
+            self.sync_groups = [{"name": "Default Sync Group", "folders": [], "date_archive_mode": "folder"}]
 
         ensure_sync_ids(self.sync_groups)
         if self.sync_groups != saved_groups:
@@ -625,6 +741,8 @@ class SyncTab(QWidget):
         group = self.sync_groups[idx]
         self.sync_mode_combo.blockSignals(True)
         self.subfolders_check.blockSignals(True)
+        self.date_latest_check.blockSignals(True)
+        self.date_archive_combo.blockSignals(True)
         self.exclude_input.blockSignals(True)
         self.archive_input.blockSignals(True)
 
@@ -632,6 +750,10 @@ class SyncTab(QWidget):
         mode_idx = self.sync_mode_combo.findData(mode_val)
         self.sync_mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
         self.subfolders_check.setChecked(bool(group.get("include_subfolders", False)))
+        self.date_latest_check.setChecked(bool(group.get("date_latest_only", False)))
+        archive_mode = group.get("date_archive_mode", "folder")
+        archive_mode_index = self.date_archive_combo.findData(archive_mode) if archive_mode == "folder" else 0
+        self.date_archive_combo.setCurrentIndex(archive_mode_index if archive_mode_index >= 0 else self.date_archive_combo.findData("folder"))
         patterns = group.get("exclude_patterns", [])
         if isinstance(patterns, list):
             self.exclude_input.setText(", ".join(str(p) for p in patterns if str(p).strip()))
@@ -641,6 +763,8 @@ class SyncTab(QWidget):
 
         self.sync_mode_combo.blockSignals(False)
         self.subfolders_check.blockSignals(False)
+        self.date_latest_check.blockSignals(False)
+        self.date_archive_combo.blockSignals(False)
         self.exclude_input.blockSignals(False)
         self.archive_input.blockSignals(False)
 
@@ -654,12 +778,39 @@ class SyncTab(QWidget):
         group = self.sync_groups[self.current_group_idx]
         group["sync_mode"] = self.sync_mode_combo.currentData() or "two_way"
         group["include_subfolders"] = bool(self.subfolders_check.isChecked())
+        group["date_latest_only"] = bool(self.date_latest_check.isChecked())
         raw_exclude = self.exclude_input.text()
         group["exclude_patterns"] = [p.strip() for p in raw_exclude.split(",") if p.strip()]
         archive_dir = self.archive_input.text().strip() or "to be deleted"
         group["archive_folder_name"] = archive_dir
         self.save_data()
         self._invalidate_analysis()
+
+    def on_archive_mode_changed(self):
+        if self.current_group_idx < 0 or self.date_archive_combo.currentData() != "folder":
+            return
+        self.sync_groups[self.current_group_idx]["date_archive_mode"] = "folder"
+        self.save_data()
+        self._invalidate_analysis()
+
+    def open_version_cleanup(self):
+        if self.is_running or self.current_group_idx < 0:
+            return
+        task_tab = getattr(self.window(), "task_tab", None)
+        if task_tab and (getattr(task_tab, "is_running", False) or getattr(task_tab, "is_preflighting", False)):
+            QMessageBox.warning(self, self._msg("common_warning"), self._t(
+                "Finish or cancel the task run before opening old-version cleanup.",
+                "통합 작업을 완료하거나 취소한 후 구버전 정리를 여세요.",
+                "Zakończ lub anuluj zadanie przed otwarciem czyszczenia starych wersji."))
+            return
+        group = self.sync_groups[self.current_group_idx]
+        dialog = VersionCleanupDialog(list(group.get("folders", [])), self.language, self,
+                                      archive_folder_name=group.get("archive_folder_name", "to be deleted") or "to be deleted")
+        self.cleanup_dialog = dialog
+        try:
+            dialog.exec()
+        finally:
+            self.cleanup_dialog = None
         
     def add_group(self):
         text, ok = QInputDialog.getText(self, self._msg("sync_add_group_title"), self._msg("sync_add_group_prompt"))
@@ -671,7 +822,7 @@ class SyncTab(QWidget):
                 QMessageBox.warning(self, self._msg("common_warning"), self._msg("sync_duplicate_group"))
                 return
                 
-            self.sync_groups.append({"name": text, "folders": []})
+            self.sync_groups.append({"name": text, "folders": [], "date_archive_mode": "folder"})
             self.group_combo.addItem(text)
             self.group_combo.setCurrentIndex(len(self.sync_groups) - 1)
             self.save_data()
@@ -710,7 +861,7 @@ class SyncTab(QWidget):
             if not self.sync_groups:
                 # 마지막 그룹이 지워지면 기본 그룹 1개 강제 생성
                 default_name = "Default Sync Group"
-                self.sync_groups.append({"name": default_name, "folders": []})
+                self.sync_groups.append({"name": default_name, "folders": [], "date_archive_mode": "folder"})
                 self.group_combo.addItem(self._display_group_name(default_name))
                 
             self.save_data()
@@ -793,6 +944,7 @@ class SyncTab(QWidget):
         self.is_running = True
         self._analysis_is_current = False
         self._analysis_has_actions = False
+        self._analysis_has_holds = False
         self.set_ui_enabled(False)
         self.stop_btn.setEnabled(True)
         self.table_widget.setRowCount(0)
@@ -800,21 +952,27 @@ class SyncTab(QWidget):
         self.progress_bar.setFormat("0%")
         self.plan_summary_label.setText(self._t("Analyzing all groups...", "전체 그룹 분석 중...", "Analizowanie wszystkich grup..."))
         
-        self.worker = SyncWorker(self.sync_groups, self.config_manager, is_dry_run=True)
+        self.worker = SyncWorker(copy.deepcopy(self.sync_groups), self.config_manager, is_dry_run=True)
         self.worker.progress.connect(self.update_progress)
         self.worker.dry_run_finished.connect(self.on_dry_run_finished)
+        self.worker.finished.connect(self.on_sync_finished)
         self.worker.start()
         
     def on_dry_run_finished(self, actions):
+        if self.worker and self.worker.is_cancelled:
+            self.on_sync_finished(False, 0, 1, [self._t("Preview cancelled.", "미리보기가 취소되었습니다.", "Anulowano podgląd.")])
+            return
+        display_actions = date_preview_rows(actions)
         self.is_running = False
         self._analysis_is_current = True
-        self._analysis_has_actions = bool(actions)
+        self._analysis_has_holds = any(a.get("action") in ("보류", "날짜 보류") for a in actions)
+        self._analysis_has_actions = any(a.get("action") not in ("보류", "날짜 보류", "오류") for a in actions)
         self.set_ui_enabled(True)
         self.stop_btn.setEnabled(False)
         
-        self.table_widget.setRowCount(len(actions))
+        self.table_widget.setRowCount(len(display_actions))
         
-        for row_idx, act in enumerate(actions):
+        for row_idx, act in enumerate(display_actions):
             group_item = QTableWidgetItem(act.get("group_name", ""))
             filename_item = QTableWidgetItem(act["filename"])
             action_item = QTableWidgetItem(self._sync_text(act["action"]))
@@ -823,10 +981,12 @@ class SyncTab(QWidget):
             tgt_item = QTableWidgetItem(os.path.basename(act["target_folder"]))
             tgt_item.setToolTip(act["target_folder"])
             
-            if act.get("mtime"):
+            if act["action"] in ("보류", "날짜 보류"):
+                mtime_str = self._sync_text(act.get("reason") or act.get("status", ""))
+            elif act.get("mtime"):
                 mtime_str = datetime.fromtimestamp(act["mtime"]).strftime("%Y-%m-%d %H:%M")
             else:
-                mtime_str = self._sync_text(act.get("details", ""))
+                mtime_str = self._sync_text(act.get("details", act.get("reason", "")))
             details_item = QTableWidgetItem(mtime_str)
             
             bold_font = QFont()
@@ -843,6 +1003,9 @@ class SyncTab(QWidget):
             elif act["action"] == "충돌 보존 백업":
                 action_item.setForeground(QBrush(QColor("#ffcc80")))
                 action_item.setBackground(QBrush(QColor("#7c2d12")))
+            elif act["action"] == "오류":
+                action_item.setForeground(QBrush(QColor("#ef5350")))
+                action_item.setBackground(QBrush(QColor("#450a0a")))
                 
             self.table_widget.setItem(row_idx, 0, group_item)
             self.table_widget.setItem(row_idx, 1, filename_item)
@@ -852,9 +1015,10 @@ class SyncTab(QWidget):
             self.table_widget.setItem(row_idx, 5, details_item)
             
         if actions:
-            action_count = len(actions)
-            self.plan_summary_label.setText(self._t(f"Analysis result: {action_count} actions planned", f"분석 결과: 전체 실행 예정 {action_count}건", f"Wynik analizy: zaplanowano {action_count} operacji"))
-            show_toast(self, self._t(f"Analysis complete: {action_count} actions planned", f"분석 완료! 총 {action_count}건 예정", f"Analiza zakończona: zaplanowano {action_count} operacji"), "info")
+            action_count = sum(a.get("action") not in ("보류", "날짜 보류", "오류") for a in display_actions)
+            held_count = sum(a.get("action") in ("보류", "날짜 보류") for a in display_actions)
+            self.plan_summary_label.setText(self._t(f"Analysis result: {action_count} planned, {held_count} held", f"분석 결과: 실행 예정 {action_count}건, 보류 {held_count}건", f"Wynik analizy: {action_count} zaplanowanych, {held_count} wstrzymanych"))
+            show_toast(self, self._t(f"Analysis complete: {action_count} planned, {held_count} held", f"분석 완료: 실행 예정 {action_count}건, 보류 {held_count}건", f"Analiza zakończona: {action_count} zaplanowanych, {held_count} wstrzymanych"), "info")
         else:
             self.plan_summary_label.setText(self._t("Analysis result: nothing to do", "분석 결과: 실행할 작업 없음", "Wynik analizy: brak operacji"))
             show_toast(self, self._t("Analysis complete: folders are already synchronized.", "분석 완료: 동기화할 내역이 없습니다.", "Analiza zakończona: foldery są już zsynchronizowane."), "success")
@@ -881,7 +1045,10 @@ class SyncTab(QWidget):
             problem = tr(exc.message_key, self.language, **exc.values) if exc.message_key else exc.user_message
             QMessageBox.warning(self, self._msg("common_warning"), problem)
             return
-        if run_config is None or not confirm_run_summary(self, RunPlan({TaskStep.SYNC: run_config}), self.config_manager):
+        if run_config is None:
+            return
+        plan = RunPlan({TaskStep.SYNC: run_config})
+        if not confirm_run_summary(self, plan, self.config_manager):
             return
             
         self.is_running = True
@@ -891,7 +1058,12 @@ class SyncTab(QWidget):
         self.progress_bar.setFormat("0%")
         self.plan_summary_label.setText(self._msg("sync_running"))
         
-        self.worker = SyncWorker(run_config.to_legacy_dict()["sync_groups"], self.config_manager, is_dry_run=False)
+        self.worker = SyncWorker(
+            run_config.to_legacy_dict()["sync_groups"],
+            self.config_manager,
+            is_dry_run=False,
+            approved_actions=plan.approved_manifest,
+        )
         self.worker.progress.connect(self.update_progress)
         self.worker.finished.connect(self.on_sync_finished)
         self.worker.start()
@@ -908,6 +1080,12 @@ class SyncTab(QWidget):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait()
+        if getattr(self, "cleanup_dialog", None):
+            self.cleanup_dialog.stop_and_wait()
+
+    def cleanup_running(self):
+        dialog = getattr(self, "cleanup_dialog", None)
+        return bool(dialog and dialog.worker and dialog.worker.isRunning())
             
     def update_progress(self, current, total, status_msg):
         percent = int((current / total) * 100) if total > 0 else 0
@@ -921,11 +1099,19 @@ class SyncTab(QWidget):
         self.is_running = False
         self._analysis_is_current = False
         self._analysis_has_actions = False
+        self._analysis_has_holds = False
         self.set_ui_enabled(True)
         self.stop_btn.setEnabled(False)
         self.table_widget.setRowCount(0) # 작업이 끝났으므로 비움
         
-        if success:
+        held_errors = [error for error in errors if "[HELD]" in error]
+        if held_errors and len(held_errors) == len(errors) and fail_count == len(held_errors):
+            heading = self._t("Synchronization has held items", "동기화 보류 항목 있음", "Synchronizacja zawiera wstrzymane pozycje")
+            details = "\n".join(self._sync_text(error.replace("[HELD]", self._t("[Held]", "[보류]", "[Wstrzymane]"))) for error in held_errors)
+            self.plan_summary_label.setText(heading)
+            show_toast(self, heading, "warning")
+            QMessageBox.warning(self, heading, details)
+        elif success:
             if fail_count == 0:
                 self.plan_summary_label.setText(self._msg("sync_completed_summary", success=success_count))
                 show_toast(self, self._msg("sync_completed_toast"), "success")
@@ -987,6 +1173,8 @@ class SyncTab(QWidget):
                     exclude_patterns=list(group.get("exclude_patterns", [])),
                     include_subfolders=bool(group.get("include_subfolders", False)),
                     sync_mode=str(group.get("sync_mode", "two_way") or "two_way"),
+                    date_latest_only=bool(group.get("date_latest_only", False)),
+                    date_archive_mode=str(group.get("date_archive_mode", "folder") or "folder"),
                 )
                 for idx, group in enumerate(valid_groups)
             ]

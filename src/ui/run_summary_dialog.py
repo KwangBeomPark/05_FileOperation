@@ -33,11 +33,20 @@ TEXT = {
     "overwrite_text": ("DANGER: existing TXT files will be overwritten by extracted OCR text. Back up any text you need to keep before continuing.", "주의: 기존 TXT 파일을 OCR 추출 내용으로 덮어씁니다. 필요한 텍스트는 먼저 백업해 주세요.", "UWAGA: istniejące pliki TXT zostaną nadpisane tekstem OCR. Najpierw wykonaj kopie potrzebnych plików."),
     "ocr_text_policy": ("OCR will save TXT files beside generated images and may overwrite existing TXT files. Exact paths depend on earlier steps.", "OCR이 생성 이미지 옆에 TXT를 저장하며 기존 TXT가 있으면 덮어쓸 수 있습니다. 정확한 경로는 앞 단계 결과에 따라 정해집니다.", "OCR zapisze TXT obok wygenerowanych obrazów i może nadpisać istniejące TXT. Dokładne ścieżki zależą od wcześniejszych etapów."),
     "archive": ("Move to backup", "백업 폴더로 이동", "Przenieś do kopii"),
+    "trash": ("Move old version to Recycle Bin", "구버전 휴지통으로 이동", "Przenieś starszą wersję do Kosza"),
     "delete": ("Permanent delete", "영구 삭제", "Trwałe usunięcie"),
     "replace": ("Recycle / delete source after conversion", "변환 후 원본 휴지통 이동·삭제", "Kosz / usuń źródło po konwersji"),
     "extra_output": ("Additional HTML output", "추가 HTML 결과", "Dodatkowy wynik HTML"),
     "conflict_backup": ("Preserve conflicting copy", "충돌본 백업", "Zachowaj kopię konfliktową"),
-    "delete_policy": ("DANGER: synchronization is configured to permanently delete old files without using the Recycle Bin. Later groups may discover additional deletions.", "주의: 동기화가 구버전 파일을 휴지통 없이 영구 삭제하도록 설정되어 있습니다. 앞선 그룹 실행 후 삭제 대상이 더 생길 수도 있습니다.", "UWAGA: synchronizacja może trwale usuwać stare pliki bez Kosza. Kolejne grupy mogą wykryć dodatkowe pliki do usunięcia."),
+    "held": ("Held (no changes)", "보류 (변경 없음)", "Wstrzymane (bez zmian)"),
+    "date_conflict_reason": ("Different contents share the same date", "같은 날짜 파일의 내용이 달라 보류", "Różne treści mają tę samą datę"),
+    "date_newer_reason": ("Target has a newer date", "대상에 더 최신 날짜 파일이 있어 보류", "Folder docelowy ma nowszą datę"),
+    "version_newer_reason": ("Target version is higher; held, no changes", "대상 버전이 더 높아 보류, 변경 안함", "Wersja docelowa jest wyższa; wstrzymano, bez zmian"),
+    "version_equivalent_reason": ("Target has an equivalent version with a different filename; held, no changes", "대상에 버전은 같지만 파일명이 달라 보류, 변경 안함", "Cel ma równoważną wersję pod inną nazwą; wstrzymano, bez zmian"),
+    "version_content_tie_reason": ("Same-version files differ but have the same modification time; held", "같은 버전의 내용이 다르지만 수정 시각이 같아 보류", "Pliki tej samej wersji różnią się, lecz mają ten sam czas modyfikacji; wstrzymano"),
+    "content_tie_reason": ("Contents differ but modification times are identical; held", "파일 내용이 다르지만 수정 시각이 같아 보류", "Treść plików jest różna, ale czas modyfikacji jest taki sam; wstrzymano"),
+    "filename_case_reason": ("Filename capitalization differs; held", "파일 이름의 대소문자가 달라 보류", "Nazwy plików różnią się wielkością liter; wstrzymano"),
+    "delete_policy": ("DANGER: the listed files may be permanently deleted without using the Recycle Bin.", "주의: 표시된 파일이 휴지통을 거치지 않고 영구 삭제될 수 있습니다.", "UWAGA: wskazane pliki mogą zostać trwale usunięte bez użycia Kosza."),
     "replace_policy": ("DANGER: after successful output verification, sources are sent to the Recycle Bin; if unavailable, they are permanently deleted.", "주의: 결과 검증에 성공하면 원본을 휴지통으로 이동하며, 휴지통을 사용할 수 없으면 영구 삭제합니다.", "UWAGA: po weryfikacji wyniku źródła trafiają do Kosza; jeśli jest niedostępny, są trwale usuwane."),
     "move_sources": ("Original files will be moved to backup folders after successful processing. They will no longer be at their original paths.", "처리에 성공한 원본은 백업 폴더로 이동하므로 기존 위치에는 남지 않습니다.", "Po pomyślnym przetworzeniu źródła zostaną przeniesione do kopii i znikną z pierwotnych ścieżek."),
     "conflicts": ("Potential synchronization conflicts were found. Conflicting copies will be preserved before copying the latest file.", "동기화 충돌 후보가 있습니다. 기존 충돌본을 백업한 뒤 최신 파일을 복사합니다.", "Wykryto możliwe konflikty synchronizacji. Kopie konfliktowe zostaną zachowane przed skopiowaniem najnowszego pliku."),
@@ -83,11 +92,11 @@ class RunSummaryDialog(QDialog):
             label.setTextFormat(Qt.TextFormat.PlainText)
             layout.addWidget(label)
         totals = []
-        for key in ("copy", "convert", "rename", "ocr", "text_output", "overwrite", "archive", "conflict_backup", "delete", "replace", "extra_output"):
+        for key in ("copy", "convert", "rename", "ocr", "text_output", "overwrite", "archive", "trash", "conflict_backup", "held", "delete", "replace", "extra_output"):
             count = summary.counts.get(key, 0)
             if key in summary.pending_counts:
                 count = self._t("unknown") if not count else f"{count} + {self._t('unknown')}"
-            if count or key in ("copy", "convert", "delete", "replace"):
+            if count or key in ("copy", "convert", "replace"):
                 totals.append(f"{self._t(key)}: {count}")
         self.totals_label = QLabel("  |  ".join(totals))
         self.totals_label.setWordWrap(True)
@@ -114,7 +123,15 @@ class RunSummaryDialog(QDialog):
             feature = tr(f"tab_{entry.step}", language)
             if entry.group:
                 feature += f" / {entry.group}"
-            target = entry.target or ("—" if entry.action in ("delete", "replace") else self._t("unknown"))
+            target = entry.target or ("—" if entry.action in ("delete", "replace", "trash") else self._t("unknown"))
+            if entry.action == "trash" and not entry.target:
+                target = self._t("trash")
+            if entry.action == "held":
+                reason_keys = {"Conflicting content for the same date": "date_conflict_reason", "Target has a newer date": "date_newer_reason", "대상에 원본보다 높은 버전이 있어 보류": "version_newer_reason", "Target has a newer version": "version_newer_reason", "Target has an equivalent version with a different filename": "version_equivalent_reason", "Same version files differ with equal modification times": "version_content_tie_reason", "Different contents with identical modification times": "content_tie_reason", "Filename case differs": "filename_case_reason"}
+                reason = entry.reason
+                if reason:
+                    translated_reason = self._t(reason_keys[reason]) if reason in reason_keys else reason
+                    target = f"{translated_reason} — {target}"
             values = (feature, self._t(entry.action), entry.source or self._t("unknown"), target,
                       str(entry.count) if entry.count is not None else self._t("unknown"))
             for column, value in enumerate(values):
@@ -292,6 +309,14 @@ def confirm_run_summary(parent, plan, config_manager, *, scheduled=False, warnin
             return False
         if refreshed.fingerprint != summary.fingerprint:
             QMessageBox.warning(parent, summary_text(language, "title"), summary_text(language, "stale"))
+            return False
+        # GUI 수동 확인에서 승인한 실제 개별 경로와 행동 목록을 plan에 고정
+        manifest = tuple(refreshed.approved_manifest or summary.approved_manifest)
+        try:
+            object.__setattr__(plan, "approved_manifest", manifest)
+        except (AttributeError, TypeError):
+            logger.exception("Could not attach approved actions to the run plan")
+            QMessageBox.warning(parent, summary_text(language, "title"), summary_text(language, "failed"))
             return False
         return True
     finally:

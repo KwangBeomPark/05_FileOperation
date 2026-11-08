@@ -33,7 +33,7 @@ def main():
         from src.core.collect_sync import CollectAction, CollectReport, CollectState
         from src.core.collect_sync_config import new_collect_group
         from src.ui.collect_recovery_dialog import CollectRecoveryDialog
-        from src.ui.main_window import APP_STYLESHEET, MainWindow
+        from src.ui.main_window import MainWindow, app_stylesheet
         from src.ui.task_tab import TaskTab
         from tools.test_collect_sync_ui import MemoryConfig, wait_until
 
@@ -103,7 +103,7 @@ def main():
         tab._status_key = "collect_preview_note"
         tab.refresh_language()
         window.tab_widget.setCurrentWidget(tab)
-        window.setStyleSheet(APP_STYLESHEET)
+        window.setStyleSheet(app_stylesheet())
         window.resize(1600, 1050)
         window.show()
         app.processEvents()

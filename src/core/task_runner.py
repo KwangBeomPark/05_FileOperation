@@ -81,6 +81,11 @@ class TaskRunner:
         self.ocr_processor = OCRProcessor(self.config_manager)
         self.bypass_converter = BypassConverter()
         self.sync_manager: SyncManager | None = None
+        self.approved_manifest = getattr(self.run_plan, "approved_manifest", None)
+        self.is_scheduled_run = bool(
+            getattr(self.run_plan, "is_scheduled_run", False)
+            or getattr(self.run_plan, "is_scheduled", False)
+        )
 
     def _text(self, english: str, korean: str, polish: str) -> str:
         return {"ko": korean, "pl": polish}.get(self.language, english)
@@ -90,6 +95,38 @@ class TaskRunner:
 
     def _runtime_text(self, value: object) -> str:
         text = str(value)
+        text = text.replace("대상에 원본보다 높은 버전이 있어 보류", self._text(
+            "Target version is higher; held, no changes",
+            "대상 버전이 더 높아 보류, 변경 안함",
+            "Wersja docelowa jest wyższa; wstrzymano, bez zmian",
+        ))
+        text = text.replace("Target has a newer version", self._text(
+            "Target version is higher; held, no changes",
+            "대상 버전이 더 높아 보류, 변경 안함",
+            "Wersja docelowa jest wyższa; wstrzymano, bez zmian",
+        ))
+        text = text.replace("Target has an equivalent version with a different filename", self._text(
+            "Target has an equivalent version with a different filename; held, no changes",
+            "대상에 버전은 같지만 파일명이 달라 보류, 변경 안함",
+            "Cel ma równoważną wersję pod inną nazwą; wstrzymano, bez zmian",
+        ))
+        text = text.replace("Same version files differ with equal modification times", self._text(
+            "Same-version files differ but have the same modification time; held",
+            "같은 버전의 내용이 다르지만 수정 시각이 같아 보류",
+            "Pliki tej samej wersji różnią się, lecz mają ten sam czas modyfikacji; wstrzymano",
+        ))
+        text = text.replace("Different contents with identical modification times", self._text(
+            "Contents differ but modification times are identical; held",
+            "파일 내용이 다르지만 수정 시각이 같아 보류",
+            "Treść plików jest różna, ale czas modyfikacji jest taki sam; wstrzymano",
+        ))
+        text = text.replace("Filename case differs", self._text(
+            "Filename capitalization differs; held",
+            "파일 이름의 대소문자가 달라 보류",
+            "Nazwy plików różnią się wielkością liter; wstrzymano",
+        ))
+        text = text.replace("Target has a newer date", self._text("Target has a newer date", "대상에 더 최신 날짜 파일이 있어 보류", "Folder docelowy ma nowszą datę"))
+        text = text.replace("Conflicting content for the same date", self._text("Different contents share the same date", "같은 날짜 파일의 내용이 달라 보류", "Różne treści mają tę samą datę"))
         if self.language == "ko":
             return text
         return replace_phrases(text, _RUNTIME_TEXT_REPLACEMENTS)
@@ -231,11 +268,32 @@ class TaskRunner:
             results[step] = aggregate
         cancelled = not self.is_running
         success = not cancelled and all(r.status == StepStatus.COMPLETED for r in results.values())
-        message = (
-            self._text("The tasks were stopped by the user.", "사용자가 작업을 중지했습니다.", "Zadania zostały zatrzymane przez użytkownika.") if cancelled else
-            self._text("The selected tasks completed successfully.", "선택한 작업이 완료되었습니다.", "Wybrane zadania zakończyły się pomyślnie.") if success else
-            self._text("The tasks finished, but some items failed. Check the result report.", "작업은 끝났지만 일부 항목이 실패했습니다. 결과 보고서를 확인해 주세요.", "Zadania zakończono, ale niektóre elementy nie powiodły się. Sprawdź raport.")
-        )
+        total_success = sum(r.success_count for r in results.values())
+        if cancelled:
+            if total_success > 0:
+                message = self._text(
+                    f"The tasks were stopped by the user. Partially completed ({total_success} successful).",
+                    f"사용자가 작업을 중지했습니다. 부분 완료 (성공: {total_success}건).",
+                    f"Zadania zostały zatrzymane przez użytkownika. Częściowo ukończono (powodzenie: {total_success}).",
+                )
+            else:
+                message = self._text(
+                    "The tasks were stopped by the user.",
+                    "사용자가 작업을 중지했습니다.",
+                    "Zadania zostały zatrzymane przez użytkownika.",
+                )
+        elif success:
+            message = self._text(
+                "The selected tasks completed successfully.",
+                "선택한 작업이 완료되었습니다.",
+                "Wybrane zadania zakończyły się pomyślnie.",
+            )
+        else:
+            message = self._text(
+                "The tasks finished, but some items failed. Check the result report.",
+                "작업은 끝났지만 일부 항목이 실패했습니다. 결과 보고서를 확인해 주세요.",
+                "Zadania zakończono, ale niektóre elementy nie powiodły się. Sprawdź raport.",
+            )
         body = self._build_report(results, active_steps)
         for item in items:
             result = item_results[item.key]
@@ -293,20 +351,37 @@ class TaskRunner:
                 f"그룹 동기화 중: {group.name}",
                 f"Synchronizowanie grupy: {group.name}",
             ))
+            # 예약 여부를 명시적으로 전달하고, 승인 검사 및 그룹 옵션이 조용히 제거되지 않도록 fail closed
+            sync_kwargs = {
+                "folders": group.folders,
+                "move_to_deleted": group.move_to_deleted,
+                "archive_folder_name": getattr(group, "archive_folder_name", "to be deleted"),
+                "exclude_patterns": getattr(group, "exclude_patterns", None),
+                "include_subfolders": getattr(group, "include_subfolders", False),
+                "sync_mode": getattr(group, "sync_mode", "two_way"),
+                "date_latest_only": getattr(group, "date_latest_only", False),
+                "date_archive_mode": getattr(group, "date_archive_mode", "folder"),
+                "approved_actions": self.approved_manifest if not self.is_scheduled_run else None,
+                "group_name": group.name,
+                "is_scheduled": self.is_scheduled_run,
+            }
+
             try:
-                manager = SyncManager(
-                    folders=group.folders,
-                    move_to_deleted=group.move_to_deleted,
-                    archive_folder_name=getattr(group, "archive_folder_name", "to be deleted"),
-                    exclude_patterns=getattr(group, "exclude_patterns", None),
-                    include_subfolders=getattr(group, "include_subfolders", False),
-                    sync_mode=getattr(group, "sync_mode", "two_way"),
-                )
-            except TypeError:
-                manager = SyncManager(
-                    folders=group.folders,
-                    move_to_deleted=group.move_to_deleted,
-                )
+                manager = SyncManager(**sync_kwargs)
+            except TypeError as exc:
+                if "is_scheduled" in sync_kwargs:
+                    attempt = dict(sync_kwargs)
+                    del attempt["is_scheduled"]
+                    try:
+                        manager = SyncManager(**attempt)
+                    except TypeError:
+                        raise TypeError(
+                            f"SyncManager does not support required group options or approval verification for '{group.name}': {exc}"
+                        ) from exc
+                else:
+                    raise TypeError(
+                        f"SyncManager does not support required group options or approval verification for '{group.name}': {exc}"
+                    ) from exc
             self.sync_manager = manager
             actions = manager.analyze_sync()
             # analyze_sync/execute_sync reset the manager's cancel flag, so re-check here.
@@ -314,7 +389,19 @@ class TaskRunner:
                 self.sync_manager = None
                 result.status = StepStatus.CANCELLED
                 return
-            success_files, fail_files, errors = manager.execute_sync(
+            scan_errors = getattr(manager, "scan_errors", [])
+            if scan_errors:
+                self.sync_manager = None
+                message = self._text(
+                    f"Group [{group.name}] was not synchronized because a folder could not be scanned.",
+                    f"그룹 [{group.name}]의 폴더를 확인할 수 없어 동기화하지 않았습니다.",
+                    f"Grupa [{group.name}] nie została zsynchronizowana, ponieważ nie można odczytać folderu.",
+                )
+                callbacks.log(message)
+                result.details.append(message)
+                result.details.extend(self._runtime_text(error) for error in scan_errors[:5])
+                continue
+            sync_res = manager.execute_sync(
                 actions,
                 progress_callback=lambda current, total, filename: callbacks.step_progress(
                     current,
@@ -327,27 +414,45 @@ class TaskRunner:
                 ),
             )
             self.sync_manager = None
+            success_files, fail_files, errors = sync_res[:3]
+            held_files = getattr(sync_res, "held", [])
+
             if not self.is_running:
-                result.details.append(self._text(
-                    f"Group [{group.name}] cancelled (successful: {success_files}, failed: {fail_files})",
-                    f"그룹 [{group.name}] 취소됨 (성공: {success_files}건, 실패: {fail_files}건)",
-                    f"Grupa [{group.name}] anulowana (powodzenie: {success_files}, błędy: {fail_files})",
-                ))
+                cancel_msg = self._text(
+                    f"Group [{group.name}] cancelled - partially completed (successful: {success_files}, failed: {fail_files}, held: {len(held_files)})",
+                    f"그룹 [{group.name}] 취소됨 - 부분 완료 (성공: {success_files}건, 실패: {fail_files}건, 보류: {len(held_files)}건)",
+                    f"Grupa [{group.name}] anulowana - częściowo ukończono (powodzenie: {success_files}, błędy: {fail_files}, wstrzymane: {len(held_files)})",
+                )
+                result.details.append(cancel_msg)
+                callbacks.log(f"   {cancel_msg}")
                 result.status = StepStatus.CANCELLED
                 return
 
-            if not errors and not fail_files:
+            if held_files:
+                for h in held_files[:5]:
+                    callbacks.log(f"     - {self._text('Held', '보류', 'Wstrzymane')}: {self._runtime_text(h)}")
+                result.details.extend(f"{self._text('Held', '보류', 'Wstrzymane')}: {self._runtime_text(h)}" for h in held_files[:5])
+
+            if not errors and not fail_files and not held_files:
                 success_count += 1
+                held_note = f", {self._text('held', '보류', 'wstrzymane')}: {len(held_files)}" if held_files else ""
                 msg = self._text(
-                    f"✓ Group [{group.name}] completed (successful: {success_files}, failed: {fail_files})",
-                    f"✓ 그룹 [{group.name}] 완료 (성공: {success_files}건, 실패: {fail_files}건)",
-                    f"✓ Grupa [{group.name}] zakończona (powodzenie: {success_files}, błędy: {fail_files})",
+                    f"✓ Group [{group.name}] completed (successful: {success_files}, failed: {fail_files}{held_note})",
+                    f"✓ 그룹 [{group.name}] 완료 (성공: {success_files}건, 실패: {fail_files}건{held_note})",
+                    f"✓ Grupa [{group.name}] zakończona (powodzenie: {success_files}, błędy: {fail_files}{held_note})",
+                )
+            elif held_files and not errors and not fail_files:
+                msg = self._text(
+                    f"⚠ Group [{group.name}] has held items (successful: {success_files}, held: {len(held_files)})",
+                    f"⚠ 그룹 [{group.name}] 보류 항목 있음 (성공: {success_files}건, 보류: {len(held_files)}건)",
+                    f"⚠ Grupa [{group.name}] ma wstrzymane pozycje (powodzenie: {success_files}, wstrzymane: {len(held_files)})",
                 )
             else:
+                held_note = f", {self._text('held', '보류', 'wstrzymane')}: {len(held_files)}" if held_files else ""
                 msg = self._text(
-                    f"⚠ Group [{group.name}] completed with errors (successful: {success_files}, failed: {fail_files})",
-                    f"⚠ 그룹 [{group.name}] 일부 오류 발생 (성공: {success_files}건, 실패: {fail_files}건)",
-                    f"⚠ Grupa [{group.name}] zakończona z błędami (powodzenie: {success_files}, błędy: {fail_files})",
+                    f"⚠ Group [{group.name}] completed with errors (successful: {success_files}, failed: {fail_files}{held_note})",
+                    f"⚠ 그룹 [{group.name}] 일부 오류 발생 (성공: {success_files}건, 실패: {fail_files}건{held_note})",
+                    f"⚠ Grupa [{group.name}] zakończona z błędami (powodzenie: {success_files}, błędy: {fail_files}{held_note})",
                 )
                 for err in errors[:5]:
                     callbacks.log(f"     - {self._text('Error', '오류', 'Błąd')}: {self._runtime_text(err)}")

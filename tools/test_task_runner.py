@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from src.core.sync_manager import SyncResult
 from src.core.task_contracts import (
     BypassFileConfig,
     BypassRunConfig,
@@ -28,9 +29,30 @@ class FakeConfig:
 
 
 class FakeSyncManagerSuccess:
-    def __init__(self, folders, move_to_deleted=True):
+    def __init__(
+        self,
+        folders,
+        move_to_deleted=True,
+        archive_folder_name="to be deleted",
+        exclude_patterns=None,
+        include_subfolders=False,
+        sync_mode="two_way",
+        date_latest_only=False,
+        date_archive_mode="folder",
+        approved_actions=None,
+        group_name="",
+        **kwargs,
+    ):
         self.folders = folders
         self.move_to_deleted = move_to_deleted
+        self.archive_folder_name = archive_folder_name
+        self.exclude_patterns = exclude_patterns or []
+        self.include_subfolders = include_subfolders
+        self.sync_mode = sync_mode
+        self.date_latest_only = date_latest_only
+        self.date_archive_mode = date_archive_mode
+        self.approved_actions = approved_actions
+        self.group_name = group_name
 
     def analyze_sync(self):
         return [{"filename": "a.txt"}]
@@ -88,6 +110,32 @@ class FakeBypassConverter:
 
 
 class TaskRunnerTests(unittest.TestCase):
+    def test_partial_scan_does_not_execute_any_actions(self):
+        class PartialScan(FakeSyncManagerSuccess):
+            def analyze_sync(self):
+                self.scan_errors = [OSError("folder unavailable")]
+                return [{"filename": "a.txt"}]
+
+            def execute_sync(self, _actions, progress_callback=None):
+                raise AssertionError("incomplete scan must not execute")
+
+        plan = RunPlan({TaskStep.SYNC: SyncRunConfig([SyncGroupConfig("g", ["a", "b"])])})
+        with patch("src.core.task_runner.SyncManager", PartialScan):
+            report = TaskRunner(FakeConfig(), plan).run()
+        self.assertFalse(report.overall_success)
+        self.assertIn("folder unavailable", "\n".join(report.results[TaskStep.SYNC].details))
+
+    def test_held_sync_is_not_reported_as_complete(self):
+        class Held(FakeSyncManagerSuccess):
+            def execute_sync(self, _actions, progress_callback=None):
+                return SyncResult(held=["conflicting dates"])
+
+        plan = RunPlan({TaskStep.SYNC: SyncRunConfig([SyncGroupConfig("g", ["a", "b"])])})
+        with patch("src.core.task_runner.SyncManager", Held):
+            report = TaskRunner(FakeConfig(), plan).run()
+        self.assertFalse(report.overall_success)
+        self.assertIn("conflicting dates", "\n".join(report.results[TaskStep.SYNC].details))
+
     def test_sync_success_report(self):
         plan = RunPlan({TaskStep.SYNC: SyncRunConfig([SyncGroupConfig("g", ["a", "b"])])})
         with patch("src.core.task_runner.SyncManager", FakeSyncManagerSuccess):

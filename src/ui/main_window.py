@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.app_identity import asset_path
 from src.core.release_config import (
     DEFAULT_GITHUB_OWNER,
     DEFAULT_GITHUB_REPOSITORY,
@@ -87,7 +88,7 @@ QTabBar::tab:hover {
     color: #e2e8f0;
 }
 QGroupBox {
-    border: 1px solid #3e3e3e;
+    border: 1px solid #64748b;
     border-radius: 6px;
     margin-top: 15px;
     padding: 16px 10px 10px 10px;
@@ -272,6 +273,33 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
 QCheckBox {
     color: #cbd5e1;
 }
+QCheckBox::indicator, QListView::indicator, QTableView::indicator, QRadioButton::indicator {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #b8c8dc;
+    border-radius: 3px;
+    background-color: #18212b;
+}
+QRadioButton::indicator { border-radius: 10px; }
+QCheckBox::indicator:checked, QListView::indicator:checked, QTableView::indicator:checked {
+    background-color: #0369a1;
+    border-color: #7dd3fc;
+    image: url("__FILEOPS_CHECKMARK__");
+}
+QRadioButton::indicator:checked {
+    background-color: #0369a1;
+    border-color: #7dd3fc;
+    image: url("__FILEOPS_RADIO_DOT__");
+}
+QCheckBox::indicator:hover, QListView::indicator:hover, QTableView::indicator:hover, QRadioButton::indicator:hover {
+    border-color: #ffffff;
+}
+QCheckBox::indicator:disabled, QListView::indicator:disabled, QTableView::indicator:disabled, QRadioButton::indicator:disabled {
+    border-color: #64748b;
+    background-color: #334155;
+}
+QCheckBox:focus, QRadioButton:focus { color: #ffffff; }
+QCheckBox:focus::indicator, QRadioButton:focus::indicator { border-color: #38bdf8; }
 QToolTip {
     background-color: #252526;
     color: #e2e8f0;
@@ -317,6 +345,12 @@ QPushButton#UpdateBannerClose:hover {
     background-color: #2b5874;
 }
 """
+
+
+def app_stylesheet():
+    """Resolve packaged indicator icons for both app and window styles."""
+    return (APP_STYLESHEET.replace("__FILEOPS_CHECKMARK__", asset_path("checkmark.svg").as_posix())
+            .replace("__FILEOPS_RADIO_DOT__", asset_path("radio-dot.svg").as_posix()))
 
 
 def create_dark_palette():
@@ -415,7 +449,7 @@ class MainWindow(QMainWindow):
         
     def init_ui(self):
         self.setWindowTitle(tr("app_title", self.language, version=self.current_version))
-        self.setStyleSheet(APP_STYLESHEET)
+        self.setStyleSheet(app_stylesheet())
         self.setMinimumSize(1000, 700)
         saved_size = self.config_manager.get("window_size", [1200, 800])
         if isinstance(saved_size, list) and len(saved_size) == 2:
@@ -886,6 +920,8 @@ class MainWindow(QMainWindow):
             active_tasks.append(choose(self.language, "EML conversion", "EML 변환", "Konwersja EML"))
         if getattr(self.sync_tab, "is_running", False):
             active_tasks.append(choose(self.language, "Folder synchronization", "폴더 동기화", "Synchronizacja folderów"))
+        if getattr(self.sync_tab, "cleanup_running", lambda: False)():
+            active_tasks.append(choose(self.language, "Old-version cleanup", "구버전 정리", "Czyszczenie starych wersji"))
         if include_collect and getattr(self.collect_sync_tab, "is_running", False):
             active_tasks.append(tr("tab_collect_sync", self.language))
         if getattr(self.bypass_tab, "is_running", False):
@@ -1012,6 +1048,7 @@ class MainWindow(QMainWindow):
                 event.ignore()
         else:
             self.collect_sync_tab.stop_all()
+            self.sync_tab.stop_all()
             self.save_window_state()
             if self.tray_icon:
                 self.tray_icon.hide()

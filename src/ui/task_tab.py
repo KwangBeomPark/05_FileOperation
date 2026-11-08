@@ -1094,8 +1094,14 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.save_enabled_steps()
         self.refresh_schedule_summary()
 
+    def _version_cleanup_open(self):
+        sync_tab = getattr(self.window(), "sync_tab", None)
+        return getattr(sync_tab, "cleanup_dialog", None) is not None
+
     def check_scheduled_run(self, now=None):
         """Start once per day, retrying only failures that occur before worker start."""
+        if self._version_cleanup_open():
+            return False
         if self._collect_sync_busy():
             # Wait for the next tick; the daily slot is not consumed while collection runs.
             return False
@@ -1166,6 +1172,12 @@ class TaskTab(TaskPanelMixin, QWidget):
     def start_all_tasks(self, checked=False, scheduled=False):
         """통합 일괄 실행 시작"""
         self.start_failure_reason = ""
+        if self._version_cleanup_open():
+            return self._start_rejected(self._text(
+                "Close old-version cleanup before running tasks.",
+                "통합 작업을 실행하기 전에 구버전 정리 창을 닫아 주세요.",
+                "Zamknij czyszczenie starych wersji przed uruchomieniem zadań.",
+            ))
         if getattr(self, "_selection_save_failed", False):
             return self._start_rejected(tr("collect_save_error", self.language))
         if self._collect_sync_busy():
@@ -1221,8 +1233,13 @@ class TaskTab(TaskPanelMixin, QWidget):
                 items.append(ExecutionItem(row["key"], row["step"], row["name"], error=self._validation_detail(exc)))
         if not any(item.config is not None and not item.error for item in items):
             return self._reject_unrunnable_items(items, scheduled)
-        run_plan = RunPlan(configs=configs, step_order=selected_steps,
-                           chain_outputs=self.check_chain_outputs.isChecked(), items=items)
+        run_plan = RunPlan(
+            configs=configs,
+            step_order=selected_steps,
+            chain_outputs=self.check_chain_outputs.isChecked(),
+            items=items,
+            is_scheduled_run=scheduled,
+        )
 
         bypass_config = run_plan.get(TaskStep.BYPASS)
         replace_requested = (
@@ -1295,12 +1312,19 @@ class TaskTab(TaskPanelMixin, QWidget):
             warning_text += "\n" + "\n".join(item_errors)
         if scheduled and warning_text:
             self.log(self._text("[Scheduled run] Preflight warning:\n", "[예약 실행] 사전 점검 경고:\n", "[Harmonogram] Ostrzeżenie kontroli wstępnej:\n") + warning_text)
-        if not confirm_run_summary(self, replace(run_plan, items=[], step_order=list(configs)), self.config_manager, scheduled=scheduled, warnings=warning_text):
+        review_plan = replace(run_plan, items=[], step_order=list(configs), is_scheduled_run=scheduled)
+        if not confirm_run_summary(self, review_plan, self.config_manager, scheduled=scheduled, warnings=warning_text):
             return self._start_rejected(self._text(
                 "The change review was not completed. No task was started.",
                 "변경 내용 확인을 완료하지 않아 작업을 시작하지 않았습니다.",
                 "Nie ukończono przeglądu zmian. Nie uruchomiono zadania.",
             ))
+        approved = getattr(review_plan, "approved_manifest", ())
+        run_plan = replace(
+            run_plan,
+            approved_manifest=tuple(approved) if approved is not None else (),
+            is_scheduled_run=scheduled,
+        )
                     
         # UI 및 탭 잠금 처리
         self.is_running = True

@@ -60,11 +60,14 @@ class DependencyError(RuntimeError):
 class SyncGroupConfig:
     name: str
     folders: list[str]
+    # Preserve legacy configuration for compatibility; ordinary sync always archives.
     move_to_deleted: bool = True
     archive_folder_name: str = "to be deleted"
     exclude_patterns: list[str] = field(default_factory=list)
     include_subfolders: bool = False
     sync_mode: str = "two_way"
+    date_latest_only: bool = False
+    date_archive_mode: str = "folder"
 
     def to_legacy_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +78,8 @@ class SyncGroupConfig:
             "exclude_patterns": list(self.exclude_patterns),
             "include_subfolders": self.include_subfolders,
             "sync_mode": self.sync_mode,
+            "date_latest_only": self.date_latest_only,
+            "date_archive_mode": self.date_archive_mode,
         }
 
 
@@ -213,6 +218,12 @@ class RunPlan:
     step_order: list[TaskStep] = field(default_factory=list)
     chain_outputs: bool = False
     items: list[ExecutionItem] = field(default_factory=list)
+    approved_manifest: tuple = field(default_factory=tuple)
+    is_scheduled_run: bool = False
+
+    @property
+    def is_scheduled(self) -> bool:
+        return self.is_scheduled_run
 
     @property
     def active_steps(self) -> list[TaskStep]:

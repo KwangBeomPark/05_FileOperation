@@ -23,7 +23,7 @@ def main():
         from PyQt6.QtWidgets import QApplication
         from PyQt6.QtGui import QFontDatabase
         from src.core.run_summary import ChangeEntry, RunChangeSummary
-        from src.ui.main_window import APP_STYLESHEET
+        from src.ui.main_window import app_stylesheet
         from src.ui.run_summary_dialog import RunSummaryDialog
 
         app = QApplication.instance() or QApplication([])
@@ -33,18 +33,17 @@ def main():
             font = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / name
             if font.is_file():
                 QFontDatabase.addApplicationFont(str(font))
-        app.setStyleSheet(APP_STYLESHEET)
+        app.setStyleSheet(app_stylesheet())
         summary = RunChangeSummary(
             entries=[
                 ChangeEntry("sync", "Daily documents", "copy", r"C:\Example\Source\Report.xlsx", r"C:\Example\Team\Report.xlsx"),
                 ChangeEntry("sync", "Daily documents", "archive", r"C:\Example\Team\Old.xlsx", r"C:\Example\Team\to be deleted\Old.xlsx"),
-                ChangeEntry("sync", "Archive cleanup", "delete", r"C:\Example\Old\Draft.xlsx", ""),
                 ChangeEntry("bypass", "", "convert", r"C:\Example\Source\Invoice.pdf", r"C:\Example\Output\Invoice.html"),
                 ChangeEntry("ocr", "", "overwrite", r"C:\Example\Images\Scan.png", r"C:\Example\Images\Scan.txt"),
             ],
-            counts={"copy": 1, "archive": 1, "delete": 1, "convert": 1, "overwrite": 1},
-            risks=["delete_policy", "move_sources", "overwrite_text"],
-            notes=["sync_estimate", "ocr_names"], total_entries=5,
+            counts={"copy": 1, "archive": 1, "convert": 1, "overwrite": 1},
+            risks=["move_sources", "overwrite_text"],
+            notes=["sync_estimate", "ocr_names"], total_entries=4,
         )
         dialog = RunSummaryDialog(summary, args.language)
         dialog.show()

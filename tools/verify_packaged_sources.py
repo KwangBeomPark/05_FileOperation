@@ -53,10 +53,10 @@ def inspect_package(exe: Path, *, launcher: bool = False) -> int:
     verify_code(marshal.loads(archive.extract(main_name)), main_source)
     count += 1
     if not launcher:
-        for filename in ("icon.ico", "icon.png"):
+        for filename in ("icon.ico", "icon.png", "checkmark.svg", "radio-dot.svg"):
             entry = next(name for name in archive.toc if name.replace("\\", "/") == f"assets/{filename}")
             if archive.extract(entry) != (ROOT / "assets" / filename).read_bytes():
-                raise ValueError(f"Bundled icon mismatch: {filename}")
+                raise ValueError(f"Bundled asset mismatch: {filename}")
     print(f"Package sources match ({count} modules), icons checked={not launcher}: {exe.name}")
     return count
 

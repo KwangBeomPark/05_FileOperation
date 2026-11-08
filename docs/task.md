@@ -104,3 +104,71 @@ Existing signing/publication tasks and protected release-folder permissions rema
 - [x] Generate App05_FileOps_Setup_v<version>.exe once, retain historical reader names, and align installer/manifest checksum production with validation.
 - [x] Run 250 isolated regression tests, 32 backup safety assertions and lint/diff checks; see RELEASE_CHECKLIST.md.
 - [ ] Approved clean source commit, actual KSP signing, native startup/DPAPI/upgrade/uninstall checks and publication remain separate gates.
+
+## Date-version synchronization — 2026-11-06
+
+- [x] Add group opt-in, conservative date-family engine, previews, task and headless routing.
+- [x] Address review findings for all-date conflicts, repeated pre-install/pre-archive checks, archive-name aliases and ancestor links; add isolated regression cases.
+- [x] Sol reproduced three safety cases and preview issues; Terra fixed them. The actual Opus 5.5 CLI identified two follow-ups (Windows subfolder casing and archive-name consistency); fixed and confirmed in its read-only re-review.
+- [x] Final isolated regression: 567 tests in 60.778s, OK (skipped=1); 19 date-sync cases, offscreen option-to-preview smoke, Ruff for new files and diff checks. No release or deployment performed.
+
+## Date-sync safety and interface follow-up — 2026-11-07 (in progress)
+
+- [x] Separate scan errors and held results; prevent execution of a group after an incomplete scan and reject incomplete/cancelled previews.
+- [x] Connect date disposition to group configuration, and improve checkbox/radio contrast with packaged assets.
+- [x] Fail closed before changing a group when Recycle Bin recovery cannot be verified; the UI marks the option unavailable.
+- [ ] Bind approved file content and destination state to actual operations; independently test and review concurrency and multi-group cases.
+- [ ] Verify recoverable Windows Recycle Bin operation or keep the current guard; verify real Windows DPI and installed packaging.
+- [ ] Complete the planned button/group layout refinements, user-friendly result reporting, and full Terra → Argon → Opus relay after the Opus session reset.
+- [ ] Rerun full regression, repository lint and diff checks; document residual risks before any publication.
+
+## Local Recycle Bin experiment — 2026-11-07 (in progress)
+
+- [x] Confirm two synthetic files appeared in the local Windows Recycle Bin and one was restored with matching contents, with user assistance.
+- [x] Verify Shell veto on a synthetic file and build unconnected data-copy and Shell-evidence experiments with focused regression tests.
+- [ ] Resolve the Windows path-replacement race between validated backup and Shell processing; keep production fail-closed until independently reviewed.
+- [ ] Agree how original-location restore should work before choosing any protected-staging design; keep network and removable volumes unsupported without altering files.
+- [ ] Complete Gemini small-change review and Opus final review, real end-to-end product testing, result presentation, documentation and release gates.
+
+## Direct Recycle Bin review — 2026-11-07
+
+- [x] Record the user's preference for direct Windows Recycle Bin recovery without an app-specific restore workflow; keep the unverified recycle action blocked.
+- [x] Prevent normal sync copies and archive moves from replacing a target that appears after analysis; exclude internal temporary files from scans and account for cancelled date-sync actions.
+- [ ] Resolve source-identity races and verify recycle safety before enabling it; classify physical internal disks rather than relying on the Windows fixed-drive type alone.
+- [ ] Address the existing normal-sync archive/delete-before-copy risk, validate actual network and cloud-storage behavior, and finish the remaining UI and release checks.
+
+## Recycle choice follow-up — 2026-11-07
+
+- [x] Record that the user accepts ordinary Windows Recycle Bin risks and wants a choice between the Recycle Bin and the configured `to be deleted` folder.
+- [x] Preserve existing groups' selected option in headless configuration and clarify the two choices in Korean, English and Polish.
+- [x] Probe Windows `ITransferSource.RecycleItem` with a new empty test file and test conservative OS-reported device checks without touching user files.
+- [ ] Confirm native restore of the synthetic file, independently review device classification and preflight, and connect the candidate only after validation. The current app continues to block the Recycle Bin option.
+- [ ] Resolve the separate headless approval/selection issue; do not bypass it merely by marking all headless work as scheduled.
+
+## Manual old-version cleanup — user clarification
+
+- [x] Separate manual cleanup from ordinary folder synchronization and all scheduling. Compare versions independently in each folder, by base name and extension.
+- [x] Support dotted numeric versions such as `v0.1` and `v1.2` and valid date versions such as `v20260103`; block mixed or ambiguous versions.
+- [x] Show candidates for explicit selection and default the manual disposal choice to Windows Recycle Bin; retain a separate archive-folder choice.
+- [x] Add preflight, file checks, latest-file protection, exclusion of archive folders, and cleanup-window / scheduled-task mutual exclusion.
+- [x] Verify Windows restoration of the synthetic locked-handle cleanup probe and complete the local Sol review before enabling production execution; final Sonnet review remains pending.
+
+### Manual cleanup activation follow-up
+
+- [x] User restored the synthetic locked-handle cleanup probe; its original path and exact contents were verified.
+- [x] Connect the manual dialog to the cleanup engine, retaining explicit file selection, final confirmation and the two disposal choices.
+- [x] Check cancellation during hash reads and independently verify partial-cancellation and handle release with isolated fixtures.
+- [x] Obtain a focused Sonnet review and independently recheck its actionable findings with Sol; a wider Sonnet review attempt was interrupted without a report.
+- [ ] Reassess release readiness, package contents, installed behavior and repository-wide lint before any release.
+
+### Ordinary sync: remove permanent deletion
+
+- [x] Always archive older sync files instead of permanently deleting them, including when a legacy setting or runtime flag requests deletion; leave the saved setting unchanged for compatibility.
+- [x] Make the confirmation preview match the archive action and reject obsolete or unsupported delete actions without modifying files.
+- [x] Retain the separate manual old-version cleanup's Recycle Bin and archive-folder choices; verify with isolated regression tests and independent review.
+- [ ] Address the separate archive-before-copy ordering risk and verify packaged/installed behavior before release.
+
+## Ordinary sync safety follow-up — in progress
+
+- [ ] Review and validate staged copy, replacement failure rollback, and holding a newer destination without deleting or overwriting it.
+- [ ] Complete independent reviews and applicable regression checks; distinguish source checks from packaged or installed behavior.

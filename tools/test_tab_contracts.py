@@ -56,6 +56,17 @@ class FakeConfig:
 
 
 class TabContractTests(unittest.TestCase):
+    def test_sync_date_archive_mode_reaches_typed_config(self):
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            tab = type("FakeSyncTab", (), {})()
+            tab.config_manager = FakeConfig()
+            tab.sync_groups = [{"name": "g", "folders": [first, second], "date_archive_mode": "trash"}]
+            config = SyncTab.build_run_config(tab)
+            self.assertEqual(config.sync_groups[0].date_archive_mode, "trash")
+            self.assertEqual(config.to_legacy_dict()["sync_groups"][0]["date_archive_mode"], "trash")
+            tab.sync_groups[0].pop("date_archive_mode")
+            self.assertEqual(SyncTab.build_run_config(tab).sync_groups[0].date_archive_mode, "folder")
+
     def test_pdf_tab_builds_typed_config(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             pdf_path = os.path.join(temp_dir, "sample.pdf")
