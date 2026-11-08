@@ -172,3 +172,11 @@ Existing signing/publication tasks and protected release-folder permissions rema
 
 - [ ] Review and validate staged copy, replacement failure rollback, and holding a newer destination without deleting or overwriting it.
 - [ ] Complete independent reviews and applicable regression checks; distinguish source checks from packaged or installed behavior.
+
+## Sync safety and lint follow-up — 2026-11-08
+
+- [x] Save the reviewed sync and manual-cleanup work as commit `f738d63` and push it to `origin/main`.
+- [x] Save the first lint-cleanup pass separately as commit `dfc9cea` and push it to `origin/main`.
+- [x] Run the isolated full suite (709 tests, one skipped) and obtain Sol and Argon read-only reviews of the cleanup changes.
+- [ ] Continue the remaining repository-wide Ruff diagnostics; do not weaken failure handling or change credential security behavior merely to silence a warning.
+- [ ] Build, sign, install and verify a new release separately; the existing published v1.6.2 does not contain these source changes.

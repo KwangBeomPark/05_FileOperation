@@ -1,7 +1,9 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from src.core import ocr_processor
+from src.core import ocr_processor, windows_ocr
 from src.core.ocr_processor import OCRProcessor
 
 
@@ -16,6 +18,40 @@ class FakeConfig:
 
 
 class OCRProcessorTests(unittest.TestCase):
+    def test_windows_ocr_script_is_closed_and_preserved_after_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original_factory = tempfile.NamedTemporaryFile
+            handles = []
+
+            def create_file(*args, **kwargs):
+                handle = original_factory(*args, dir=directory, **kwargs)
+                handles.append(handle)
+                return handle
+
+            with patch.object(windows_ocr.tempfile, "NamedTemporaryFile", side_effect=create_file):
+                path = Path(windows_ocr._write_script())
+            self.assertTrue(handles[0].closed)
+            self.assertEqual(path.read_text(encoding="utf-8-sig"), windows_ocr.POWERSHELL_OCR_SCRIPT)
+
+    def test_windows_ocr_script_is_closed_and_preserved_after_write_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original_factory = tempfile.NamedTemporaryFile
+            handles = []
+
+            def create_file(*args, **kwargs):
+                handle = original_factory(*args, dir=directory, **kwargs)
+                handles.append(handle)
+                return handle
+
+            with (
+                patch.object(windows_ocr.tempfile, "NamedTemporaryFile", side_effect=create_file),
+                patch.object(windows_ocr, "POWERSHELL_OCR_SCRIPT", None),
+                self.assertRaises(TypeError),
+            ):
+                windows_ocr._write_script()
+            self.assertTrue(handles[0].closed)
+            self.assertTrue(Path(handles[0].name).is_file())
+
     def test_tesseract_failure_falls_back_to_windows_ocr(self):
         processor = OCRProcessor(FakeConfig())
         with (

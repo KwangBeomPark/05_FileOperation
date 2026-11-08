@@ -202,12 +202,12 @@ class EMLConverter:
                         logger.warning("Chromium executable not found. Attempting automatic installation...")
                         try:
                             self.install_playwright_browsers()
-                        except Exception as inst_err:
+                        except Exception:
                             self.playwright_install_failed = True
-                            raise inst_err
+                            raise
                         browser = p.chromium.launch(**launch_kwargs)
                     else:
-                        raise browser_err
+                        raise
 
                 try:
                     page = browser.new_page()
@@ -228,7 +228,7 @@ class EMLConverter:
 
         except Exception as e:
             logger.error(f"Error during EML to Image conversion for '{eml_path}': {e}")
-            raise e
+            raise
         finally:
             # 임시 파일 자원 수거
             if os.path.exists(tmp_path):

@@ -94,12 +94,9 @@ def _run_powershell(script_path: str, args: list[str], timeout_seconds: int) -> 
 
 
 def _write_script() -> str:
-    handle = tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False, encoding="utf-8-sig")
-    try:
+    with tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False, encoding="utf-8-sig") as handle:
         handle.write(POWERSHELL_OCR_SCRIPT)
         return handle.name
-    finally:
-        handle.close()
 
 
 def _prepare_image(image_path: str) -> tuple[str, bool]:
