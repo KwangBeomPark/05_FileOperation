@@ -5,6 +5,10 @@ import fitz  # PyMuPDF
 from PIL import Image
 
 
+class PDFConversionError(Exception):
+    """PDF or thumbnail processing failed."""
+
+
 class PDFConverter:
     """PDF를 JPEG 이미지로 변환하는 클래스"""
     
@@ -28,7 +32,7 @@ class PDFConverter:
             with fitz.open(pdf_path) as doc:
                 return len(doc)
         except Exception as e:
-            raise Exception(f"PDF 페이지 수를 읽을 수 없습니다: {e!s}") from e
+            raise PDFConversionError(f"PDF 페이지 수를 읽을 수 없습니다: {e!s}") from e
     
     def get_optimal_dpi(self, page_width, page_height):
         """페이지 크기에 따라 최적 DPI 결정
@@ -64,7 +68,7 @@ class PDFConverter:
             Exception: 변환 실패 시
         """
         if not os.path.exists(pdf_path):
-            raise Exception(f"PDF 파일을 찾을 수 없습니다: {pdf_path}")
+            raise PDFConversionError(f"PDF 파일을 찾을 수 없습니다: {pdf_path}")
         
         if not os.path.exists(output_folder):
             os.makedirs(output_folder)
@@ -95,7 +99,7 @@ class PDFConverter:
             return image_files
             
         except Exception as e:
-            raise Exception(f"PDF 변환 중 오류 발생: {e!s}") from e
+            raise PDFConversionError(f"PDF 변환 중 오류 발생: {e!s}") from e
     
     def create_thumbnail(self, image_path, size=(150, 150)):
         """이미지 썸네일 생성
@@ -112,4 +116,4 @@ class PDFConverter:
             img.thumbnail(size, Image.Resampling.LANCZOS)
             return img
         except Exception as e:
-            raise Exception(f"썸네일 생성 실패: {e!s}") from e
+            raise PDFConversionError(f"썸네일 생성 실패: {e!s}") from e

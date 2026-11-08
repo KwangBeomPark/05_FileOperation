@@ -199,7 +199,7 @@ def run_probe(
                     error=f"Probe process exited without a result (exit code {process.exitcode}).",
                     elapsed_seconds=elapsed,
                 )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - process and IPC failures must become a probe result.
         _terminate_process_tree(process)
         return ProbeResult(False, error=f"Could not start probe: {exc}", elapsed_seconds=time.monotonic() - started)
     finally:

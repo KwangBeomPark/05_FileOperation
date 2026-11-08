@@ -8,6 +8,10 @@ from PIL import Image
 from src.core.windows_ocr import extract_text_with_windows_ocr, windows_ocr_available
 
 
+class OCRExtractionError(Exception):
+    """All available OCR extraction attempts failed."""
+
+
 class OCRProcessor:
     """이미지에서 텍스트를 추출하고 프로모션 번호를 찾는 클래스.
 
@@ -52,7 +56,7 @@ class OCRProcessor:
         try:
             pytesseract.get_tesseract_version()
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001 - OCR engine probing must allow Windows fallback.
             return False
 
     def check_windows_ocr_available(self):
@@ -89,16 +93,16 @@ class OCRProcessor:
                 with Image.open(image_path) as image:
                     text = pytesseract.image_to_string(image, lang='eng')
                 return text.strip()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - third-party OCR failures must allow Windows fallback.
                 errors.append(f"Tesseract 실패: {e}")
 
         try:
             text = extract_text_with_windows_ocr(image_path)
             return text.strip()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Windows OCR failures are reported alongside Tesseract failures.
             errors.append(f"Windows OCR 실패: {e}")
 
-        raise Exception("OCR 텍스트 추출 실패: " + " / ".join(errors))
+        raise OCRExtractionError("OCR 텍스트 추출 실패: " + " / ".join(errors))
     
     EXTRACTION_PRESETS: ClassVar[dict[str, str]] = {
         "promotion": r"PL-[A-Z]TS[A-Z]-202\d{5}-\d{4}",
@@ -238,7 +242,7 @@ class OCRProcessor:
                 return (True, extracted_val, text, None)
             else:
                 return (False, None, text, "프로모션 번호를 찾을 수 없습니다")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - per-image boundary returns a failure instead of stopping the batch.
             return (False, None, "", str(e))
 
 

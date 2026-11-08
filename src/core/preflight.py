@@ -90,7 +90,7 @@ def check_tesseract(config_manager) -> tuple[bool, str]:
             pytesseract.pytesseract.tesseract_cmd = tesseract_path
         pytesseract.get_tesseract_version()
         return True, "Tesseract OCR 사용 가능"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - dependency failures become diagnostic results.
         return False, str(exc)
 
 
@@ -99,7 +99,7 @@ def check_windows_ocr() -> tuple[bool, str]:
         from src.core.windows_ocr import windows_ocr_available
 
         return windows_ocr_available()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - OCR backend failures become diagnostic results.
         return False, str(exc)
 
 
@@ -131,7 +131,7 @@ def check_playwright_driver(check_browser: bool = False) -> tuple[bool, str]:
                 browser = playwright.chromium.launch(headless=True)
                 browser.close()
         return True, "Playwright driver 사용 가능"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - browser driver failures become diagnostic results.
         return False, str(exc)
 
 
@@ -141,7 +141,7 @@ def check_office_imports() -> tuple[bool, str]:
         import win32com.client  # noqa: F401
 
         return True, "pywin32 COM import 사용 가능"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - COM import failures become diagnostic results.
         return False, str(exc)
 
 
@@ -149,7 +149,7 @@ def check_office_apps(app_names: list[str]) -> tuple[bool, list[str]]:
     try:
         import pythoncom
         import win32com.client
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - report COM dependency initialization failures.
         return False, [f"pywin32 import 실패: {exc}"]
 
     errors = []
@@ -158,7 +158,7 @@ def check_office_apps(app_names: list[str]) -> tuple[bool, list[str]]:
         app = None
         try:
             app = win32com.client.DispatchEx(app_name)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - report each COM application failure and continue.
             errors.append(f"{app_name}: {exc}")
         finally:
             try:

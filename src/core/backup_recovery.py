@@ -78,7 +78,7 @@ def _append_manifest_event(backup_folder: str, event: dict) -> tuple[bool, str]:
             os.fsync(manifest.fileno())
         _set_hidden_on_windows(path)
         return True, ""
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - manifest failure must be reported after a file move.
         return False, str(exc)
 
 
@@ -213,7 +213,7 @@ def restore_backup_files(source_folder: str, backup_paths: Iterable[str]) -> lis
         restore_target = _safe_restore_target(source_folder, original_name)
         try:
             shutil.move(backup_path, restore_target)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - report each failed restore and continue the batch.
             results.append(RestoreResult(backup_path, False, error=str(exc)))
         else:
             recorded, warning = _record_restore(backup_path, original_name)

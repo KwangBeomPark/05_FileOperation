@@ -262,7 +262,7 @@ class BypassConverter:
             app.Quit()
             self._office_installed_cache[app_name] = True
             return True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - COM activation can raise provider-specific errors.
             logger.warning(f"{app_name} is not available/installed: {e}")
             self._office_installed_cache[app_name] = False
             return False
@@ -383,7 +383,7 @@ class BypassConverter:
             return True, "성공"
         except FileExistsError:
             return False, f"TARGET_ALREADY_EXISTS|{tgt_html_path}"
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - viewer generation failure must trigger partial-output cleanup.
             logger.error("Failed to generate PDF HTML viewer %s -> %s: %s", src_pdf_path, tgt_html_path, e)
             if created and os.path.exists(tgt_html_path):
                 try:
@@ -496,7 +496,7 @@ class BypassConverter:
             if os.path.exists(tgt_path):
                 try:
                     set_file_timestamps_windows(tgt_path, creation_time, access_time, modification_time)
-                except Exception as meta_ex:
+                except Exception as meta_ex:  # noqa: BLE001 - metadata provider errors do not invalidate conversion.
                     logger.error(f"Failed to restore metadata for {tgt_path}: {meta_ex}")
                     # 메타데이터 보존 실패는 파일 자체의 변환 성공을 무효화하지는 않음 (경고만 기록)
             if generate_pdf_html and src_ext == '.pdf':
@@ -504,7 +504,7 @@ class BypassConverter:
                 if os.path.exists(html_path):
                     try:
                         set_file_timestamps_windows(html_path, creation_time, access_time, modification_time)
-                    except Exception as meta_ex:
+                    except Exception as meta_ex:  # noqa: BLE001 - metadata provider errors do not invalidate conversion.
                         logger.error(f"Failed to restore metadata for {html_path}: {meta_ex}")
 
         # 3. Validate the output structure and confirm that the source has not
@@ -534,7 +534,7 @@ class BypassConverter:
                 if not os.path.exists(src_path):
                     return True, f"SOURCE_RECYCLED|{tgt_path}"
                 recycle_error = "Recycle Bin operation returned but the source still exists"
-            except Exception as recycle_exception:
+            except Exception as recycle_exception:  # noqa: BLE001 - recycle provider errors require safe backup fallback.
                 recycle_error = str(recycle_exception)
                 logger.warning("Could not move replaced source to Recycle Bin %s: %s", src_path, recycle_exception)
                 if not os.path.exists(src_path):
@@ -561,7 +561,7 @@ class BypassConverter:
                     logger.warning("Source backup manifest could not be updated for %s: %s", backup_path, manifest_error)
                     return True, f"SOURCE_BACKED_UP_MANIFEST_WARNING|{backup_path}|{manifest_error}"
                 return True, f"SOURCE_BACKED_UP|{backup_path}"
-            except Exception as backup_ex:
+            except Exception as backup_ex:  # noqa: BLE001 - backup and manifest failures must be reported per file.
                 logger.error(f"Failed to move original file to backup {src_path}: {backup_ex}")
                 return False, f"SOURCE_BACKUP_FAILED|{backup_ex!s}"
 
@@ -715,7 +715,7 @@ class BypassConverter:
                     zipf.write(src_path, arcname=os.path.basename(src_path))
                 primary_success = True
                 primary_msg = "성공"
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - archive failure is reported per file.
                 logger.error(f"PDF ZIP conversion failed: {e}")
                 return False, f"PDF -> ZIP 압축 중 오류: {e!s}"
         else:
@@ -724,7 +724,7 @@ class BypassConverter:
                 shutil.copy2(src_path, tgt_path)
                 primary_success = True
                 primary_msg = "성공"
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - copy failure is reported per file.
                 return False, f"PDF 복제 오류: {e!s}"
 
         if not primary_success:

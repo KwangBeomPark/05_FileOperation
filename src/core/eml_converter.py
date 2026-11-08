@@ -9,6 +9,9 @@ from email.parser import BytesParser
 
 logger = logging.getLogger(__name__)
 
+class EMLConversionError(Exception):
+    """EML parsing or browser preparation failed."""
+
 class EMLConverter:
     """
     EML 메일 파일을 HTML로 추출하고 Playwright를 사용하여
@@ -46,7 +49,7 @@ class EMLConverter:
             with open(eml_path, 'rb') as f:
                 msg = BytesParser(policy=policy.default).parse(f)
         except Exception as e:
-            raise Exception(f"EML 파일 파싱 오류: {e!s}") from e
+            raise EMLConversionError(f"EML 파일 파싱 오류: {e!s}") from e
 
         html_content = None
         text_content = None
@@ -65,12 +68,12 @@ class EMLConverter:
                     try:
                         html_content = part.get_content()
                         break
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 - malformed MIME handlers must not block other parts.
                         logger.error(f"HTML 파트 추출 중 오류: {e}")
                 elif content_type == "text/plain" and text_content is None:
                     try:
                         text_content = part.get_content()
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 - malformed MIME handlers must not block other parts.
                         logger.error(f"Text 파트 추출 중 오류: {e}")
         else:
             # 단일 파트 구조
@@ -129,10 +132,10 @@ class EMLConverter:
                 e.stdout,
                 e.stderr,
             )
-            raise Exception("메일 이미지 변환용 브라우저 구성 요소를 자동으로 준비하지 못했습니다. 네트워크 연결 상태를 확인해 주세요.") from e
+            raise EMLConversionError("메일 이미지 변환용 브라우저 구성 요소를 자동으로 준비하지 못했습니다. 네트워크 연결 상태를 확인해 주세요.") from e
         except Exception as e:
             logger.error(f"Failed to auto-install Playwright chromium browser: {e}")
-            raise Exception("메일 이미지 변환용 브라우저 구성 요소를 자동으로 준비하지 못했습니다. 네트워크 연결 상태를 확인해 주세요.") from e
+            raise EMLConversionError("메일 이미지 변환용 브라우저 구성 요소를 자동으로 준비하지 못했습니다. 네트워크 연결 상태를 확인해 주세요.") from e
 
     def _get_playwright_install_command(self):
         try:
@@ -144,7 +147,7 @@ class EMLConverter:
             node_path, cli_path = compute_driver_executable()
             if os.path.exists(node_path) and os.path.exists(cli_path):
                 return [node_path, cli_path, "install", "chromium"], get_driver_env()
-        except Exception as driver_err:
+        except Exception as driver_err:  # noqa: BLE001 - driver internals vary; preserve executable fallback.
             logger.warning(f"Failed to resolve Playwright bundled driver: {driver_err}")
 
         if getattr(sys, "frozen", False):
@@ -197,7 +200,7 @@ class EMLConverter:
                 except Exception as browser_err:
                     if "Executable doesn't exist" in str(browser_err) or "playwright install" in str(browser_err):
                         if self.playwright_install_failed:
-                            raise Exception("메일 이미지 변환용 브라우저 구성 요소가 없고 이전 준비 시도도 실패했습니다. 인터넷 연결 또는 오프라인 브라우저 설정을 확인하세요.") from browser_err
+                            raise EMLConversionError("메일 이미지 변환용 브라우저 구성 요소가 없고 이전 준비 시도도 실패했습니다. 인터넷 연결 또는 오프라인 브라우저 설정을 확인하세요.") from browser_err
                         
                         logger.warning("Chromium executable not found. Attempting automatic installation...")
                         try:
@@ -223,7 +226,7 @@ class EMLConverter:
                     if browser:
                         try:
                             browser.close()
-                        except Exception as close_err:
+                        except Exception as close_err:  # noqa: BLE001 - browser cleanup must not mask conversion.
                             logger.error(f"Failed to close playwright browser: {close_err}")
 
         except Exception as e:

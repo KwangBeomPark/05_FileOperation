@@ -134,7 +134,7 @@ class AutoUpdater:
                     release_notes = release_payload.get("body", "No release notes available.")
                     return True, latest_tag, self.latest_asset.url if self.latest_asset else None, release_notes
                 return False, latest_tag, None, ""
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - update check exposes failures through last_error.
             self.last_error = str(exc)
             logger.error("Failed to check updates from GitHub: %s", exc)
             return False, self.current_version, None, ""
@@ -214,7 +214,7 @@ class AutoUpdater:
                     raise OSError("업데이트 파일 SHA-256 검증에 실패했습니다.")
                 os.replace(partial, destination)
             return True
-        except Exception as exc:
+        except Exception as exc:  # Remove partial download on any failure before re-raising.
             logger.error("Failed to download file from %s to %s: %s", url, dest_path, exc)
             partial.unlink(missing_ok=True)
             raise

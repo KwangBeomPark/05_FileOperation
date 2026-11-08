@@ -84,7 +84,7 @@ def send_email(
         err_msg = "SMTP 인증에 실패했습니다. 이메일 주소 또는 비밀번호(앱 비밀번호)를 확인하세요."
         logger.error(err_msg)
         return False, err_msg
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - public delivery boundary converts transport/provider failures into its existing result tuple.
         err_msg = f"이메일 전송 중 에러가 발생했습니다: {e!s}"
         logger.error(err_msg)
         return False, err_msg
@@ -92,5 +92,5 @@ def send_email(
         if server:
             try:
                 server.quit()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - disconnect failures must not replace the established delivery result.
+                logger.warning("SMTP connection cleanup failed")

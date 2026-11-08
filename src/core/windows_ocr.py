@@ -136,7 +136,7 @@ def windows_ocr_available(timeout_seconds: int = 8) -> tuple[bool, str]:
             return True, "Windows 내장 OCR 사용 가능"
         detail = (completed.stderr or completed.stdout or "Windows OCR check failed").strip()
         return False, detail
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - backend check failures are returned as diagnostic details.
         return False, str(exc)
     finally:
         try:

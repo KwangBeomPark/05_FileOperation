@@ -1,6 +1,7 @@
-import sys
 import base64
 import logging
+import sys
+
 from src.app_identity import SECURITY_DESCRIPTION
 
 logger = logging.getLogger(__name__)

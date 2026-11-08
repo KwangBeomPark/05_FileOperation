@@ -423,7 +423,7 @@ class SyncManager:
                         if os.path.isdir(full_path) or item.lower() in ignored_dirs:
                             continue
                         self._register_scanned_file(folder, item, full_path, version_groups, plain_files)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - record folder failure and continue scanning other folders.
                 self.scan_errors.append(e)
                 logger.error(f"Error scanning folder '{folder}': {e}")
                 

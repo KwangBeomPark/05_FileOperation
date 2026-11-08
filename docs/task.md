@@ -180,3 +180,12 @@ Existing signing/publication tasks and protected release-folder permissions rema
 - [x] Run the isolated full suite (709 tests, one skipped) and obtain Sol and Argon read-only reviews of the cleanup changes.
 - [ ] Continue the remaining repository-wide Ruff diagnostics; do not weaken failure handling or change credential security behavior merely to silence a warning.
 - [ ] Build, sign, install and verify a new release separately; the existing published v1.6.2 does not contain these source changes.
+
+### Remaining warnings follow-up — 2026-11-08
+
+- [x] Introduce specific EML, PDF and OCR exception subclasses while retaining messages and existing cause/fallback behavior.
+- [x] Document individual diagnostic, COM and per-file exception boundaries rather than weakening their failure handling.
+- [x] Test manifest/restore failure handling, conversion error types and SMTP cleanup without real delivery or user data.
+- [x] Isolated full regression: 731 tests, one skipped, no failures.
+- [x] Complete Opus 5.5 CLI review and follow-up test improvements; no P1/P2 found in the reviewed scope.
+- [x] Honor the user's decision to retain direct SMTP and existing credential behavior; seven security-module warnings remain explicitly out of scope.
