@@ -103,6 +103,20 @@ class TestFolderWatcherPhase3(unittest.TestCase):
             f.write("content")
         self.assertTrue(is_file_ready(file_path, check_duration=0.05))
 
+    def test_callback_failure_does_not_prevent_next_poll(self):
+        callback = Mock(side_effect=[RuntimeError("private detail"), None])
+        watcher = FolderWatcher(watch_folders=[self.temp_dir], callback=callback, debounce_seconds=0)
+        watcher.debounce_seconds = 0  # Exercise both callback paths without a real-time wait.
+        with (
+            patch.object(watcher, "_scan_folder", side_effect=[{"first": (1, 1)}, {"first": (2, 1)}]),
+            patch("src.core.folder_watcher.is_file_ready", return_value=True),
+            self.assertLogs("src.core.folder_watcher", level="WARNING") as logs,
+        ):
+            watcher._poll_cycle()
+            watcher._poll_cycle()
+        self.assertEqual(callback.call_count, 2)
+        self.assertNotIn("private detail", " ".join(logs.output))
+
     def test_folder_watcher_detects_files_and_filters_pattern(self):
         detected_files = []
 

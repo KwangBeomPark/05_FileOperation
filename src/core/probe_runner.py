@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import multiprocessing
 import os
 import socket
@@ -14,6 +15,7 @@ PATH_TIMEOUT_SECONDS = 8.0
 SMTP_TIMEOUT_SECONDS = 5.0
 DEPENDENCY_TIMEOUT_SECONDS = 15.0
 OFFICE_TIMEOUT_SECONDS = 20.0
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -119,8 +121,8 @@ def _worker_entry(probe_name: str, payload: dict[str, Any], result_sender) -> No
     except BaseException as exc:  # noqa: BLE001
         try:
             result_sender.send({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 - a broken result pipe cannot report its own failure.
+            logger.warning("Probe worker could not send its failure result")
     finally:
         result_sender.close()
 
@@ -139,8 +141,8 @@ def _terminate_process_tree(process) -> None:
                 timeout=5,
                 creationflags=creation_flags,
             )
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 - fall back to terminating the worker directly.
+            logger.warning("Probe process tree termination failed; trying worker termination")
     if process.is_alive():
         process.terminate()
     process.join(timeout=2)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import logging
 import os
 import shutil
 from collections.abc import Iterable
@@ -12,6 +13,7 @@ from pathlib import Path
 BACKUP_FOLDER_NAME = "Original Backup"
 MANIFEST_FILENAME = ".fileops-backup.jsonl"
 MANIFEST_SCHEMA_VERSION = 1
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -60,8 +62,8 @@ def _set_hidden_on_windows(path: str) -> None:
         attributes = get_attributes(path)
         if attributes != -1:
             set_attributes(path, attributes | 0x2)
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001 - hiding is best effort and must not block backup.
+        logger.warning("Could not set backup folder hidden attribute")
 
 
 def _append_manifest_event(backup_folder: str, event: dict) -> tuple[bool, str]:

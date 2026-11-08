@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.core import ocr_processor, windows_ocr
@@ -18,6 +19,55 @@ class FakeConfig:
 
 
 class OCRProcessorTests(unittest.TestCase):
+    def test_ocr_cleanup_failures_do_not_change_result_or_delete_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.png"
+            source.write_bytes(b"original")
+            with (
+                patch.object(windows_ocr, "_prepare_image", return_value=("temporary-image", True)),
+                patch.object(windows_ocr, "_write_script", return_value="temporary-script"),
+                patch.object(windows_ocr, "_run_powershell", return_value=SimpleNamespace(returncode=0, stdout=" result ")),
+                patch.object(Path, "unlink", autospec=True, side_effect=OSError("sensitive path")) as unlink,
+                self.assertLogs(windows_ocr.logger, level="WARNING") as logs,
+            ):
+                result = windows_ocr.extract_text_with_windows_ocr(str(source))
+            self.assertEqual(result, "result")
+            self.assertEqual(source.read_bytes(), b"original")
+            self.assertEqual(len(logs.output), 2)
+            self.assertNotIn("sensitive path", " ".join(logs.output))
+            self.assertEqual({call.args[0] for call in unlink.call_args_list}, {Path("temporary-script"), Path("temporary-image")})
+            self.assertNotIn(source, {call.args[0] for call in unlink.call_args_list})
+
+    def test_ocr_cleanup_failure_does_not_mask_original_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.png"
+            source.write_bytes(b"original")
+            original_error = RuntimeError("original failure")
+            with (
+                patch.object(windows_ocr, "_prepare_image", return_value=("temporary-image", True)),
+                patch.object(windows_ocr, "_write_script", return_value="temporary-script"),
+                patch.object(windows_ocr, "_run_powershell", side_effect=original_error),
+                patch.object(Path, "unlink", autospec=True, side_effect=OSError("sensitive path")) as unlink,
+                self.assertLogs(windows_ocr.logger, level="WARNING"),
+                self.assertRaises(RuntimeError) as caught,
+            ):
+                windows_ocr.extract_text_with_windows_ocr(str(source))
+            self.assertIs(caught.exception, original_error)
+            self.assertEqual({call.args[0] for call in unlink.call_args_list}, {Path("temporary-script"), Path("temporary-image")})
+            self.assertEqual(source.read_bytes(), b"original")
+
+    def test_ocr_check_cleanup_failure_does_not_change_result(self):
+        with (
+            patch.object(windows_ocr.sys, "platform", "win32"),
+            patch.object(windows_ocr, "_write_script", return_value="temporary-script"),
+            patch.object(windows_ocr, "_run_powershell", return_value=SimpleNamespace(returncode=0)),
+            patch.object(Path, "unlink", side_effect=OSError("sensitive path")),
+            self.assertLogs(windows_ocr.logger, level="WARNING") as logs,
+        ):
+            available, _message = windows_ocr.windows_ocr_available()
+        self.assertTrue(available)
+        self.assertNotIn("sensitive path", " ".join(logs.output))
+
     def test_windows_ocr_script_is_closed_and_preserved_after_write(self):
         with tempfile.TemporaryDirectory() as directory:
             original_factory = tempfile.NamedTemporaryFile

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -9,6 +10,7 @@ from pathlib import Path
 from PIL import Image
 
 WINDOWS_OCR_MAX_DIMENSION = 2600
+logger = logging.getLogger(__name__)
 
 
 POWERSHELL_OCR_SCRIPT = r"""
@@ -139,8 +141,8 @@ def windows_ocr_available(timeout_seconds: int = 8) -> tuple[bool, str]:
     finally:
         try:
             Path(script_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 - cleanup must not mask the OCR check result.
+            logger.warning("Windows OCR check script cleanup failed")
 
 
 def extract_text_with_windows_ocr(image_path: str, timeout_seconds: int = 30) -> str:
@@ -158,10 +160,10 @@ def extract_text_with_windows_ocr(image_path: str, timeout_seconds: int = 30) ->
     finally:
         try:
             Path(script_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001 - cleanup must not mask the OCR result.
+            logger.warning("Windows OCR script cleanup failed")
         if is_temp_image:
             try:
                 Path(prepared_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - cleanup must not mask the OCR result.
+                logger.warning("Windows OCR temporary image cleanup failed")

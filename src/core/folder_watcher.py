@@ -1,11 +1,13 @@
 """Folder Watcher module with debounce and file write-lock safety checks."""
 
 import fnmatch
+import logging
 import os
 import threading
 import time
 from collections.abc import Callable
 
+logger = logging.getLogger(__name__)
 
 def is_file_ready(file_path: str, check_duration: float = 0.2) -> bool:
     """Check if a file is completely written and not locked by another process."""
@@ -130,8 +132,8 @@ class FolderWatcher:
                     self._pending_changes.difference_update(ready_files)
                     try:
                         self.callback(triggered)
-                    except Exception:
-                        pass
+                    except Exception:  # noqa: BLE001 - callback failure must not stop monitoring.
+                        logger.warning("Folder watcher callback failed")
 
     def start(self, initial_snapshot: bool = True) -> None:
         """Start monitoring directories in the background."""

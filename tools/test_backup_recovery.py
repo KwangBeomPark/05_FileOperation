@@ -1,13 +1,14 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
+from src.core import backup_recovery
 from src.core.backup_recovery import (
     MANIFEST_FILENAME,
     backup_directory,
@@ -24,6 +25,20 @@ class FakeConfig:
 
 
 class BackupRecoveryTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows API boundary")
+    def test_hidden_attribute_exception_is_logged_without_sensitive_detail(self):
+        kernel = Mock()
+        kernel.GetFileAttributesW.side_effect = OSError("private path")
+        with (
+            patch.object(backup_recovery.ctypes.windll, "kernel32", kernel),
+            self.assertLogs(backup_recovery.logger, level="WARNING") as logs,
+        ):
+            self.assertIsNone(backup_recovery._set_hidden_on_windows("not-a-real-path"))
+        kernel.GetFileAttributesW.assert_called_once_with("not-a-real-path")
+        kernel.SetFileAttributesW.assert_not_called()
+        self.assertNotIn("private path", " ".join(logs.output))
+        self.assertNotIn("not-a-real-path", " ".join(logs.output))
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

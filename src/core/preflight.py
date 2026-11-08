@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from enum import Enum
@@ -20,6 +21,7 @@ from src.core.task_contracts import (
 )
 from src.ui.i18n import choose, get_app_language
 
+logger = logging.getLogger(__name__)
 
 class IssueLevel(str, Enum):
     BLOCKER = "blocker"
@@ -162,8 +164,8 @@ def check_office_apps(app_names: list[str]) -> tuple[bool, list[str]]:
             try:
                 if app:
                     app.Quit()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - COM cleanup must not mask preflight results.
+                logger.warning("Office preflight COM shutdown failed")
             pythoncom.CoUninitialize()
     return not errors, errors
 

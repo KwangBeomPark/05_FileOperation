@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from src.core.preflight import IssueLevel, check_github_updater_settings, check_run_plan
 from src.core.probe_runner import ProbeResult
@@ -23,6 +23,22 @@ class FakeConfig:
 
 
 class PreflightTests(unittest.TestCase):
+    def test_office_shutdown_failure_does_not_change_preflight_result(self):
+        app = Mock()
+        app.Quit.side_effect = RuntimeError("private detail")
+        with (
+            patch("win32com.client.DispatchEx", return_value=app),
+            patch("pythoncom.CoInitialize"),
+            patch("pythoncom.CoUninitialize") as uninitialize,
+            self.assertLogs("src.core.preflight", level="WARNING") as logs,
+        ):
+            from src.core.preflight import check_office_apps
+
+            result = check_office_apps(["Excel.Application"])
+        self.assertEqual(result, (True, []))
+        uninitialize.assert_called_once()
+        self.assertNotIn("private detail", " ".join(logs.output))
+
     def test_ocr_dependency_failure_is_blocker(self):
         plan = RunPlan({TaskStep.OCR: OcrRunConfig(["image.png"])})
         with patch("src.core.preflight.check_ocr_engines", return_value=(False, "missing", False)):
