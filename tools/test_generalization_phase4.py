@@ -76,6 +76,15 @@ class TestPresetManagerPhase4(unittest.TestCase):
         self.assertNotIn("github_token", disk_data["settings"])
         self.assertNotIn("sender_password", disk_data["settings"])
 
+    def test_preset_rejects_json_array_as_invalid_value(self):
+        input_path = os.path.join(self.temp_dir, "array.json")
+        with open(input_path, "w", encoding="utf-8") as f:
+            json.dump([], f)
+        with self.assertRaises(ValueError) as caught:
+            load_workflow_preset(input_path)
+        self.assertIs(type(caught.exception), ValueError)
+        self.assertEqual(str(caught.exception), "Invalid preset file format: root must be a JSON object.")
+
     def test_load_and_apply_preset(self):
         export_file = os.path.join(self.temp_dir, "sample.json")
         payload = {

@@ -100,7 +100,8 @@ def load_workflow_preset(input_path: str) -> dict[str, Any]:
         raw = json.load(f)
 
     if not isinstance(raw, dict):
-        raise ValueError("Invalid preset file format: root must be a JSON object.")
+        # A valid JSON document can still be an unsupported preset value.
+        raise ValueError("Invalid preset file format: root must be a JSON object.")  # noqa: TRY004
 
     if "settings" in raw and isinstance(raw["settings"], dict):
         settings = raw["settings"]

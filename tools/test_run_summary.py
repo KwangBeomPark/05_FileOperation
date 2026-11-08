@@ -24,6 +24,13 @@ from src.core.task_contracts import (
 
 
 class RunSummaryTests(unittest.TestCase):
+    def test_unsupported_config_is_reported_as_invalid_plan_value(self):
+        plan = RunPlan({TaskStep.SYNC: object()})
+        with self.assertRaises(ValueError) as caught:
+            build_run_summary(plan)
+        self.assertIs(type(caught.exception), ValueError)
+        self.assertEqual(str(caught.exception), f"Unsupported summary step: {TaskStep.SYNC}")
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

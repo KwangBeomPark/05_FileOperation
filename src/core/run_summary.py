@@ -250,7 +250,8 @@ def build_run_summary(plan: RunPlan) -> RunChangeSummary:
         elif isinstance(config, BypassRunConfig):
             builder.bypass(config)
         else:
-            raise ValueError(f"Unsupported summary step: {step}")
+            # Preserve the public invalid-plan value error for unsupported configurations.
+            raise ValueError(f"Unsupported summary step: {step}")  # noqa: TRY004
         earlier.add(step)
     if len(builder.observations) > OBSERVATION_LIMIT:
         raise ValueError("Preview exceeds 100000 observed paths; use a smaller scope.")
