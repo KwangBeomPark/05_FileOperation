@@ -48,7 +48,8 @@ def build_webhook_payload(
         "subject": subject,
         "body": body,
         "success": bool(success),
-        "timestamp": datetime.now().isoformat(),
+        # Keep the existing offset-free local timestamp in webhook payloads.
+        "timestamp": datetime.now().isoformat(),  # noqa: DTZ005
     }
 
 

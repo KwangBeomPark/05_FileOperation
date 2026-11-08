@@ -52,7 +52,8 @@ def merge_run_report_history(
 ) -> dict[str, dict[str, Any]]:
     """Merge a completed run into a latest-result-per-feature history map."""
     history = normalize_step_history(existing)
-    timestamp = (finished_at or datetime.now()).isoformat(timespec="seconds")
+    # Preserve offset-free local timestamps when no finish time is supplied.
+    timestamp = (finished_at or datetime.now()).isoformat(timespec="seconds")  # noqa: DTZ005
     for step, result in report.results.items():
         detail = result.error_message or (result.details[-1] if result.details else "")
         history[step.value] = {

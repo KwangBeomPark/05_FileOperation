@@ -75,7 +75,8 @@ def export_workflow_preset(
         "preset_format": "fileops.workflow.v1",
         "name": name,
         "description": description,
-        "created_at": datetime.now().isoformat(),
+        # Preserve the existing local, offset-free preset file format.
+        "created_at": datetime.now().isoformat(),  # noqa: DTZ005
         "settings": sanitized_settings,
     }
 

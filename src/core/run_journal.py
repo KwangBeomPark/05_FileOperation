@@ -24,7 +24,8 @@ RUN_STATUSES = {
 
 
 def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    # Preserve local, offset-free timestamps in existing journal files.
+    return datetime.now().isoformat(timespec="seconds")  # noqa: DTZ005
 
 
 class RunJournal:
@@ -61,7 +62,8 @@ class RunJournal:
         language: str,
     ) -> str:
         started_at = _now_iso()
-        run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        # Run IDs retain their existing local wall-clock prefix.
+        run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"  # noqa: DTZ005
         entry = {
             "schema_version": 1,
             "run_id": run_id,
