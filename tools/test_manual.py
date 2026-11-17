@@ -45,6 +45,26 @@ class ManualContentTests(unittest.TestCase):
         self.assertIn("미리보기", " ".join(manual_topic("sync", "ko")["steps"]))
         self.assertIn("Original Backup", " ".join(manual_topic("bypass", "ko")["tips"]))
 
+    def test_sync_help_distinguishes_all_group_run_from_manual_cleanup(self):
+        expectations = {
+            "en": ("all configured groups", "View changes", "Recycle Bin (default)", "never scheduled"),
+            "ko": ("모든 그룹", "변경 내용 보기", "휴지통(기본)", "예약 실행되지 않습니다"),
+            "pl": ("wszystkie skonfigurowane grupy", "Zobacz zmiany", "Kosza (domyślnie)", "Nie jest uruchamiana z harmonogramu"),
+        }
+        for language, (scope, preview, default, schedule) in expectations.items():
+            with self.subTest(language=language):
+                topic = manual_topic("sync", language)
+                self.assertIn(scope, topic["summary"])
+                self.assertIn(preview, " ".join(topic["steps"]))
+                self.assertIn(default, " ".join(topic["cautions"]))
+                self.assertIn(schedule, " ".join(topic["cautions"]))
+
+    def test_collection_help_schedules_through_run_tasks(self):
+        for language, task_tab in (("en", "Run Tasks"), ("ko", "작업 실행"), ("pl", "Uruchom zadania")):
+            with self.subTest(language=language):
+                steps = manual_topic("collect_sync", language)["steps"]
+                self.assertIn(task_tab, steps[-1])
+
     def test_korean_manual_uses_beginner_facing_terms(self):
         rendered = " ".join(
             str(value)

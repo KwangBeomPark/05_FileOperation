@@ -152,7 +152,7 @@ class CollectUiTests(unittest.TestCase):
         self.assertTrue(self.tab.result_pager.isHidden())
         self.assertNotIn("page buttons", self.tab.summary_label.text())
         with patch(
-            "src.ui.collect_sync_tab.QMessageBox.question",
+            "src.ui.collect_sync_tab.QMessageBox.exec",
             return_value=QMessageBox.StandardButton.Yes,
         ):
             self.assertTrue(self.tab.start_execution())
@@ -174,11 +174,76 @@ class CollectUiTests(unittest.TestCase):
 
     def test_manual_cancel_does_not_create_worker(self):
         with patch(
-            "src.ui.collect_sync_tab.QMessageBox.question",
+            "src.ui.collect_sync_tab.QMessageBox.exec",
             return_value=QMessageBox.StandardButton.No,
         ):
             self.assertFalse(self.tab.start_execution())
         self.assertIsNone(self.tab.worker)
+
+    def test_manual_run_checks_required_inputs_before_opening_confirmation(self):
+        self.tab.source_list.clear()
+        self.tab.keywords_input.setText(" , ")
+        self.tab.target_input.clear()
+        with patch("src.ui.collect_sync_tab.QMessageBox.exec") as prompt:
+            self.assertFalse(self.tab.start_execution())
+            self.assertEqual(self.tab.status_label.text(), tr("collect_error_sources", "en"))
+            self.tab.source_list.addItem(str(self.source))
+            self.assertFalse(self.tab.start_execution())
+            self.assertEqual(self.tab.status_label.text(), tr("collect_error_keywords", "en"))
+            self.tab.keywords_input.setText("report")
+            self.assertFalse(self.tab.start_execution())
+            self.assertEqual(self.tab.status_label.text(), tr("collect_target_required", "en"))
+            prompt.assert_not_called()
+        self.assertIsNone(self.tab.worker)
+
+    def test_confirmation_displays_the_current_group_and_exact_plain_text_target(self):
+        name = "<b>Daily & reports</b>"
+        target = str(self.target / ("F" * 260))
+        self.tab.groups[0]["name"] = name
+        self.tab.target_input.setText(target)
+
+        def inspect(box):
+            self.assertIn(name, box.text())
+            self.assertIn(target, box.text())
+            self.assertEqual(box.textFormat(), Qt.TextFormat.PlainText)
+            self.assertIs(box.defaultButton(), box.button(QMessageBox.StandardButton.No))
+            self.assertIs(box.escapeButton(), box.defaultButton())
+            box.show()
+            try:
+                self.assertLessEqual(box.width(), box.screen().availableGeometry().width())
+                self.assertLessEqual(box.height(), box.screen().availableGeometry().height())
+            finally:
+                box.hide()
+            return QMessageBox.StandardButton.No
+
+        with (
+            patch("src.ui.collect_sync_tab.QMessageBox.exec", new=inspect),
+            patch("src.ui.collect_sync_tab.os.path.isdir") as path_lookup,
+        ):
+            self.assertFalse(self.tab.start_execution())
+            path_lookup.assert_not_called()
+        self.assertIsNone(self.tab.worker)
+
+    def test_manual_run_does_not_use_group_that_changed_during_confirmation(self):
+        def edit_while_open(_box):
+            self.tab.target_input.setText(str(self.target / "different"))
+            return QMessageBox.StandardButton.Yes
+
+        with patch("src.ui.collect_sync_tab.QMessageBox.exec", new=edit_while_open):
+            self.assertFalse(self.tab.start_execution())
+        self.assertEqual(self.tab.status_label.text(), tr("collect_confirm_changed", "en"))
+        self.assertIsNone(self.tab.worker)
+
+    def test_settings_reload_updates_visible_rows_without_writing_history(self):
+        imported = new_collect_group("Imported")
+        imported.update(schedule_last_result="running", target=str(self.target))
+        self.config.values["collect_sync_groups"] = [imported]
+        with patch.object(self.config, "set", wraps=self.config.set) as save:
+            self.assertTrue(self.tab.load_saved_data(persist=False))
+            save.assert_not_called()
+        self.assertEqual(self.tab.group_combo.currentText(), "Imported")
+        self.assertEqual(self.tab.target_input.text(), str(self.target))
+        self.assertEqual(self.tab.groups[0]["schedule_last_result"], "running")
 
     def test_all_2001_preview_results_are_accessible_without_report_write(self):
         for number in range(2001):
@@ -256,7 +321,7 @@ class CollectUiTests(unittest.TestCase):
             return QMessageBox.StandardButton.No
 
         with patch(
-            "src.ui.collect_sync_tab.QMessageBox.question", side_effect=while_confirming
+            "src.ui.collect_sync_tab.QMessageBox.exec", side_effect=while_confirming
         ):
             self.assertFalse(self.tab.start_execution())
         self.assertFalse(self.tab.is_busy)
@@ -280,7 +345,7 @@ class CollectUiTests(unittest.TestCase):
     def test_modal_exception_releases_interaction_gate(self):
         with (
             patch(
-                "src.ui.collect_sync_tab.QMessageBox.question",
+                "src.ui.collect_sync_tab.QMessageBox.exec",
                 side_effect=RuntimeError("dialog failed"),
             ),
             self.assertRaises(RuntimeError),

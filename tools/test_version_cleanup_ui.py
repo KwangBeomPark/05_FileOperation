@@ -19,6 +19,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PyQt6.QtCore import QEventLoop, Qt, QTimer
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.ui.main_window import MainWindow
@@ -59,22 +60,57 @@ class CleanupUI(unittest.TestCase):
         self.assertEqual(dialog.table.item(0, 0).checkState(), Qt.CheckState.Unchecked)
         self.assertEqual(dialog.table.item(0, 3).text(), "20240101")
         self.assertEqual(dialog.table.item(0, 4).text(), "20250101")
+        self.assertEqual(dialog.selection_count.text(), "체크한 파일: 0개")
         self.assertFalse(dialog.execute_button.isEnabled())
         self.assertEqual(calls[0][1]["archive_folder_name"], "archive")
         dialog.table.item(0, 0).setCheckState(Qt.CheckState.Checked)
+        self.assertEqual(dialog.selection_count.text(), "체크한 파일: 1개")
         self.assertTrue(dialog.execute_button.isEnabled())
         dialog.table.item(0, 0).setCheckState(Qt.CheckState.Unchecked)
+        self.assertEqual(dialog.selection_count.text(), "체크한 파일: 0개")
         self.assertFalse(dialog.execute_button.isEnabled())
         dialog.table.item(0, 0).setCheckState(Qt.CheckState.Checked)
-        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+        with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.No):
             dialog.start_execution()
         self.assertEqual(len(calls), 1)
-        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+        with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes):
             dialog.start_execution()
         wait(dialog.worker)
         self.assertEqual(calls[1][1]["candidates"], [candidate])
         self.assertEqual(calls[1][1]["method"], "trash")
         self.assertEqual(dialog.table.rowCount(), 0)
+        self.assertEqual(dialog.selection_count.text(), "체크한 파일: 0개")
+        dialog.close()
+
+    def test_highlighted_rows_do_not_count_as_checked(self):
+        candidates = [{"path": "X:/example/a.txt"}, {"path": "X:/example/b.txt"}]
+        dialog = VersionCleanupDialog(["X:/example"], "pl", scan=lambda **kw: candidates)
+        dialog.start_scan()
+        wait(dialog.worker)
+        dialog.table.selectRow(0)
+        self.assertFalse(dialog.execute_button.isEnabled())
+        self.assertEqual(dialog.selection_count.text(), "Zaznaczone pliki: 0")
+        dialog.table.setCurrentCell(1, 0)
+        QTest.keyClick(dialog.table, Qt.Key.Key_Space)
+        self.assertEqual(dialog.table.item(1, 0).checkState(), Qt.CheckState.Checked)
+        self.assertEqual(dialog.selection_count.text(), "Zaznaczone pliki: 1")
+
+        prompts = []
+
+        def inspect(box):
+            prompts.append(box.text())
+            self.assertIn("(1)", box.text())
+            self.assertIn("Kosz", box.text())
+            self.assertEqual(box.textFormat(), Qt.TextFormat.PlainText)
+            self.assertIs(box.defaultButton(), box.button(QMessageBox.StandardButton.No))
+            return QMessageBox.StandardButton.No
+
+        with patch.object(QMessageBox, "exec", new=inspect):
+            dialog.start_execution()
+        self.assertEqual(len(prompts), 1)
+        dialog.subfolders.setChecked(True)
+        self.assertEqual(dialog.selection_count.text(), "Zaznaczone pliki: 0")
+        self.assertFalse(dialog.execute_button.isEnabled())
         dialog.close()
 
     def test_subfolder_change_invalidates_candidates(self):
@@ -99,7 +135,7 @@ class CleanupUI(unittest.TestCase):
             self.assertFalse(dialog.execute_button.isEnabled())
             dialog.table.item(0, 0).setCheckState(Qt.CheckState.Checked)
             dialog.method.setCurrentIndex(1)
-            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes):
                 dialog.start_execution()
             self.assertTrue(entered.wait(2))
             self.assertFalse(dialog.execute_button.isEnabled())
@@ -122,7 +158,7 @@ class CleanupUI(unittest.TestCase):
             self.assertEqual(dialog.table.rowCount(), 1)
             dialog.table.item(0, 0).setCheckState(Qt.CheckState.Checked)
             dialog.method.setCurrentIndex(1)
-            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes):
                 dialog.start_execution()
             wait(dialog.worker)
             self.assertIn("Completed: 1", dialog.status.text())
@@ -142,7 +178,7 @@ class CleanupUI(unittest.TestCase):
         dialog.start_scan()
         wait(dialog.worker)
         dialog.table.item(0, 0).setCheckState(Qt.CheckState.Checked)
-        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+        with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Yes):
             dialog.start_execution()
         self.assertTrue(entered.wait(2))
         worker = dialog.worker

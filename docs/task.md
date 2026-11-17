@@ -189,3 +189,16 @@ Existing signing/publication tasks and protected release-folder permissions rema
 - [x] Isolated full regression: 731 tests, one skipped, no failures.
 - [x] Complete Opus 5.5 CLI review and follow-up test improvements; no P1/P2 found in the reviewed scope.
 - [x] Honor the user's decision to retain direct SMTP and existing credential behavior; seven security-module warnings remain explicitly out of scope.
+
+### Workflow UX follow-up — 2026-11-16
+
+- [x] Repair stale screens after preset import and group diagnostics/preset commands under Manage.
+- [x] Distinguish the edited sync group from the all-group execution scope and align preview/run validation without removing file review or revalidation.
+- [x] Show the selected collection group and destination before manual execution; improve manual old-version selection visibility and counts without changing disposal or schedule policy.
+- [x] Run isolated regression and compact-window visual checks (`Ran 758 tests in 31.355s`, `OK (skipped=1)`). Leave help, F1, version, packaging, and publication outside this change.
+
+### Help corrections and v1.7.1 preparation — 2026-11-17
+
+- [x] Remove the dedicated help shortcut and keep the menu and current-screen button.
+- [x] Align Korean, English, and Polish help with the current run, sync, collection, cleanup, and OCR screens.
+- [x] Bump the version and capture the workflow changes in the v1.7.1 release notes. Isolated regression: `Ran 760 tests`, `OK (skipped=1)`.

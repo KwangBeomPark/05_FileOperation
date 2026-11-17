@@ -1,10 +1,12 @@
 import os
 import time
+import uuid
 from collections import deque
+from contextlib import ExitStack
 from dataclasses import replace
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QTime, QTimer, pyqtSignal
+from PyQt6.QtCore import QSignalBlocker, Qt, QTime, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QApplication,
@@ -17,6 +19,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -33,7 +36,6 @@ from src.core.diagnostics import DiagnosticItem, DiagnosticStatus
 from src.core.folder_watcher import FolderWatcher
 from src.core.preflight import check_run_plan
 from src.core.preset_manager import (
-    apply_workflow_preset,
     export_workflow_preset,
     load_workflow_preset,
 )
@@ -51,7 +53,7 @@ from src.core.task_contracts import (
     TaskValidationError,
 )
 from src.core.task_history import merge_run_report_history, normalize_step_history
-from src.core.task_items import migrate_task_selection
+from src.core.task_items import ensure_sync_ids, migrate_task_selection
 from src.core.task_notifier import (
     ReportNotification,
     localize_runtime_error,
@@ -68,6 +70,25 @@ from src.ui.task_worker import TaskWorker
 from src.utils.logger import get_logger
 
 logger = get_logger()
+
+# Machine preferences and unattended/notification consent never travel through
+# the GUI preset import. The preset file format and export remain compatible.
+_PRESET_WORKFLOW_KEYS = frozenset({
+    "sync_folders", "sync_groups", "sync_last_group_index", "sync_move_to_deleted",
+    "collect_sync_groups",
+    "eml_tasks", "eml_incremental", "eml_output_width",
+    "output_folder", "dpi_large", "dpi_small", "dpi_threshold", "document_types",
+    "last_selected_doc_type", "settlement_working_folder", "search_depth",
+    "promotion_regex", "ocr_rule_mode", "ocr_custom_pattern",
+    "ocr_rename_template", "ocr_export_txt",
+    "bypass_excel_target", "bypass_ppt_target", "bypass_word_target", "bypass_pdf_target",
+    "bypass_output_mode", "bypass_source_disposition", "bypass_preserve_meta",
+    "bypass_recursive_scan", "bypass_generate_pdf_html",
+    "last_bypass_source_directory", "last_bypass_target_directory",
+    "task_schedule_time", "task_schedule_mode", "task_schedule_interval_minutes",
+    "task_schedule_weekdays", "task_chain_outputs", "task_enabled_steps", "task_enabled_items",
+})
+
 
 class TaskTab(TaskPanelMixin, QWidget):
     SCHEDULE_RETRY_MINUTES = 10
@@ -98,9 +119,14 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.worker = None
         self.notification_workers = []
         self.folder_watcher = None
+        self._folder_watcher_uses_sync_roots = False
         self.is_running = False
         self.is_scheduled_run = False
         self.is_preflighting = False
+        self._preset_picker_active = False
+        self._preset_import_active = False
+        self._preset_runtime_blocked = False
+        self._preset_pending_file_changes = 0
         self.start_failure_reason = ""
         self.current_run_id = ""
         self.current_report_path = ""
@@ -261,18 +287,18 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.readiness_btn.setMinimumHeight(30)
         self.readiness_btn.clicked.connect(self.refresh_readiness)
         hint_layout.addWidget(self.readiness_btn)
-        self.diagnostics_btn = QPushButton()
-        self.diagnostics_btn.setMinimumHeight(30)
-        self.diagnostics_btn.clicked.connect(self.open_diagnostics)
-        hint_layout.addWidget(self.diagnostics_btn)
-        self.export_preset_btn = QPushButton()
-        self.export_preset_btn.setMinimumHeight(30)
-        self.export_preset_btn.clicked.connect(self.export_preset)
-        hint_layout.addWidget(self.export_preset_btn)
-        self.import_preset_btn = QPushButton()
-        self.import_preset_btn.setMinimumHeight(30)
-        self.import_preset_btn.clicked.connect(self.import_preset)
-        hint_layout.addWidget(self.import_preset_btn)
+        self.management_btn = QPushButton()
+        self.management_btn.setMinimumHeight(30)
+        self.management_menu = QMenu(self.management_btn)
+        self.diagnostics_action = self.management_menu.addAction("")
+        self.diagnostics_action.triggered.connect(self.open_diagnostics)
+        self.management_menu.addSeparator()
+        self.import_preset_action = self.management_menu.addAction("")
+        self.import_preset_action.triggered.connect(self.import_preset)
+        self.export_preset_action = self.management_menu.addAction("")
+        self.export_preset_action.triggered.connect(self.export_preset)
+        self.management_btn.setMenu(self.management_menu)
+        hint_layout.addWidget(self.management_btn)
         layout.addLayout(hint_layout)
 
         self.schedule_status_label = QLabel()
@@ -386,6 +412,8 @@ class TaskTab(TaskPanelMixin, QWidget):
         
         # 미세 진행 레이블
         self.detail_label = QLabel()
+        self.detail_label.setWordWrap(True)
+        self.detail_label.setTextFormat(Qt.TextFormat.PlainText)
         self.detail_label.setStyleSheet("font-size: 11px; color: #a0a0a0;")
         progress_layout.addWidget(self.detail_label)
 
@@ -545,9 +573,10 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.stop_btn.setText(tr("task_stop", language))
         self.history_btn.setText(tr("run_history_button", language))
         self.readiness_btn.setText(tr("task_check_readiness", language))
-        self.diagnostics_btn.setText(tr("diagnostics_open", language))
-        self.export_preset_btn.setText(self._text("Export Preset", "프리셋 내보내기", "Eksportuj profil"))
-        self.import_preset_btn.setText(self._text("Import Preset", "프리셋 가져오기", "Importuj profil"))
+        self.management_btn.setText(self._text("Manage", "관리", "Zarządzaj"))
+        self.diagnostics_action.setText(tr("diagnostics_open", language))
+        self.export_preset_action.setText(self._text("Export Preset", "프리셋 내보내기", "Eksportuj profil"))
+        self.import_preset_action.setText(self._text("Import Preset", "프리셋 가져오기", "Importuj profil"))
         self.selection_hint.setText(tr("task_selection_hint", language))
         self.status_table.setHorizontalHeaderLabels(self.table_headers())
         for index, row in enumerate(self.rows):
@@ -929,14 +958,22 @@ class TaskTab(TaskPanelMixin, QWidget):
         if bool(self.config_manager.get("task_folder_watch_enabled", False)):
             self.start_folder_watcher()
 
+    @staticmethod
+    def _sync_watch_folders(groups):
+        return [
+            folder
+            for group in groups
+            if isinstance(group, dict) and isinstance(group.get("folders", []), list)
+            for folder in group.get("folders", [])
+            if isinstance(folder, str) and folder
+        ] if isinstance(groups, list) else []
+
     def start_folder_watcher(self, watch_folders=None):
         self.stop_folder_watcher()
         folders = list(watch_folders or self.config_manager.get("task_watch_folders", []) or [])
-        if not folders:
-            sync_groups = self.config_manager.get("sync_groups", []) or []
-            for g in sync_groups:
-                if isinstance(g, dict):
-                    folders.extend(g.get("folders", []))
+        uses_sync_roots = not folders
+        if uses_sync_roots:
+            folders = self._sync_watch_folders(self.config_manager.get("sync_groups", []))
         if not folders:
             return False
         debounce = float(self.config_manager.get("task_watch_debounce_seconds", 3.0) or 3.0)
@@ -948,9 +985,11 @@ class TaskTab(TaskPanelMixin, QWidget):
             patterns=patterns,
         )
         self.folder_watcher.start()
+        self._folder_watcher_uses_sync_roots = uses_sync_roots
         return True
 
     def stop_folder_watcher(self):
+        self._folder_watcher_uses_sync_roots = False
         if self.folder_watcher:
             try:
                 self.folder_watcher.stop()
@@ -959,8 +998,16 @@ class TaskTab(TaskPanelMixin, QWidget):
             self.folder_watcher = None
 
     def _handle_folder_watcher_files(self, changed_files: list):
+        self._handle_folder_watch_count(len(changed_files))
+
+    def _handle_folder_watch_count(self, file_count):
+        if self._preset_runtime_blocked:
+            return
+        if self._preset_import_active:
+            self._preset_pending_file_changes += file_count
+            return
         prefix = tr("task_scheduled_prefix", self.language)
-        self.log(f"[{prefix}] FolderWatcher detected {len(changed_files)} changed file(s)")
+        self.log(f"[{prefix}] FolderWatcher detected {file_count} changed file(s)")
         if not self.is_running and not self.is_preflighting:
             self.start_all_tasks(scheduled=True)
 
@@ -1100,7 +1147,8 @@ class TaskTab(TaskPanelMixin, QWidget):
 
     def check_scheduled_run(self, now=None):
         """Start once per day, retrying only failures that occur before worker start."""
-        if self._version_cleanup_open():
+        if (self._version_cleanup_open() or getattr(self, "_preset_import_active", False)
+                or getattr(self, "_preset_runtime_blocked", False)):
             return False
         if self._collect_sync_busy():
             # Wait for the next tick; the daily slot is not consumed while collection runs.
@@ -1172,6 +1220,8 @@ class TaskTab(TaskPanelMixin, QWidget):
     def start_all_tasks(self, checked=False, scheduled=False):
         """통합 일괄 실행 시작"""
         self.start_failure_reason = ""
+        if getattr(self, "_preset_import_active", False) or getattr(self, "_preset_runtime_blocked", False):
+            return False
         if self._version_cleanup_open():
             return self._start_rejected(self._text(
                 "Close old-version cleanup before running tasks.",
@@ -1336,9 +1386,9 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.check_allow_source_backup.setEnabled(False)
         self.schedule_time_edit.setEnabled(False)
         self.readiness_btn.setEnabled(False)
-        self.diagnostics_btn.setEnabled(False)
+        self.diagnostics_action.setEnabled(False)
         self.check_chain_outputs.setEnabled(False)
-        self.import_preset_btn.setEnabled(False)
+        self.import_preset_action.setEnabled(False)
         for check in self.item_checks.values():
             check.setEnabled(False)
         
@@ -1459,9 +1509,9 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.check_allow_source_backup.setEnabled(self.check_schedule.isChecked())
         self.schedule_time_edit.setEnabled(self.check_schedule.isChecked())
         self.readiness_btn.setEnabled(True)
-        self.diagnostics_btn.setEnabled(True)
+        self.diagnostics_action.setEnabled(True)
         self.check_chain_outputs.setEnabled(True)
-        self.import_preset_btn.setEnabled(True)
+        self.import_preset_action.setEnabled(True)
         for check in self.item_checks.values():
             check.setEnabled(True)
         self._refresh_start_button_state()
@@ -1476,7 +1526,10 @@ class TaskTab(TaskPanelMixin, QWidget):
         if hasattr(main_win, "set_all_tabs_locked"):
             main_win.set_all_tabs_locked(False)
             
-        self.detail_label.setText(message)
+        self.detail_label.setText(
+            self._text(f"Completed: {message}", f"완료: {message}", f"Zakończono: {message}")
+            if success else message
+        )
         self.run_health_label.setText(tr("run_health_idle", self.language))
         self.run_health_label.setStyleSheet("font-size: 10px; color: #64748b;")
 
@@ -1521,12 +1574,6 @@ class TaskTab(TaskPanelMixin, QWidget):
         
         if success:
             self.log(f"\n[{self._text('Success', '성공', 'Powodzenie')}] {message}")
-            if not scheduled_run:
-                QMessageBox.information(
-                    self,
-                    self._text("Completed", "완료", "Zakończono"),
-                    message,
-                )
         else:
             self.log(f"\n[{self._text('Stopped/Failed', '중단/실패', 'Zatrzymano/Błąd')}] {message}")
             if not scheduled_run:
@@ -1595,28 +1642,134 @@ class TaskTab(TaskPanelMixin, QWidget):
                 str(e),
             )
 
-    def import_preset(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            self._text("Import Workflow Preset", "워크플로우 프리셋 가져오기", "Importuj profil przepływu pracy"),
-            "",
-            "JSON Files (*.json);;All Files (*)",
+    def _preset_updates(self, settings):
+        """Prepare workflow settings without importing automation consent or history."""
+        updates = {key: value for key, value in settings.items() if key in _PRESET_WORKFLOW_KEYS}
+        if "sync_folders" in updates and "sync_groups" not in updates:
+            updates["sync_groups"] = [{"name": "Default Sync Group", "folders": updates["sync_folders"]}]
+        for key in ("sync_groups", "collect_sync_groups", "eml_tasks"):
+            if key not in updates:
+                continue
+            groups = updates[key]
+            if not isinstance(groups, list) or not all(isinstance(group, dict) for group in groups):
+                raise ValueError(self._text(f"Invalid group list: {key}", f"그룹 목록이 올바르지 않습니다: {key}", f"Nieprawidłowa lista grup: {key}"))
+            if key == "sync_groups":
+                ensure_sync_ids(groups)
+            elif key == "collect_sync_groups":
+                for group in groups:
+                    group.setdefault("id", uuid.uuid4().hex)
+                    for field in tuple(group):
+                        if field.startswith("schedule_"):
+                            group.pop(field)
+        if "task_schedule_time" in updates and not QTime.fromString(str(updates["task_schedule_time"]), "HH:mm").isValid():
+            raise ValueError(self._text("Invalid schedule time in preset.", "프리셋의 예약 시각이 올바르지 않습니다.", "Nieprawidłowy czas harmonogramu w profilu."))
+        return updates
+
+    def reload_preset_task_settings(self):
+        """Refresh controls and selection without writing settings or triggering work."""
+        with ExitStack() as blockers:
+            blockers.enter_context(QSignalBlocker(self.schedule_time_edit))
+            blockers.enter_context(QSignalBlocker(self.check_chain_outputs))
+            saved_time = QTime.fromString(str(self.config_manager.get("task_schedule_time", "18:00")), "HH:mm")
+            self.schedule_time_edit.setTime(saved_time if saved_time.isValid() else QTime(18, 0))
+            self.check_chain_outputs.setChecked(bool(self.config_manager.get("task_chain_outputs", False)))
+        # Rebuild even when only the checked selection (not the row list) changed.
+        self.rows = []
+        self._selection_save_failed = False
+        self.refresh_readiness()
+        self._update_backup_consent_visibility()
+        self.refresh_schedule_summary()
+
+    def _preset_import_busy(self):
+        window = self.window()
+        return (
+            self.is_running or self.is_preflighting or self._preset_runtime_blocked or self._version_cleanup_open()
+            or getattr(window, "_run_confirmation_active", False)
+            or bool(getattr(window, "active_tasks_running", list)())
         )
-        if not file_path:
+
+    def _confirm_preset_while_automated(self):
+        if not self.check_schedule.isChecked() and self.folder_watcher is None:
+            return True
+        return QMessageBox.question(
+            self,
+            self._text("Automation is enabled", "자동 실행이 켜져 있습니다", "Automatyzacja jest włączona"),
+            self._text(
+                "The next automatic run may use these new workflow settings. Import them?",
+                "다음 자동 실행에 새 작업 설정이 사용될 수 있습니다. 가져올까요?",
+                "Następne automatyczne uruchomienie może użyć nowych ustawień. Zaimportować je?",
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) == QMessageBox.StandardButton.Yes
+
+    def _preset_changes_watched_roots(self, updates):
+        if self.folder_watcher is None or not self._folder_watcher_uses_sync_roots or "sync_groups" not in updates:
+            return False
+
+        def normalized(paths):
+            return {os.path.normcase(os.path.abspath(path)) for path in paths}
+
+        return normalized(self.folder_watcher.watch_folders) != normalized(self._sync_watch_folders(updates["sync_groups"]))
+
+    def import_preset(self):
+        if self._preset_picker_active or self._preset_import_active:
             return
+        if self._preset_import_busy():
+            QMessageBox.warning(
+                self,
+                self._text("Preset import unavailable", "프리셋을 가져올 수 없음", "Import profilu niedostępny"),
+                self._text(
+                    "Finish any active task or review before importing a preset.",
+                    "진행 중인 작업이나 확인을 마친 후 프리셋을 가져와 주세요.",
+                    "Zakończ aktywne zadanie lub sprawdzanie przed zaimportowaniem profilu.",
+                ),
+            )
+            return
+        self._preset_picker_active = True
         try:
-            settings = load_workflow_preset(file_path)
-            count = apply_workflow_preset(self.config_manager, settings)
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                self._text("Import Workflow Preset", "워크플로우 프리셋 가져오기", "Importuj profil przepływu pracy"),
+                "",
+                "JSON Files (*.json);;All Files (*)",
+            )
+            if not file_path or self._preset_import_busy():
+                return
+            self._preset_import_active = True
+            updates = self._preset_updates(load_workflow_preset(file_path))
+            if not updates:
+                QMessageBox.information(
+                    self, self._text("Workflow Preset", "워크플로우 프리셋", "Profil przepływu pracy"),
+                    self._text("No workflow settings to import.", "가져올 작업 설정이 없습니다.", "Brak ustawień zadań do zaimportowania."),
+                )
+                return
+            if self._preset_changes_watched_roots(updates):
+                QMessageBox.warning(
+                    self,
+                    self._text("Watched folders would change", "감시 대상 폴더 변경", "Zmiana monitorowanych folderów"),
+                    self._text(
+                        "Turn off file monitoring before importing a preset that changes the watched synchronization folders.",
+                        "파일 감시 중에는 감시 대상인 동기화 폴더를 바꿀 수 없습니다. 파일 감시를 끈 뒤 프리셋을 가져와 주세요.",
+                        "Wyłącz monitorowanie plików przed importem profilu zmieniającego monitorowane foldery synchronizacji.",
+                    ),
+                )
+                return
+            if not self._confirm_preset_while_automated() or self._preset_import_busy():
+                return
+            reload_tabs = getattr(self.window(), "reload_workflow_preset", None)
+            if reload_tabs is None:
+                return
+            count = reload_tabs(updates)
             self.log(self._text(f"✓ Preset loaded ({count} settings applied): {file_path}", f"✓ 프리셋 로드 완료 ({count}개 설정 적용됨): {file_path}", f"✓ Załadowano profil ({count} ustawień): {file_path}"))
-            self.refresh_readiness()
-            self.refresh_schedule_summary()
-            main_win = self.window()
-            if main_win and hasattr(main_win, "load_all_settings"):
-                main_win.load_all_settings()
             QMessageBox.information(
                 self,
                 self._text("Preset Imported", "프리셋 가져오기 완료", "Import zakończony"),
-                self._text(f"Successfully applied {count} settings from preset.\n{file_path}", f"프리셋에서 {count}개 설정을 성공적으로 불러왔습니다.\n{file_path}", f"Pomyślnie załadowano {count} ustawień z profilu.\n{file_path}"),
+                self._text(
+                    f"Applied {count} workflow settings. Local automation switches and notification settings were kept.\n{file_path}",
+                    f"작업 설정 {count}개를 적용했습니다. 기존 자동 실행 사용 여부와 알림 설정은 유지했습니다.\n{file_path}",
+                    f"Zastosowano {count} ustawień zadań. Zachowano lokalne przełączniki automatyzacji i ustawienia powiadomień.\n{file_path}",
+                ),
             )
         except Exception as e:
             logger.exception("Failed to import preset")
@@ -1625,3 +1778,9 @@ class TaskTab(TaskPanelMixin, QWidget):
                 self._text("Import Error", "가져오기 오류", "Błąd importu"),
                 str(e),
             )
+        finally:
+            self._preset_picker_active = False
+            self._preset_import_active = False
+            pending, self._preset_pending_file_changes = self._preset_pending_file_changes, 0
+            if pending and not self._preset_runtime_blocked:
+                QTimer.singleShot(0, lambda: self._handle_folder_watch_count(pending))

@@ -1,7 +1,8 @@
 import os
 import tempfile
+from contextlib import ExitStack
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QSignalBlocker, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
@@ -23,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.app_identity import asset_path
+from src.core.preset_manager import apply_workflow_preset
 from src.core.release_config import (
     DEFAULT_GITHUB_OWNER,
     DEFAULT_GITHUB_REPOSITORY,
@@ -731,11 +733,6 @@ class MainWindow(QMainWindow):
         current_screen_action.triggered.connect(self.open_current_tab_manual)
         self.help_menu.addAction(current_screen_action)
 
-        manual_action = QAction(tr("help_user_manual", self.language), self)
-        manual_action.setShortcut("F1")
-        manual_action.triggered.connect(lambda: self.open_manual(self._current_manual_topic()))
-        self.help_menu.addAction(manual_action)
-
         self.help_menu.addSeparator()
         
         check_update_action = QAction(tr("check_updates", self.language), self)
@@ -964,6 +961,126 @@ class MainWindow(QMainWindow):
             logger.info("Settings updated and saved.")
             self.refresh_language()
             self.status_bar.showMessage(tr("settings_saved", self.language), 3000)
+
+    def reload_workflow_preset(self, updates):
+        """Apply a preset and refresh live controls before reporting success."""
+        previous = {key: self.config_manager.get(key) for key in updates if key in self.config_manager.config}
+        count = apply_workflow_preset(self.config_manager, updates)
+        try:
+            self._refresh_preset_tabs(updates)
+        except Exception:
+            logger.exception("Could not reload imported workflow settings")
+            try:
+                if previous and not self.config_manager.update(previous):
+                    raise OSError("Could not restore the previous settings.")
+                for key in updates.keys() - previous.keys():
+                    if not self.config_manager.remove(key):
+                        raise OSError("Could not restore the previous settings.")
+                self._refresh_preset_tabs(updates)
+            except Exception as exc:
+                logger.exception("Could not recover the previous workflow settings")
+                self.task_tab._preset_runtime_blocked = True
+                self.task_tab.schedule_timer.stop()
+                self.task_tab.stop_folder_watcher()
+                self.set_all_tabs_locked(True)
+                self.task_tab.setEnabled(False)
+                raise RuntimeError(choose(
+                    self.language,
+                    "The settings could not be restored safely. Restart FileOps before editing or running tasks.",
+                    "기존 설정을 안전하게 복원하지 못했습니다. 설정을 편집하거나 실행하기 전에 FileOps를 다시 시작해 주세요.",
+                    "Nie można bezpiecznie przywrócić ustawień. Uruchom ponownie FileOps przed zmianą ustawień lub zadaniami.",
+                )) from exc
+            raise RuntimeError(choose(
+                self.language,
+                "The preset could not be applied to all screens. Previous settings were restored.",
+                "프리셋을 모든 화면에 반영할 수 없어 기존 설정으로 되돌렸습니다.",
+                "Nie można zastosować profilu we wszystkich widokach. Przywrócono poprzednie ustawienia.",
+            )) from None
+        return count
+
+    def _refresh_preset_tabs(self, updates):
+        """Keep cached editors in sync without emitting save or execution signals."""
+        config = self.config_manager
+        if (updates.keys() & {"sync_groups", "sync_last_group_index"}
+                and self.sync_tab.load_saved_data(persist=False) is False):
+            raise ValueError("Invalid folder synchronization settings.")
+        if "collect_sync_groups" in updates and self.collect_sync_tab.load_saved_data(persist=False) is False:
+            raise ValueError("Invalid collection settings.")
+        if "eml_tasks" in updates:
+            self.eml_tab.tasks = config.get("eml_tasks", [])
+            self.eml_tab.update_table_view()
+        if "output_folder" in updates:
+            default = os.path.join(os.path.expanduser("~"), "Documents", "PDF_Output")
+            with QSignalBlocker(self.pdf_tab.output_path_input):
+                self.pdf_tab.output_path_input.setText(config.get("output_folder") or default)
+            self.pdf_tab._refresh_action_state()
+        self._refresh_preset_ocr(updates)
+        if any(key.startswith(("bypass_", "last_bypass_")) for key in updates):
+            self._refresh_preset_conversion()
+        self.task_tab.reload_preset_task_settings()
+
+    def _refresh_preset_ocr(self, updates):
+        settings = {
+            "ocr_rule_mode",
+            "ocr_custom_pattern",
+            "ocr_rename_template",
+            "ocr_export_txt",
+        }
+        if updates.keys() & settings:
+            tab = self.ocr_tab
+            config = self.config_manager
+            with ExitStack() as blockers:
+                for widget in (tab.rule_combo, tab.custom_regex_input, tab.rename_template_input, tab.export_txt_check):
+                    blockers.enter_context(QSignalBlocker(widget))
+                rule = config.get("ocr_rule_mode", "promotion") or "promotion"
+                index = tab.rule_combo.findData(rule)
+                if index < 0:
+                    raise ValueError("Invalid OCR rule in preset.")
+                tab.rule_combo.setCurrentIndex(index)
+                tab.custom_regex_input.setText(config.get("ocr_custom_pattern", "") or "")
+                tab.custom_regex_input.setEnabled(rule == "custom_regex")
+                tab.rename_template_input.setText(config.get("ocr_rename_template", "{match}") or "{match}")
+                tab.export_txt_check.setChecked(bool(config.get("ocr_export_txt", False)))
+
+    def _refresh_preset_conversion(self):
+        tab = self.bypass_tab
+        config = self.config_manager
+        pdf_target = config.get("bypass_pdf_target", ".zip")
+        if pdf_target == ".zip" and config.get("bypass_generate_pdf_html", False):
+            pdf_target = ".zip + .html"
+        combos = (
+            (tab.excel_combo, config.get("bypass_excel_target", ".xlsb")),
+            (tab.ppt_combo, config.get("bypass_ppt_target", ".pptm")),
+            (tab.word_combo, config.get("bypass_word_target", ".docm")),
+            (tab.pdf_combo, pdf_target),
+        )
+        output_mode = config.get("bypass_output_mode", "inplace")
+        if output_mode not in {"inplace", "custom"}:
+            raise ValueError("Invalid conversion mode in preset.")
+        checks = (
+            (tab.radio_inplace, output_mode == "inplace"),
+            (tab.radio_custom, output_mode == "custom"),
+            (tab.check_backup_orig, config.get("bypass_source_disposition", "keep") == "backup"),
+            (tab.check_preserve_meta, bool(config.get("bypass_preserve_meta", True))),
+            (tab.check_recursive_scan, bool(config.get("bypass_recursive_scan", False))),
+            (tab.check_pdf_html, pdf_target in (".zip + .html", ".html")),
+        )
+        with ExitStack() as blockers:
+            widgets = [widget for widget, _ in combos + checks] + [tab.src_entry, tab.tgt_entry]
+            for widget in widgets:
+                blockers.enter_context(QSignalBlocker(widget))
+            for combo, value in combos:
+                index = combo.findText(value)
+                if index < 0:
+                    raise ValueError("Invalid conversion format in preset.")
+                combo.setCurrentIndex(index)
+            for check, checked in checks:
+                check.setChecked(checked)
+            tab.src_entry.setText(config.get("last_bypass_source_directory", ""))
+            tab.tgt_entry.setText(config.get("last_bypass_target_directory", ""))
+        tab.tgt_layout_widget.setVisible(tab.radio_custom.isChecked())
+        tab._update_source_action_ui()
+        tab._invalidate_scan()
 
     def refresh_language(self):
         """Apply a saved display-language choice without disturbing task configuration."""

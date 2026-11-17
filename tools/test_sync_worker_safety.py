@@ -1,6 +1,8 @@
 """Regression coverage for incomplete synchronization previews."""
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication
@@ -26,13 +28,17 @@ class SyncWorkerSafetyTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def _run_with_manager(self, manager):
-        worker = SyncWorker([{"name": "g", "folders": ["a", "b"]}], _Config())
-        worker._create_manager = lambda *_args: manager(worker)
-        completed = []
-        failed = []
-        worker.dry_run_finished.connect(completed.append)
-        worker.finished.connect(lambda *args: failed.append(args))
-        worker.run()
+        with tempfile.TemporaryDirectory() as directory:
+            folders = [Path(directory, name) for name in ("a", "b")]
+            for folder in folders:
+                folder.mkdir()
+            worker = SyncWorker([{"name": "g", "folders": [str(folder) for folder in folders]}], _Config())
+            worker._create_manager = lambda *_args: manager(worker)
+            completed = []
+            failed = []
+            worker.dry_run_finished.connect(completed.append)
+            worker.finished.connect(lambda *args: failed.append(args))
+            worker.run()
         return completed, failed
 
     def test_cancelled_preview_is_not_reported_complete(self):

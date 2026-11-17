@@ -65,7 +65,7 @@ class SystemTrayTests(unittest.TestCase):
         self.assertEqual(self.window._current_manual_topic(), "sync")
         help_actions = [action.text() for action in self.window.help_menu.actions()]
         self.assertIn(tr("help_getting_started", self.window.language), help_actions)
-        self.assertIn(tr("help_user_manual", self.window.language), help_actions)
+        self.assertEqual(help_actions.count(tr("help_current_screen", self.window.language)), 1)
 
 
 if __name__ == "__main__":

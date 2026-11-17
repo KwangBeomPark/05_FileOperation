@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QPoint
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.app_identity import asset_path
@@ -70,6 +71,28 @@ class TabLayoutTests(unittest.TestCase):
             self.assertIn(asset_path(filename).as_posix(), stylesheet)
         self.assertNotIn("__FILEOPS_", stylesheet)
 
+    def test_compact_sync_window_keeps_scope_and_preview_action_in_view(self):
+        self.config.values["sync_groups"] = [
+            {"id": "ready", "name": "Ready", "folders": ["C:/Example/A", "C:/Example/B"]},
+            {"id": "draft", "name": "Draft", "folders": ["C:/Example/Draft"]},
+        ]
+        tab = self.window.sync_tab
+        self.assertTrue(tab.load_saved_data(persist=False))
+        self.window.select_feature_tab(tab)
+        self.window.resize(self.window.minimumSize())
+        self.window.show()
+        for language in ("ko", "en", "pl"):
+            with self.subTest(language=language):
+                self.config.values["ui_language"] = language
+                self.window.refresh_language()
+                self.app.processEvents()
+                self.assertFalse(tab.analyze_btn.isEnabled())
+                self.assertIn("Draft", tab.action_hint_label.text())
+                for widget in (tab.sync_scope_label, tab.action_hint_label, tab.analyze_btn):
+                    self.assertTrue(widget.isVisibleTo(tab))
+                    self.assertTrue(tab.rect().contains(widget.mapTo(tab, QPoint())))
+                    self.assertTrue(tab.rect().contains(widget.mapTo(tab, widget.rect().bottomRight())))
+
     def test_sa_team_contains_original_feature_widgets_in_order(self):
         tabs = self.window.sa_team_tabs
         self.assertEqual(tabs.count(), 3)
@@ -104,15 +127,23 @@ class TabLayoutTests(unittest.TestCase):
         self.window.task_tab._navigate_diagnostic_target("settings")
         self.window.open_settings.assert_called_once_with()
 
-    def test_current_screen_help_and_f1_follow_selected_child(self):
+    def test_current_screen_help_button_and_menu_follow_selected_child_without_shortcuts(self):
         self.window.select_feature_tab(self.window.pdf_tab)
         with patch.object(self.window, "open_manual") as manual:
             self.window.screen_help_btn.click()
             manual.assert_called_once_with("pdf")
             manual.reset_mock()
-            f1 = next(action for action in self.window.help_menu.actions() if action.shortcut().toString() == "F1")
-            f1.trigger()
+            actions = [action for action in self.window.help_menu.actions() if not action.isSeparator()]
+            self.assertTrue(all(action.shortcut().isEmpty() for action in actions))
+            self.assertEqual([action.text() for action in actions], [
+                tr(key, self.window.language)
+                for key in ("help_getting_started", "help_current_screen", "check_updates")
+            ])
+            actions[1].trigger()
             manual.assert_called_once_with("pdf")
+            manual.reset_mock()
+            actions[0].trigger()
+            manual.assert_called_once_with("getting_started")
 
     def test_language_switch_translates_both_levels_without_changing_selection(self):
         self.window.select_feature_tab(self.window.ocr_tab)

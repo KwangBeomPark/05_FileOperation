@@ -25,8 +25,9 @@ Gdy nad projektami pracuje kilka działów, łatwo o powstawanie duplikatów pli
 
 ## Główne moduły i funkcje
 
-Karty główne: **Uruchom zadania → Synchronizuj foldery → Konwertuj pliki → SA Team**.
+Karty główne: **Uruchom zadania → Synchronizuj foldery → Automatyczne zbieranie → Konwertuj pliki → SA Team**.
 **Konwertuj EML, Konwertuj PDF i Odczytaj obrazy** znajdują się wewnątrz SA Team.
+Instrukcję otworzysz przez **Pomoc → Jak korzystać z tego ekranu** albo przyciskiem u góry okna.
 Kolejność przetwarzania i zapisane ustawienia pozostają bez zmian.
 
 1. **Tasks (Zadania i harmonogram)**: Sekwencyjne wykonywanie skonfigurowanych operacji w ramach planu `RunPlan` z automatyczną weryfikacją wstępną. Codzienne automatyczne uruchamianie w tle i raportowanie e-mail przez SMTP.

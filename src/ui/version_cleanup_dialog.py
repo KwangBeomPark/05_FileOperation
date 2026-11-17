@@ -1,7 +1,8 @@
 """Explicit, manual cleanup of dated file versions."""
 import copy
+import os
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QSignalBlocker, Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -16,7 +17,26 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.app_identity import asset_path
 from src.ui.i18n import choose
+
+
+def cleanup_checkbox_style():
+    """Keep unchecked boxes visible against both normal and selected rows."""
+    widgets = ("QTableWidget#VersionCleanupCandidates", "QCheckBox#VersionCleanupSubfolders")
+    indicator = ", ".join(f"{widget}::indicator" for widget in widgets)
+    checked = ", ".join(f"{widget}::indicator:checked" for widget in widgets)
+    hover = ", ".join(f"{widget}::indicator:hover" for widget in widgets)
+    disabled = ", ".join(f"{widget}::indicator:disabled" for widget in widgets)
+    checkmark = asset_path("checkmark.svg").as_posix()
+    return f"""
+        {indicator} {{ width: 20px; height: 20px; border: 3px solid #dbeafe;
+                       border-radius: 4px; background-color: #18212b; }}
+        {checked} {{ border-color: #7dd3fc; background-color: #0369a1;
+                     image: url(\"{checkmark}\"); }}
+        {hover} {{ border-color: #ffffff; }}
+        {disabled} {{ border-color: #64748b; background-color: #334155; }}
+    """
 
 
 class CleanupWorker(QThread):
@@ -64,12 +84,17 @@ class VersionCleanupDialog(QDialog):
         self.resize(950, 550)
         layout = QVBoxLayout(self)
         info = QLabel(self.t("Current group folders; each is analyzed independently and its latest version is kept (manual operation only):", "현재 그룹 폴더별로 독립 분석하고 각 최신 버전을 유지합니다 (수동 실행만 가능):", "Każdy folder jest analizowany niezależnie, a jego najnowsza wersja pozostaje (tylko ręcznie):") + "\n" + "\n".join(self.folders))
+        info.setTextFormat(Qt.TextFormat.PlainText)
         info.setWordWrap(True)
         layout.addWidget(info)
         self.subfolders = QCheckBox(self.t("Include subfolders", "하위 폴더 포함", "Uwzględnij podfoldery"))
+        self.subfolders.setObjectName("VersionCleanupSubfolders")
         self.subfolders.toggled.connect(self.invalidate)
         layout.addWidget(self.subfolders)
         self.table = QTableWidget(0, 5)
+        self.table.setObjectName("VersionCleanupCandidates")
+        self.table.verticalHeader().setMinimumSectionSize(34)
+        self.setStyleSheet(cleanup_checkbox_style())
         self.table.itemChanged.connect(self.update_execute_state)
         self.table.setHorizontalHeaderLabels([self.t("Select", "선택", "Wybierz"), self.t("Original location", "원본 위치", "Lokalizacja"), self.t("Filename", "파일명", "Nazwa pliku"), self.t("Version", "버전", "Wersja"), self.t("Latest version", "최신 버전", "Najnowsza wersja")])
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -78,7 +103,13 @@ class VersionCleanupDialog(QDialog):
         self.analyze_button = QPushButton(self.t("Analyze", "분석", "Analizuj"))
         self.analyze_button.clicked.connect(self.start_scan)
         controls.addWidget(self.analyze_button)
+        self.selection_count = QLabel()
+        controls.addWidget(self.selection_count)
+        controls.addStretch(1)
         self.method = QComboBox()
+        method_label = QLabel(self.t("Move to:", "이동 위치:", "Przenieś do:"))
+        method_label.setBuddy(self.method)
+        controls.addWidget(method_label)
         self.method.addItem(self.t("Recycle Bin", "휴지통", "Kosz"), "trash")
         self.method.addItem(self.t(f"Folder: {self.archive_folder_name}", f"폴더: {self.archive_folder_name}", f"Folder: {self.archive_folder_name}"), "folder")
         controls.addWidget(self.method)
@@ -96,8 +127,10 @@ class VersionCleanupDialog(QDialog):
         self.progress = QProgressBar()
         layout.addWidget(self.progress)
         self.status = QLabel(self.t("Execution is unavailable until safety verification is complete.", "안전 검증이 완료될 때까지 실행할 수 없습니다.", "Wykonanie jest niedostępne do zakończenia weryfikacji bezpieczeństwa.") if not self.execution_available else "")
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+        self.update_execute_state()
 
     def t(self, en, ko, pl):
         return choose(self.language, en, ko, pl)
@@ -115,7 +148,7 @@ class VersionCleanupDialog(QDialog):
     def invalidate(self):
         self.candidates = []
         self.table.setRowCount(0)
-        self.execute_button.setEnabled(False)
+        self.update_execute_state()
 
     def busy(self, busy):
         self._busy = busy
@@ -126,10 +159,17 @@ class VersionCleanupDialog(QDialog):
         self.cancel_button.setEnabled(busy)
         self.update_execute_state()
 
+    def _checked_rows(self):
+        """Selection means a checkbox is checked, not a highlighted row."""
+        return [row for row in range(len(self.candidates))
+                if (item := self.table.item(row, 0)) and item.checkState() == Qt.CheckState.Checked]
+
     def update_execute_state(self, *_args):
-        selected = any(self.table.item(row, 0) and self.table.item(row, 0).checkState() == Qt.CheckState.Checked
-                       for row in range(self.table.rowCount()))
-        self.execute_button.setEnabled(not getattr(self, "_busy", False) and self.execution_available and bool(self.candidates) and selected)
+        count = len(self._checked_rows())
+        self.selection_count.setText(self.t(
+            f"Files checked: {count}", f"체크한 파일: {count}개", f"Zaznaczone pliki: {count}",
+        ))
+        self.execute_button.setEnabled(not getattr(self, "_busy", False) and self.execution_available and count > 0)
 
     def launch(self, operation, kwargs, handler):
         if self.worker and self.worker.isRunning():
@@ -160,20 +200,20 @@ class VersionCleanupDialog(QDialog):
             self.status.setText(self.scan_error_message(error) if error else self.t("Analysis cancelled.", "분석이 취소되었습니다.", "Analiza anulowana."))
             return
         self.candidates = result
-        self.table.setRowCount(len(result))
-        for row, candidate in enumerate(result):
-            check = QTableWidgetItem()
-            check.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
-            check.setCheckState(Qt.CheckState.Unchecked)
-            self.table.setItem(row, 0, check)
-            for col, key in enumerate(("folder", "filename", "date", "latest_date"), 1):
-                value = candidate.get(key, "")
-                if key == "folder":
-                    import os
-                    value = os.path.dirname(candidate.get("path", "")) or value
-                item = QTableWidgetItem(str(value))
-                item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                self.table.setItem(row, col, item)
+        with QSignalBlocker(self.table):
+            self.table.setRowCount(len(result))
+            for row, candidate in enumerate(result):
+                check = QTableWidgetItem()
+                check.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsSelectable)
+                check.setCheckState(Qt.CheckState.Unchecked)
+                self.table.setItem(row, 0, check)
+                for col, key in enumerate(("folder", "filename", "date", "latest_date"), 1):
+                    value = candidate.get(key, "")
+                    if key == "folder":
+                        value = os.path.dirname(candidate.get("path", "")) or value
+                    item = QTableWidgetItem(str(value))
+                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                    self.table.setItem(row, col, item)
         self.table.resizeColumnsToContents()
         self.update_execute_state()
         message = self.t(f"{len(result)} candidates. Select files to process.", f"후보 {len(result)}개. 처리할 파일을 선택하세요.", f"Kandydaci: {len(result)}. Wybierz pliki.")
@@ -182,19 +222,36 @@ class VersionCleanupDialog(QDialog):
         self.status.setText(message)
 
     def start_execution(self):
-        if not self.execution_available:
+        if not self.execution_available or getattr(self, "_busy", False):
             return
-        selected = [copy.deepcopy(candidate) for row, candidate in enumerate(self.candidates)
-                    if self.table.item(row, 0).checkState() == Qt.CheckState.Checked]
+        selected = [copy.deepcopy(self.candidates[row]) for row in self._checked_rows()]
         if not selected:
             QMessageBox.information(self, self.windowTitle(), self.t("Select at least one file.", "파일을 하나 이상 선택하세요.", "Wybierz co najmniej jeden plik."))
             return
         method = self.method.currentData()
         label = self.method.currentText()
-        prompt = self.t(f"Process {len(selected)} selected files using {label}?", f"선택한 {len(selected)}개 파일을 '{label}' 방식으로 처리할까요?", f"Przetworzyć wybrane pliki ({len(selected)}) metodą {label}?")
-        if QMessageBox.question(self, self.windowTitle(), prompt, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+        if not self.confirm_move(len(selected), label):
             return
         self.launch(self.execute, {"candidates": selected, "method": method, "archive_folder_name": self.archive_folder_name}, self.execution_finished)
+
+    def confirm_move(self, count, destination):
+        prompt = self.t(
+            f"Move the checked files ({count})?\n\nDestination: {destination}",
+            f"체크한 파일 {count}개를 이동할까요?\n\n이동 위치: {destination}",
+            f"Przenieść zaznaczone pliki ({count})?\n\nMiejsce docelowe: {destination}",
+        )
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Question)
+        dialog.setWindowTitle(self.windowTitle())
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setText(prompt)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dialog.setDefaultButton(QMessageBox.StandardButton.No)
+        dialog.setEscapeButton(QMessageBox.StandardButton.No)
+        try:
+            return dialog.exec() == QMessageBox.StandardButton.Yes
+        finally:
+            dialog.deleteLater()
 
     def execution_finished(self, result, error):
         self.worker.wait()

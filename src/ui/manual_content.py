@@ -32,7 +32,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "tips": [
                 "A disabled button means an earlier requirement is missing. Point to it to see what is needed.",
                 "Run Diagnostics checks paths and required programs without changing source files.",
-                "Top tabs are Run Tasks, Sync Folders, Convert Files and SA Team. Open SA Team for Convert EML, Convert PDF and Read Images.",
+                "Top tabs are Run Tasks, Sync Folders, Auto Collect Sync, Convert Files and SA Team. Open SA Team for Convert EML, Convert PDF and Read Images.",
             ],
             "cautions": [
                 "Keep FileOps Hub running in the notification area for scheduled tasks.",
@@ -48,24 +48,24 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
                 "Run the selected tasks now, or enable the daily schedule and choose a time.",
             ],
             "tips": [
-                "Click Run Diagnostics when a dependency such as Office, OCR, or a network folder is uncertain.",
+                "Use Manage → Run Diagnostics to check a dependency such as OCR, the browser, or a network folder.",
                 "Open Run History to review earlier manual and scheduled reports.",
                 "The schedule status records the start time, end time, duration, and result of the latest scheduled run.",
                 "Before a manual run, review the change summary and destinations. Risky actions require acknowledgement; Cancel changes no files. Scheduled runs log an estimate without a popup.",
             ],
             "cautions": [
                 "The application must remain running for a daily schedule to start.",
-                "Scheduled source backup moves require the separate consent shown on this screen.",
+                "Use Convert Files for Office format conversion. It is not included in the Run Tasks list or its schedule.",
             ],
         },
         "sync": {
             "title": "Sync Folders",
-            "summary": "Compare two or more folders in a group, preview every planned change, and then synchronize them.",
+            "summary": "Edit one group at a time. Manual preview and synchronization on this tab cover all configured groups.",
             "steps": [
                 "Create or select a synchronization group.",
                 "Add at least two folders to the group.",
-                "Select Preview Sync and review the planned copies, archives, and conflicts.",
-                "When the preview is current, select Synchronize All and confirm the run.",
+                "Select View changes and review the planned copies, archives, and conflicts. Empty groups are skipped; a group with only one folder must be fixed first.",
+                "If there are changes to apply, select Synchronize (N groups) and confirm the run.",
             ],
             "tips": [
                 "Use separate groups for folder sets that should run together.",
@@ -74,7 +74,8 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             ],
             "cautions": [
                 "Files with competing recent changes are preserved as conflict backups instead of being overwritten silently.",
-                "Normal sync cannot use the Recycle Bin. A legacy Recycle Bin setting remains blocked until you explicitly select the folder option. Manual cleanup execution is unavailable until safety verification is complete.",
+                "Normal sync uses an archive folder, not the Recycle Bin. A legacy Recycle Bin setting must be changed to the folder option before using filename-date sync.",
+                "Clean up this group's old versions is a separate manual action. It keeps the latest version in each folder. Select the old files yourself, confirm the move, and use the Recycle Bin (default) or a separate folder. Cleanup is never scheduled.",
             ],
         },
         "eml": {
@@ -113,7 +114,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
         },
         "ocr": {
             "title": "Read Images",
-            "summary": "Read promotion numbers from images and rename recognized files.",
+            "summary": "Read text such as a promotion number, document number, or date from images and rename files that match the selected rule.",
             "steps": [
                 "Add image files or drag them onto the window.",
                 "Use the checkboxes to select the images that should be processed.",
@@ -122,7 +123,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             ],
             "tips": [
                 "Clear a checkbox to keep that image out of the next run.",
-                "The promotion-number pattern and Tesseract path are available in Settings.",
+                "Choose the recognition rule on the Read Images tab. The optional Tesseract path is in Settings.",
             ],
             "cautions": [
                 "OCR results depend on image quality. Failed recognition leaves the original file name unchanged.",
@@ -179,7 +180,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "tips": [
                 "버튼이 비활성화되어 있으면 앞 단계의 필수 입력이 부족한 상태입니다. 마우스를 올리면 필요한 내용을 확인할 수 있습니다.",
                 "진단 및 복구는 원본 파일을 변경하지 않고 경로와 필수 프로그램을 검사합니다.",
-                "상위 탭은 작업 실행·폴더 동기화·파일 변환·SA Team입니다. EML 변환·PDF 변환·이미지 읽기는 SA Team 안의 하위 탭에서 사용합니다.",
+                "상위 탭은 작업 실행·폴더 동기화·자동 수집 동기화·파일 변환·SA Team입니다. EML 변환·PDF 변환·이미지 읽기는 SA Team 안에서 사용합니다.",
             ],
             "cautions": [
                 "예약 작업을 사용하려면 FileOps Hub가 알림 영역에서 계속 실행 중이어야 합니다.",
@@ -195,24 +196,24 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
                 "선택한 작업을 바로 시작하거나, 매일 자동 실행을 켜고 시각을 지정합니다.",
             ],
             "tips": [
-                "Office, OCR, 브라우저 또는 네트워크 폴더가 의심되면 진단 및 복구를 실행하세요.",
+                "OCR, 브라우저 또는 네트워크 폴더를 점검하려면 관리 → 진단 및 복구를 선택하세요.",
                 "실행 이력에서 이전 수동·예약 실행의 상세 보고서를 확인할 수 있습니다.",
                 "예약 상태 영역에는 최근 예약 실행의 시작 시각, 종료 시각, 소요 시간과 결과가 함께 기록됩니다.",
                 "수동 실행 전 변경 요약에서 대상과 저장·이동 위치를 확인하세요. 위험한 작업은 확인 체크가 필요하며 취소해도 파일은 바뀌지 않습니다. 예약 실행은 팝업 없이 예상 요약을 로그에 남깁니다.",
             ],
             "cautions": [
                 "매일 자동 실행은 프로그램이 실행 중일 때만 시작됩니다.",
-                "예약 파일 변환에서 원본을 백업 폴더로 옮기려면 이 화면의 별도 동의가 필요합니다.",
+                "Office 형식을 바꾸려면 파일 변환 탭에서 직접 실행하세요. 파일 변환은 작업 실행 목록과 예약에 포함되지 않습니다.",
             ],
         },
         "sync": {
             "title": "폴더 동기화",
-            "summary": "한 그룹에 등록한 두 개 이상의 폴더를 비교하고, 변경 예정 내용을 미리 확인한 뒤 동기화합니다.",
+            "summary": "그룹 설정은 하나씩 편집합니다. 이 탭에서 수동으로 미리 보거나 실행할 때는 설정된 모든 그룹이 대상입니다.",
             "steps": [
                 "동기화 그룹을 새로 만들거나 기존 그룹을 선택합니다.",
                 "그룹에 동기화할 폴더를 최소 두 개 등록합니다.",
-                "동기화 미리보기를 눌러 복사, 구버전 보관, 충돌 항목을 확인합니다.",
-                "현재 미리보기가 유효한 상태에서 전체 동기화를 누르고 실행을 확인합니다.",
+                "변경 내용 보기를 눌러 복사, 구버전 보관, 충돌 항목을 미리보기에서 확인합니다. 빈 그룹은 제외되며, 폴더가 하나만 등록된 그룹은 먼저 수정해야 합니다.",
+                "적용할 변경이 있으면 N개 그룹 동기화를 누르고 실행을 확인합니다.",
             ],
             "tips": [
                 "항상 함께 동기화할 폴더 묶음별로 그룹을 나누면 관리하기 쉽습니다.",
@@ -221,7 +222,8 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             ],
             "cautions": [
                 "여러 위치에서 동시에 수정된 파일은 조용히 덮어쓰지 않고 충돌 백업으로 보존합니다.",
-                "일반 동기화는 휴지통을 사용할 수 없습니다. 기존 휴지통 설정은 폴더 방식을 직접 선택하기 전까지 차단됩니다. 수동 정리 실행은 안전 검증 완료 전까지 사용할 수 없습니다.",
+                "일반 동기화는 휴지통 대신 보관 폴더를 사용합니다. 예전 휴지통 설정이 남아 있다면 날짜 버전 동기화 전에 폴더 방식으로 바꾸세요.",
+                "이 그룹의 구버전 정리는 별도의 수동 기능입니다. 폴더별 최신본은 유지합니다. 직접 체크한 구버전만 확인 후 휴지통(기본) 또는 별도 폴더로 옮기며, 예약 실행되지 않습니다.",
             ],
         },
         "eml": {
@@ -260,7 +262,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
         },
         "ocr": {
             "title": "이미지 읽기",
-            "summary": "이미지에서 프로모션 번호를 읽고, 인식에 성공한 파일의 이름을 변경합니다.",
+            "summary": "선택한 규칙으로 이미지에서 프로모션 번호, 문서 번호, 날짜 등을 읽고 인식에 성공한 파일의 이름을 바꿉니다.",
             "steps": [
                 "이미지 파일을 추가하거나 화면으로 끌어 놓습니다.",
                 "체크박스로 실제 처리할 이미지를 선택합니다.",
@@ -269,7 +271,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             ],
             "tips": [
                 "이번 실행에서 제외할 이미지는 체크를 해제하면 됩니다.",
-                "프로모션 번호 규칙과 Tesseract 경로는 설정 화면에서 변경할 수 있습니다.",
+                "인식 규칙은 이미지 읽기 탭에서 선택합니다. 선택 사항인 Tesseract 실행 파일 경로는 설정에서 지정합니다.",
             ],
             "cautions": [
                 "OCR 정확도는 이미지 품질에 영향을 받습니다. 인식 실패 시 원래 파일 이름은 유지됩니다.",
@@ -318,22 +320,22 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "title": "Pierwsze kroki",
             "summary": "FileOps Hub łączy powtarzalne operacje na plikach. Najpierw skonfiguruj i sprawdź funkcję, a potem uruchom ją bezpośrednio lub z karty Zadań.",
             "steps": ["Otwórz potrzebną kartę i dodaj foldery lub pliki.", "Sprawdź podgląd, zaznaczone pliki lub listę zadań.", "Za pierwszym razem uruchom funkcję bezpośrednio i sprawdź wynik.", "Dla pracy cyklicznej wybierz funkcję w Zadań i opcjonalnie ustaw harmonogram."],
-            "tips": ["Wyłączony przycisk oznacza brak wcześniejszego wymagania. Najedź na niego, aby zobaczyć wyjaśnienie.", "Diagnostyka sprawdza ścieżki i wymagane programy bez zmiany plików źródłowych.", "Główne karty: Uruchom zadania, Synchronizuj foldery, Konwertuj pliki i SA Team. W SA Team znajdują się Konwertuj EML, Konwertuj PDF i Odczytaj obrazy."],
+            "tips": ["Wyłączony przycisk oznacza brak wcześniejszego wymagania. Najedź na niego, aby zobaczyć wyjaśnienie.", "Diagnostyka sprawdza ścieżki i wymagane programy bez zmiany plików źródłowych.", "Główne karty: Uruchom zadania, Synchronizuj foldery, Automatyczne zbieranie, Konwertuj pliki i SA Team. W SA Team znajdują się Konwertuj EML, Konwertuj PDF i Odczytaj obrazy."],
             "cautions": ["Dla zadań zaplanowanych FileOps Hub musi działać w obszarze powiadomień."],
         },
         "tasks": {
             "title": "Uruchamianie zadań",
             "summary": "Uruchamiaj kilka skonfigurowanych funkcji po kolei, ręcznie lub raz dziennie.",
             "steps": ["Skonfiguruj każdą funkcję na jej karcie.", "W kolumnie Uruchom wybierz tylko potrzebne funkcje.", "Sprawdź gotowość i popraw pozycje Wymaga konfiguracji.", "Uruchom zadania teraz albo włącz harmonogram i wybierz godzinę."],
-            "tips": ["Użyj Diagnostyki, gdy nie masz pewności co do Office, OCR, przeglądarki lub folderu sieciowego.", "Historia uruchomień zawiera wcześniejsze raporty.", "Stan harmonogramu zapisuje czas rozpoczęcia, zakończenia, czas trwania i wynik ostatniego zaplanowanego uruchomienia.", "Przed uruchomieniem ręcznym sprawdź podsumowanie zmian i lokalizacje. Ryzykowne operacje wymagają potwierdzenia; anulowanie nie zmienia plików. Harmonogram zapisuje szacunek w dzienniku bez okna potwierdzenia."],
-            "cautions": ["Harmonogram działa tylko wtedy, gdy aplikacja jest uruchomiona.", "Zaplanowane przenoszenie źródeł wymaga osobnej zgody."],
+            "tips": ["Wybierz Zarządzaj → Uruchom diagnostykę, aby sprawdzić OCR, przeglądarkę lub folder sieciowy.", "Historia uruchomień zawiera wcześniejsze raporty.", "Stan harmonogramu zapisuje czas rozpoczęcia, zakończenia, czas trwania i wynik ostatniego zaplanowanego uruchomienia.", "Przed uruchomieniem ręcznym sprawdź podsumowanie zmian i lokalizacje. Ryzykowne operacje wymagają potwierdzenia; anulowanie nie zmienia plików. Harmonogram zapisuje szacunek w dzienniku bez okna potwierdzenia."],
+            "cautions": ["Harmonogram działa tylko wtedy, gdy aplikacja jest uruchomiona.", "Formaty Office zmieniaj bezpośrednio na karcie Konwertuj pliki. Tej funkcji nie ma na liście zadań ani w harmonogramie."],
         },
         "sync": {
             "title": "Synchronizacja folderów",
-            "summary": "Porównaj co najmniej dwa foldery, sprawdź plan zmian, a następnie wykonaj synchronizację.",
-            "steps": ["Utwórz lub wybierz grupę synchronizacji.", "Dodaj do grupy co najmniej dwa foldery.", "Wybierz Podgląd synchronizacji i sprawdź kopie, archiwizacje oraz konflikty.", "Gdy podgląd jest aktualny, wybierz Synchronizuj wszystko i potwierdź."],
+            "summary": "Edytujesz jedną grupę naraz. Ręczny podgląd i synchronizacja na tej karcie obejmują wszystkie skonfigurowane grupy.",
+            "steps": ["Utwórz lub wybierz grupę synchronizacji.", "Dodaj do grupy co najmniej dwa foldery.", "Wybierz Zobacz zmiany i sprawdź kopie, archiwizacje oraz konflikty. Puste grupy są pomijane; w grupie z jednym folderem trzeba najpierw dodać drugi.", "Jeśli są zmiany do wykonania, wybierz Synchronizuj (liczba grup: N) i potwierdź."],
             "tips": ["Twórz osobne grupy dla folderów uruchamianych razem.", "Zmiana folderu unieważnia poprzedni podgląd.", "Osobne czyszczenie analizuje każdy folder grupy pod kątem wersji datowanych i liczbowych, np. v20260103 oraz v1.2."],
-            "cautions": ["Konkurencyjne zmiany są zachowywane jako kopie konfliktu zamiast cichego nadpisania.", "Zwykła synchronizacja nie korzysta z kosza. Stare ustawienie pozostaje zablokowane do ręcznego wyboru folderu. Ręczne czyszczenie jest niedostępne do zakończenia weryfikacji bezpieczeństwa."],
+            "cautions": ["Konkurencyjne zmiany są zachowywane jako kopie konfliktu zamiast cichego nadpisania.", "Zwykła synchronizacja używa folderu archiwum, nie Kosza. Przed synchronizacją według dat w nazwach zmień stare ustawienie Kosza na folder.", "Usuń stare wersje w tej grupie to osobna czynność ręczna. Pozostawia najnowszą wersję w każdym folderze. Po potwierdzeniu przenosi zaznaczone pliki do Kosza (domyślnie) lub osobnego folderu. Nie jest uruchamiana z harmonogramu."],
         },
         "eml": {
             "title": "Konwersja EML",
@@ -351,9 +353,9 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
         },
         "ocr": {
             "title": "Odczyt obrazów",
-            "summary": "Odczytuj numery promocji z obrazów i zmieniaj nazwy rozpoznanych plików.",
+            "summary": "Odczytuj z obrazów np. numer promocji, numer dokumentu lub datę i zmieniaj nazwy plików pasujących do wybranej reguły.",
             "steps": ["Dodaj obrazy lub przeciągnij je do okna.", "Zaznacz obrazy do przetworzenia.", "Rozpocznij OCR i zmianę nazw.", "Sprawdź udane i nieudane pozycje w dzienniku."],
-            "tips": ["Odznacz obraz, aby pominąć go w następnym uruchomieniu.", "Wzorzec numeru i ścieżka Tesseract są w Ustawieniach."],
+            "tips": ["Odznacz obraz, aby pominąć go w następnym uruchomieniu.", "Regułę rozpoznawania wybierz na karcie Odczytaj obrazy. Opcjonalną ścieżkę do Tesseract ustawisz w Ustawieniach."],
             "cautions": ["Jakość obrazu wpływa na OCR; nieudane rozpoznanie zachowuje pierwotną nazwę."],
         },
         "bypass": {

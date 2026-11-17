@@ -25,8 +25,9 @@ In collaborative business environments, teams maintain different versions of mas
 
 ## Core Capabilities
 
-Top-level tabs: **Run Tasks → Sync Folders → Convert Files → SA Team**.
+Top-level tabs: **Run Tasks → Sync Folders → Auto Collect Sync → Convert Files → SA Team**.
 **Convert EML, Convert PDF and Read Images** are nested inside SA Team.
+Open the guide from **Help → How to Use This Screen** or the matching button at the top of the window.
 The capabilities below retain their existing execution order and saved settings.
 
 1. **Tasks (Unified Runner & Scheduler)**: Chains active tabs into an orchestrated `RunPlan` executed sequentially with preflight safety checks. Daily scheduled background execution with SMTP email notification upon completion.

@@ -44,6 +44,7 @@ from src.core.collect_sync import (
     ACTION_UNCHANGED,
     CollectAction,
     CollectConfigError,
+    CollectGroup,
     CollectRecoveryRequired,
     CollectReport,
     CollectRunError,
@@ -335,6 +336,11 @@ class CollectSyncTab(QWidget):
         buttons = QHBoxLayout()
         self.preview_button = QPushButton()
         self.run_button = QPushButton()
+        self.run_button.setProperty("variant", "primary")
+        self.run_button.setStyleSheet(
+            "QPushButton:disabled { color: #64748b; background-color: #1e1e1e; "
+            "border-color: #2d2d2d; }"
+        )
         self.stop_button = QPushButton()
         self.recovery_button = QPushButton()
         self.preview_button.clicked.connect(self.start_dry_run)
@@ -389,7 +395,7 @@ class CollectSyncTab(QWidget):
         for widget in (self.subfolders_check,):
             widget.toggled.connect(self._save_editor)
 
-    def load_saved_data(self):
+    def load_saved_data(self, *, persist=True):
         """Keep malformed saved content untouched rather than silently resetting it."""
         saved = copy.deepcopy(self.config_manager.get("collect_sync_groups", []))
         interrupted = False
@@ -408,7 +414,7 @@ class CollectSyncTab(QWidget):
                     raise CollectConfigError("Invalid or duplicate group id")
                 ids.add(identity)
                 collect_schedule_decision(group, local_now())
-                if group.get("schedule_last_result") == "running":
+                if persist and group.get("schedule_last_result") == "running":
                     group.update(
                         schedule_last_result="interrupted",
                         schedule_last_failure_reason="collect_interrupted",
@@ -422,10 +428,14 @@ class CollectSyncTab(QWidget):
             self._invalid_saved = True
             self._status_key = "collect_invalid_saved"
             saved = []
+        else:
+            self._invalid_saved = False
+            self._save_failed = False
+            self._status_key = "collect_ready"
         self.groups = saved
         self._reload_combo(0)
-        if interrupted and not self._invalid_saved:
-            self.save_data()
+        self.status_label.setText(self._msg(self._status_key))
+        return not self._invalid_saved and (not interrupted or self.save_data())
 
     def save_data(self):
         """ConfigManager atomically commits disk before memory; check its result."""
@@ -469,6 +479,21 @@ class CollectSyncTab(QWidget):
         self.refresh_schedule_summary()
         self.refresh_task_bridge()
 
+    def _editor_fields(self):
+        """Capture current inputs without accessing paths or writing settings."""
+        return {
+            "sources": [
+                self.source_list.item(i).text() for i in range(self.source_list.count())
+            ],
+            "keywords": [
+                item.strip()
+                for item in self.keywords_input.text().split(",")
+                if item.strip()
+            ],
+            "target": self.target_input.text().strip(),
+            "include_subfolders": self.subfolders_check.isChecked(),
+        }
+
     def _save_editor(self, *_args):
         if (
             self._loading
@@ -477,19 +502,7 @@ class CollectSyncTab(QWidget):
             or self.current_group_idx < 0
         ):
             return
-        group = self.groups[self.current_group_idx]
-        group.update(
-            sources=[
-                self.source_list.item(i).text() for i in range(self.source_list.count())
-            ],
-            keywords=[
-                item.strip()
-                for item in self.keywords_input.text().split(",")
-                if item.strip()
-            ],
-            target=self.target_input.text().strip(),
-            include_subfolders=self.subfolders_check.isChecked(),
-        )
+        self.groups[self.current_group_idx].update(self._editor_fields())
         self._clear_results()
         self.save_data()
         self._refresh_enabled()
@@ -673,24 +686,58 @@ class CollectSyncTab(QWidget):
     def start_dry_run(self, _checked=False):
         return self._start(dry_run=True)
 
+    def _manual_input_error(self, key, widget=None):
+        self._status_key = key
+        self.status_label.setText(self._msg(key))
+        if widget is not None:
+            widget.setFocus()
+        return False
+
+    def _confirm_execution(self, config: CollectGroup) -> bool:
+        with self._interaction_guard():
+            dialog = QMessageBox(self)
+            dialog.setIcon(QMessageBox.Icon.Question)
+            dialog.setWindowTitle(self._msg("tab_collect_sync"))
+            dialog.setTextFormat(Qt.TextFormat.PlainText)
+            dialog.setText(self._msg("collect_confirm", name=config.name, target=config.target))
+            dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            dialog.setDefaultButton(QMessageBox.StandardButton.No)
+            dialog.setEscapeButton(QMessageBox.StandardButton.No)
+            try:
+                return dialog.exec() == QMessageBox.StandardButton.Yes
+            finally:
+                dialog.deleteLater()
+
     def start_execution(self, _checked=False):
         if (
             self.is_busy
             or self._ui_locked
-            or self.current_group_idx < 0
+            or self._invalid_saved
+            or not 0 <= self.current_group_idx < len(self.groups)
             or self._other_tasks_running()
         ):
             return False
-        with self._interaction_guard():
-            reply = QMessageBox.question(
-                self,
-                self._msg("tab_collect_sync"),
-                self._msg("collect_confirm"),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-        if reply != QMessageBox.StandardButton.Yes:
+        group = self.groups[self.current_group_idx]
+        group_id = group["id"]
+        fields = self._editor_fields()
+        config = build_collect_group({**group, **fields})
+        if not any(source.strip() for source in config.sources):
+            return self._manual_input_error("collect_error_sources", self.source_list)
+        if not config.keywords:
+            return self._manual_input_error("collect_error_keywords", self.keywords_input)
+        if not config.target:
+            return self._manual_input_error("collect_target_required", self.target_input)
+        if not self._confirm_execution(config):
             return False
+        # The selected group and editor are locked while the dialog is open. Stop
+        # instead of using a different configuration if programmatic changes occur.
+        if (
+            not 0 <= self.current_group_idx < len(self.groups)
+            or self.groups[self.current_group_idx]["id"] != group_id
+            or self.groups[self.current_group_idx]["name"] != config.name
+            or self._editor_fields() != fields
+        ):
+            return self._manual_input_error("collect_confirm_changed")
         return self._start()
 
     def _start(self, dry_run=False, index=None, scheduled=False, now=None):

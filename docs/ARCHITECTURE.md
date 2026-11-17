@@ -15,7 +15,7 @@ PyQt tabs -> typed RunConfig -> RunPlan -> preflight -> TaskRunner -> core conve
 - `TaskRunner` is PyQt-free and owns sequential execution, cancellation state, and reporting.
 - `TaskWorker` is the only Qt adapter for the integrated runner.
 - `RunJournal` atomically stores compact metadata and one readable report for every started manual or scheduled run. The settings JSON keeps only the existing latest-per-feature summary.
-- `manual_content.py` is the single localized source for Getting Started and per-feature guidance. `ManualDialog` opens the same content from the Help menu, `F1`, or the current-tab help entry point.
+- `manual_content.py` registers localized Getting Started and per-feature guidance. `ManualDialog` opens it from the Help menu or the current-screen help button.
 - Feature tabs own their prerequisite state. They disable only dependent actions while preserving typed validation for direct and scheduled execution.
 - UI progress and status signals also update the journal heartbeat. Five minutes without a signal is shown as `Possibly stalled`; it does not force-kill a real file or Office operation.
 - Direct tab actions reuse the same preflight contract where external dependencies can cause destructive work, notably Office conversion.
