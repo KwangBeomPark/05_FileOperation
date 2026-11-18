@@ -61,7 +61,7 @@ def _file_digest(stream, cancelled=None):
     return digest.digest()
 
 
-def _same_stable_content(first_path, second_path, cancelled=None):
+def _same_stable_content(first_path, second_path, cancelled=None, *, expected=None):
     """Compare bytes only if both paths remain stable throughout the read."""
     with open(first_path, "rb") as first, open(second_path, "rb") as second:
         first_before = _file_fingerprint(os.fstat(first.fileno()))
@@ -70,6 +70,10 @@ def _same_stable_content(first_path, second_path, cancelled=None):
         second_path_before = _file_fingerprint(os.stat(second_path))
         if first_before[:2] != first_path_before[:2] or second_before[:2] != second_path_before[:2]:
             raise OSError("File path changed during content comparison")
+        # Scanning uses stat(path). Windows can report a different ctime for
+        # fstat(handle); compare each kind of snapshot only against its own.
+        if expected is not None and (first_path_before, second_path_before) != expected:
+            raise OSError(f"File changed since analysis: {first_path} or {second_path}")
         same = _file_digest(first, cancelled) == _file_digest(second, cancelled)
         if (first_before != _file_fingerprint(os.fstat(first.fileno()))
                 or second_before != _file_fingerprint(os.fstat(second.fileno()))
@@ -429,6 +433,23 @@ class SyncManager:
                 
         return version_groups, plain_files
 
+    def _compare_tied_files(self, first, second, *, already_matched=False):
+        """Reuse equality only within one family and only for the same scan snapshots."""
+        if self.is_cancelled:
+            raise InterruptedError("Synchronization cancelled during content verification")
+        if already_matched:
+            # The first full comparison matched the scanned identities. Recheck
+            # both paths before using its result at the target decision.
+            for entry in (first, second):
+                path = entry["full_path"]
+                if _file_fingerprint(os.stat(path)) != entry["fingerprint"]:
+                    raise OSError(f"File changed since analysis: {path}")
+            return True
+        return _same_stable_content(
+            first["full_path"], second["full_path"], lambda: self.is_cancelled,
+            expected=(first["fingerprint"], second["fingerprint"]),
+        )
+
     def analyze_sync(self) -> list:
         """
         동기화 실행 전 가상 분석(Dry Run)을 실행하여 조치 계획 목록을 생성합니다.
@@ -454,6 +475,7 @@ class SyncManager:
         for entries in version_groups.values():
             if self.is_cancelled:
                 break
+            matched_ties = set()
 
             if self.sync_mode == "one_way":
                 master_entries = [e for e in entries if e["folder"] == master_folder]
@@ -479,7 +501,7 @@ class SyncManager:
                         and e['fingerprint'][3] == newest_entry['fingerprint'][3]
                         and e is not newest_entry]
                 try:
-                    conflict = next((e for e in tied if not _same_stable_content(newest_entry['full_path'], e['full_path'], lambda: self.is_cancelled)), None)
+                    conflict = next((e for e in tied if not self._compare_tied_files(newest_entry, e)), None)
                 except OSError as exc:
                     self.scan_errors.append(exc)
                     logger.warning('Could not compare latest version files: %s', exc)
@@ -490,6 +512,8 @@ class SyncManager:
                                     'source_folder': newest_entry['folder'], 'target_folder': conflict['folder'],
                                     'action': '보류', 'size': conflict['size'], 'mtime': conflict['mtime']})
                     continue
+
+                matched_ties.update(map(id, tied))
 
             newest_filename = newest_entry["filename"]
             newest_ver_str = newest_entry["version_str"]
@@ -559,9 +583,12 @@ class SyncManager:
                             if os.path.normcase(entry["full_path"]) == os.path.normcase(newest_entry["full_path"]):
                                 continue
                             try:
-                                same = _same_stable_content(
-                                    entry["full_path"], newest_entry["full_path"], lambda: self.is_cancelled
-                                )
+                                if id(entry) in matched_ties:
+                                    same = self._compare_tied_files(newest_entry, entry, already_matched=True)
+                                else:
+                                    same = _same_stable_content(
+                                        entry["full_path"], newest_entry["full_path"], lambda: self.is_cancelled
+                                    )
                             except OSError as exc:
                                 self.scan_errors.append(exc)
                                 logger.warning("Could not compare version files; holding '%s': %s", entry["filename"], exc)
@@ -594,6 +621,7 @@ class SyncManager:
         for entries in plain_files.values():
             if self.is_cancelled:
                 break
+            matched_ties = set()
 
             if self.sync_mode == "one_way":
                 master_entry = next((e for e in entries if e["folder"] == master_folder), None)
@@ -607,7 +635,7 @@ class SyncManager:
 
                 tied = [e for e in entries if e is not newest_entry and e['fingerprint'][3] == newest_entry['fingerprint'][3]]
                 try:
-                    conflict = next((e for e in tied if not _same_stable_content(newest_entry['full_path'], e['full_path'], lambda: self.is_cancelled)), None)
+                    conflict = next((e for e in tied if not self._compare_tied_files(newest_entry, e)), None)
                 except OSError as exc:
                     self.scan_errors.append(exc)
                     logger.warning('Could not compare latest files: %s', exc)
@@ -618,6 +646,8 @@ class SyncManager:
                                     'source_folder': newest_entry['folder'], 'target_folder': conflict['folder'],
                                     'action': '보류', 'size': conflict['size'], 'mtime': conflict['mtime']})
                     continue
+
+                matched_ties.update(map(id, tied))
                 
                 # 충돌 검증 (10초 이내 오차이면서 다른 내용을 가질 가능성이 있는 경우 경고)
                 has_conflict = False
@@ -651,7 +681,11 @@ class SyncManager:
                             continue
                         if abs(folder_entry["mtime"] - newest_entry["mtime"]) < 1.0 and folder_entry["size"] == newest_entry["size"]:
                             try:
-                                if _same_stable_content(folder_entry["full_path"], newest_entry["full_path"], lambda: self.is_cancelled):
+                                if id(folder_entry) in matched_ties:
+                                    same = self._compare_tied_files(newest_entry, folder_entry, already_matched=True)
+                                else:
+                                    same = _same_stable_content(folder_entry["full_path"], newest_entry["full_path"], lambda: self.is_cancelled)
+                                if same:
                                     continue
                             except OSError as exc:
                                 self.scan_errors.append(exc)

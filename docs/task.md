@@ -202,3 +202,10 @@ Existing signing/publication tasks and protected release-folder permissions rema
 - [x] Remove the dedicated help shortcut and keep the menu and current-screen button.
 - [x] Align Korean, English, and Polish help with the current run, sync, collection, cleanup, and OCR screens.
 - [x] Bump the version and capture the workflow changes in the v1.7.1 release notes. Isolated regression: `Ran 760 tests`, `OK (skipped=1)`.
+
+### Folder-sync comparison performance — 2026-11-18
+
+- [x] Obtain Opus 5.5 and Argon read-only reviews of the duplicate content reads in two-way analysis.
+- [x] Reuse verified equal-time matches only inside the same analysis and file family. Recheck both path fingerprints and cancellation before reuse. Keep approval rescans, staged copy verification, and the separate filename-date mode unchanged.
+- [x] Cover metadata changes before/after comparison, Windows path/handle timestamp differences, cancellation, and hash counts. Benchmark the published v1.7.1 code and the candidate with isolated synthetic files.
+- [x] Run targeted checks (144 passed) and isolated full regression (`Ran 765 tests in 27.045s`, `OK (skipped=1)`).

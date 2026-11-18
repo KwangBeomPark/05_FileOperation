@@ -8,7 +8,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.core.sync_manager import SyncManager, _file_digest, _move_without_replacement
+from src.core.sync_manager import (
+    SyncManager,
+    _file_digest,
+    _move_without_replacement,
+    _same_stable_content,
+)
 
 
 class SyncCopySafetyTests(unittest.TestCase):
@@ -683,6 +688,92 @@ class SyncCopySafetyTests(unittest.TestCase):
         self.assertEqual(manager.analyze_sync(), [])
         self.assertEqual(manager.scan_errors, [])
         self.assertFalse((self.target / "to be deleted").exists())
+
+    def _create_identical_pair(self, name):
+        source, target = self.source / name, self.target / name
+        source.write_bytes(b"same")
+        shutil.copy2(source, target)
+        return source, target
+
+    def test_each_unchanged_tied_pair_is_hashed_only_once_per_analysis(self):
+        for name in ("report.txt", "plan_v1.2.xlsx"):
+            self._create_identical_pair(name)
+        manager = SyncManager([str(self.source), str(self.target)])
+        with patch("src.core.sync_manager._file_digest", wraps=_file_digest) as digest:
+            for _ in range(2):
+                self.assertEqual(manager.analyze_sync(), [])
+                self.assertEqual(manager.scan_errors, [])
+                self.assertEqual(digest.call_count, 4)
+                digest.reset_mock()
+
+    def test_pair_changed_after_first_comparison_blocks_writes(self):
+        for name in ("report.txt", "plan_v1.2.xlsx"):
+            with self.subTest(name=name):
+                _, target = self._create_identical_pair(name)
+                extra = self.source / "new.txt"
+                extra.write_bytes(b"new")
+                manager = SyncManager([str(self.source), str(self.target)])
+
+                def compare_and_change(*args, target=target, **kwargs):
+                    match = _same_stable_content(*args, **kwargs)
+                    if target in (Path(args[0]), Path(args[1])):
+                        target.write_bytes(b"changed mid-analysis")
+                    return match
+
+                with patch("src.core.sync_manager._same_stable_content", side_effect=compare_and_change):
+                    actions = manager.analyze_sync()
+                self.assertTrue(any("File changed since analysis" in str(error) for error in manager.scan_errors))
+                self.assertGreater(manager.execute_sync(actions).fail, 0)
+                self.assertFalse((self.target / extra.name).exists())
+                self.assertEqual(target.read_bytes(), b"changed mid-analysis")
+
+    def test_pair_changed_after_scan_is_not_eligible_for_reuse(self):
+        _, target = self._create_identical_pair("report.txt")
+        manager = SyncManager([str(self.source), str(self.target)])
+        scan = manager.scan_files
+
+        def scan_then_change():
+            scanned = scan()
+            target.write_bytes(b"changed after listing")
+            return scanned
+
+        with patch.object(manager, "scan_files", side_effect=scan_then_change):
+            self.assertEqual(manager.analyze_sync(), [])
+        self.assertTrue(any("File changed since analysis" in str(error) for error in manager.scan_errors))
+
+    def test_path_and_handle_can_report_different_ctime_for_same_file(self):
+        self._create_identical_pair("report.txt")
+        manager = SyncManager([str(self.source), str(self.target)])
+        real_fstat = os.fstat
+
+        def fstat_with_distinct_ctime(handle):
+            info = real_fstat(handle)
+            return SimpleNamespace(
+                st_dev=info.st_dev, st_ino=info.st_ino, st_size=info.st_size,
+                st_mtime_ns=info.st_mtime_ns, st_ctime_ns=info.st_ctime_ns + 100,
+            )
+
+        with (
+            patch("src.core.sync_manager.os.fstat", side_effect=fstat_with_distinct_ctime),
+            patch("src.core.sync_manager._file_digest", wraps=_file_digest) as digest,
+        ):
+            self.assertEqual(manager.analyze_sync(), [])
+            self.assertEqual(digest.call_count, 2)
+        self.assertEqual(manager.scan_errors, [])
+
+    def test_pair_reuse_does_not_hide_cancellation(self):
+        self._create_identical_pair("report.txt")
+        manager = SyncManager([str(self.source), str(self.target)])
+
+        def compare_then_cancel(*args, **kwargs):
+            match = _same_stable_content(*args, **kwargs)
+            manager.cancel()
+            return match
+
+        with patch("src.core.sync_manager._same_stable_content", side_effect=compare_then_cancel):
+            self.assertEqual(manager.analyze_sync(), [])
+        self.assertTrue(manager.is_cancelled)
+        self.assertTrue(any(isinstance(error, InterruptedError) for error in manager.scan_errors))
 
     def test_two_way_same_size_and_time_but_different_bytes_is_held(self):
         source = self.source / "report.txt"

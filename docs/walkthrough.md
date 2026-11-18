@@ -359,3 +359,9 @@ Final regression after the last test-only improvements: `Ran 738 tests in 69.582
 - **Visual checks:** `tools/render_tab_layout_preview.py` can render the affected tabs and cleanup dialog at the minimum window size with synthetic settings. Help, F1, version, and release files are outside this change.
 
 Independent review found that a folder watcher using the old sync roots could otherwise trigger the imported workflow, and that malformed exclusion settings could raise on the preview button. Both cases have regression coverage. The final isolated run reported `Ran 758 tests in 31.355s`, `OK (skipped=1)`. Ruff passes outside the seven previously deferred warnings in `src/utils/security.py`; `git diff --check` passes. Package, installation and actual user files were not tested.
+
+### Folder-sync comparison performance — 2026-11-18
+
+Opus 5.5 and Argon independently identified duplicate content reads in two-way analysis. Successful equal-time comparisons now carry forward only within their ordinary file or numeric version family and only after both path fingerprints are rechecked. Scan-time and later path observations use the same API; the opened-handle observations still receive their own stability check. Cancellation and detected changes still block writes. Equality is not cached across scans and does not remove the existing filesystem race window.
+
+With 24 identical pairs of 4 MiB files on local temporary storage, both two-way previews reduced full hash reads from 96 to 48. The manual analysis-to-copy path with one additional new file reduced hash reads from 1,548 MiB to 780 MiB. One-way results were unchanged. Approval rescans, actual copy verification, and the filename-date-only mode were not changed. Real network or user folders were not benchmarked.
