@@ -365,3 +365,9 @@ Independent review found that a folder watcher using the old sync roots could ot
 Opus 5.5 and Argon independently identified duplicate content reads in two-way analysis. Successful equal-time comparisons now carry forward only within their ordinary file or numeric version family and only after both path fingerprints are rechecked. Scan-time and later path observations use the same API; the opened-handle observations still receive their own stability check. Cancellation and detected changes still block writes. Equality is not cached across scans and does not remove the existing filesystem race window.
 
 With 24 identical pairs of 4 MiB files on local temporary storage, both two-way previews reduced full hash reads from 96 to 48. The manual analysis-to-copy path with one additional new file reduced hash reads from 1,548 MiB to 780 MiB. One-way results were unchanged. Approval rescans, actual copy verification, and the filename-date-only mode were not changed. Real network or user folders were not benchmarked.
+
+### Compact workflow UX — 2026-11-22
+
+At 1000×700 with the application stylesheet, the task table has 279 px with detailed logs collapsed and 205 px with logs open. The conversion warning fits its measured text in Korean, English, and Polish. The folder sync editor places folders before mode and opens an incomplete group from the scope message without changing the all-group run scope. A cancelled preview clears the old result without reporting an error.
+
+Manual task runs and file conversion reuse one preparation window. Final approval, post-approval revalidation, and unattended scheduled execution retain their existing boundaries. The isolated suite reported `Ran 772 tests in 61.987s`, `OK (skipped=1)`. Two static Argon reviews found no remaining defect in the reviewed changes after adding and testing a manual sync re-entry guard. These checks used synthetic settings and did not exercise a live installation or user files.

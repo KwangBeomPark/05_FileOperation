@@ -209,3 +209,11 @@ Existing signing/publication tasks and protected release-folder permissions rema
 - [x] Reuse verified equal-time matches only inside the same analysis and file family. Recheck both path fingerprints and cancellation before reuse. Keep approval rescans, staged copy verification, and the separate filename-date mode unchanged.
 - [x] Cover metadata changes before/after comparison, Windows path/handle timestamp differences, cancellation, and hash counts. Benchmark the published v1.7.1 code and the candidate with isolated synthetic files.
 - [x] Run targeted checks (144 passed) and isolated full regression (`Ran 765 tests in 27.045s`, `OK (skipped=1)`).
+
+### Compact workflow UX — 2026-11-22
+
+- [x] Keep conversion warnings readable at the minimum window size and highlight the next required action.
+- [x] Separate sync preview cancellation from errors, invalidate stale approvals, and make incomplete groups easier to open without changing sync scope.
+- [x] Collapse detailed task logs by default, group log commands, and use one manual preparation window without removing final approval or revalidation.
+- [x] Refresh Korean, English, and Polish help. Isolated regression: `Ran 772 tests in 61.987s`, `OK (skipped=1)`.
+- [x] Complete two read-only Argon reviews and cover the proposed manual sync re-entry guard in regression tests.
