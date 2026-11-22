@@ -186,15 +186,15 @@ class MasterTaskTests(unittest.TestCase):
         self.assertEqual(self.tab.log_area.textCursor().selectionStart(), first)
         self.tab.log_search_prev_btn.click()
         self.assertGreater(self.tab.log_area.textCursor().selectionStart(), first)
-        self.tab.log_copy_btn.click()
+        self.tab.log_copy_action.trigger()
         self.assertEqual(QApplication.clipboard().text(), self.tab.log_area.toPlainText())
         with patch("src.ui.task_panel.subprocess.Popen") as launch:
-            self.tab.log_notepad_btn.click()
+            self.tab.log_notepad_action.trigger()
             command = launch.call_args.args[0]
             self.assertEqual(command[0], "notepad.exe")
             self.assertEqual(Path(command[1]).read_text(encoding="utf-8-sig"), self.tab.log_area.toPlainText())
         with patch("src.ui.task_panel.QDesktopServices.openUrl", return_value=True) as launch:
-            self.tab.log_folder_btn.click()
+            self.tab.log_folder_action.trigger()
             self.assertEqual(Path(launch.call_args.args[0].toLocalFile()), self.tab.run_journal.reports_dir)
 
     def test_large_report_is_complete_and_live_log_is_bounded(self):
@@ -206,7 +206,7 @@ class MasterTaskTests(unittest.TestCase):
         self.assertEqual(self.tab.log_area.maximumBlockCount(), 0)
         self.assertEqual(self.tab.log_area.toPlainText(), report)
         with patch("src.ui.task_panel.subprocess.Popen") as launch:
-            self.tab.log_notepad_btn.click()
+            self.tab.log_notepad_action.trigger()
             self.assertEqual(Path(launch.call_args.args[0][1]), Path(self.tab.run_journal.report_path(run_id)))
         self.assertIsInstance(self.tab.live_log, deque)
         for i in range(20005):

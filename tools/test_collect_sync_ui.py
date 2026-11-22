@@ -838,7 +838,7 @@ class CollectMainWindowTests(unittest.TestCase):
             collect.state_path = root / "state.json"
             observed = []
 
-            def ask(*_args):
+            def ask(*_args, **_kwargs):
                 dialog = QDialog(self.window)
 
                 def tick():

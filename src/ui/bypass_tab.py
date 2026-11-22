@@ -35,13 +35,32 @@ from src.core.task_contracts import (
 )
 from src.ui.backup_recovery_dialog import BackupRecoveryDialog
 from src.ui.i18n import choose, get_app_language, replace_phrases, tr
-from src.ui.preflight_dialog import run_bounded_preflight
+from src.ui.preflight_dialog import preparation_progress, run_bounded_preflight
 from src.ui.run_summary_dialog import confirm_run_summary
 from src.ui.toast_notification import show_toast
 from src.ui.workflow_widget import WorkflowWidget
 from src.utils.logger import get_logger
 
 logger = get_logger()
+
+
+class SourceWarningLabel(QLabel):
+    """Reserve the full wrapped warning height at the actual layout width."""
+
+    def fit_warning(self):
+        required = self.heightForWidth(self.width())
+        if required > 0 and required != self.minimumHeight():
+            self.setMinimumHeight(required)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if event.oldSize().width() != event.size().width():
+            self.fit_warning()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.fit_warning()
+
 
 class BypassConvertWorker(QThread):
     progress = pyqtSignal(int, int, str)  # current, total, status_msg
@@ -448,11 +467,11 @@ class BypassTab(QWidget):
             "background-color: #1e1e1e; color: #94a3b8; border: 1px dashed #475569; "
             "padding: 8px; border-radius: 4px; font-style: italic;"
         )
-        src_btn = QPushButton("폴더 선택")
-        src_btn.clicked.connect(self.select_source_folder)
+        self.source_folder_button = QPushButton("폴더 선택")
+        self.source_folder_button.clicked.connect(self.select_source_folder)
         src_layout.addWidget(src_label)
         src_layout.addWidget(self.src_entry, 1)
-        src_layout.addWidget(src_btn)
+        src_layout.addWidget(self.source_folder_button)
         folder_layout.addLayout(src_layout)
 
         # 대상 폴더 옵션
@@ -476,7 +495,7 @@ class BypassTab(QWidget):
         tgt_option_layout.addStretch()
         folder_layout.addLayout(tgt_option_layout)
 
-        self.source_action_hint = QLabel()
+        self.source_action_hint = SourceWarningLabel()
         self.source_action_hint.setWordWrap(True)
         folder_layout.addWidget(self.source_action_hint)
 
@@ -493,11 +512,11 @@ class BypassTab(QWidget):
             "background-color: #1e1e1e; color: #94a3b8; border: 1px dashed #475569; "
             "padding: 8px; border-radius: 4px; font-style: italic;"
         )
-        tgt_btn = QPushButton("폴더 선택")
-        tgt_btn.clicked.connect(self.select_target_folder)
+        self.target_folder_button = QPushButton("폴더 선택")
+        self.target_folder_button.clicked.connect(self.select_target_folder)
         tgt_layout.addWidget(tgt_label)
         tgt_layout.addWidget(self.tgt_entry, 1)
-        tgt_layout.addWidget(tgt_btn)
+        tgt_layout.addWidget(self.target_folder_button)
         folder_layout.addWidget(self.tgt_layout_widget)
         self.tgt_layout_widget.setVisible(self.radio_custom.isChecked())
 
@@ -961,6 +980,8 @@ class BypassTab(QWidget):
             )
             self.check_backup_orig.setToolTip("")
             self.start_btn.setText(self._t("Start File Conversion", "파일 변환 시작", "Rozpocznij konwersję plików"))
+        if self.source_action_hint.isVisible():
+            self.source_action_hint.fit_warning()
 
     def select_source_folder(self):
         initial = self.config_manager.get("last_bypass_source_directory", "")
@@ -1030,7 +1051,22 @@ class BypassTab(QWidget):
         target_ready = self._target_is_ready()
         available = not self.is_running and not self._ui_locked
         self.scan_btn.setEnabled(available and source_ready)
-        self.start_btn.setEnabled(available and source_ready and target_ready and bool(self.scanned_files))
+        ready_to_convert = source_ready and target_ready and bool(self.scanned_files)
+        self.start_btn.setEnabled(available and ready_to_convert)
+        for button, primary in (
+            (self.source_folder_button, available and not source_ready),
+            (self.target_folder_button, available and source_ready and not target_ready),
+            (self.scan_btn, available and source_ready and target_ready and not self.scanned_files),
+            (self.start_btn, available and ready_to_convert),
+        ):
+            variant = "primary" if primary else "secondary"
+            if button.property("variant") != variant:
+                button.setProperty("variant", variant)
+                button.style().unpolish(button)
+                button.style().polish(button)
+        self.scan_btn.setText(self._t("Scan again", "다시 스캔", "Skanuj ponownie") if self.scanned_files else
+                              self._t("Scan files", "대상 파일 스캔", "Skanuj pliki"))
+        self.stop_btn.setVisible(self.is_running)
         if not source_ready:
             scan_reason = self._t("Step 1: select a valid source folder.", "1단계: 올바른 원본 폴더를 선택하세요.", "Krok 1: wybierz prawidłowy folder źródłowy.")
             start_reason = scan_reason
@@ -1095,7 +1131,8 @@ class BypassTab(QWidget):
             QMessageBox.critical(self, self._msg("common_error"), self._msg("bypass_scan_failed", detail=str(e)))
 
     def start_conversion(self):
-        if self.is_running:
+        if (self.is_running or getattr(self.window(), "_preparation_active", False)
+                or getattr(self.window(), "_run_confirmation_active", False)):
             return
         if not self.scanned_files:
             QMessageBox.warning(self, self._t("Warning", "경고", "Ostrzeżenie"), self._t("No files are ready. Scan the source folder first.", "변환할 대상 파일이 없습니다. 스캔을 먼저 실행해 주세요.", "Brak plików gotowych do konwersji. Najpierw przeskanuj folder źródłowy."))
@@ -1126,32 +1163,39 @@ class BypassTab(QWidget):
             QMessageBox.warning(self, self._msg("common_warning"), self._msg("bypass_scan_first"))
             return
 
-        preflight, preflight_error, preflight_cancelled = run_bounded_preflight(
-            self,
-            RunPlan({TaskStep.BYPASS: run_config}),
-            self.config_manager,
-            auto_email=False,
-            visible=True,
-        )
-        if preflight is None:
-            detail = self._t(
-                "Preflight was cancelled. No conversion was started."
-                if preflight_cancelled else f"Preflight could not be completed: {preflight_error}",
-                "실행 전 점검을 취소했습니다. 변환은 시작되지 않았습니다."
-                if preflight_cancelled else f"실행 전 점검을 완료하지 못했습니다: {preflight_error}",
-                "Anulowano kontrolę. Konwersja nie została uruchomiona."
-                if preflight_cancelled else f"Nie można ukończyć kontroli: {preflight_error}",
+        with preparation_progress(self, self.config_manager, visible=True) as preparation:
+            preflight, preflight_error, preflight_cancelled = run_bounded_preflight(
+                self,
+                RunPlan({TaskStep.BYPASS: run_config}),
+                self.config_manager,
+                auto_email=False,
+                visible=True,
+                preparation=preparation,
             )
-            QMessageBox.warning(self, self._t("Preflight Check", "실행 전 점검", "Kontrola przed uruchomieniem"), detail)
-            return
-        if preflight.has_blockers:
-            QMessageBox.critical(self, self._msg("bypass_preflight_failed"), preflight.format(include_warnings=False, language=self.language))
-            return
+            if preflight is None:
+                preparation.hide()
+                detail = self._t(
+                    "Preflight was cancelled. No conversion was started."
+                    if preflight_cancelled else f"Preflight could not be completed: {preflight_error}",
+                    "실행 전 점검을 취소했습니다. 변환은 시작되지 않았습니다."
+                    if preflight_cancelled else f"실행 전 점검을 완료하지 못했습니다: {preflight_error}",
+                    "Anulowano kontrolę. Konwersja nie została uruchomiona."
+                    if preflight_cancelled else f"Nie można ukończyć kontroli: {preflight_error}",
+                )
+                QMessageBox.warning(self, self._t("Preflight Check", "실행 전 점검", "Kontrola przed uruchomieniem"), detail)
+                return
+            if preflight.has_blockers:
+                preparation.hide()
+                QMessageBox.critical(self, self._msg("bypass_preflight_failed"), preflight.format(include_warnings=False, language=self.language))
+                return
 
-        warnings = preflight.format(language=self.language) if preflight.warnings else ""
-        if not confirm_run_summary(self, RunPlan({TaskStep.BYPASS: run_config}), self.config_manager, warnings=warnings):
-            self.log_area.append(self._t("Source action was cancelled.", "원본 처리 작업을 취소했습니다.", "Anulowano akcję na źródłach."))
-            return
+            warnings = preflight.format(language=self.language) if preflight.warnings else ""
+            if not confirm_run_summary(
+                self, RunPlan({TaskStep.BYPASS: run_config}), self.config_manager, warnings=warnings,
+                preparation=preparation,
+            ):
+                self.log_area.append(self._t("Source action was cancelled.", "원본 처리 작업을 취소했습니다.", "Anulowano akcję na źródłach."))
+                return
 
         tasks = [task.to_legacy_dict() for task in run_config.tasks]
 

@@ -62,7 +62,7 @@ from src.core.task_notifier import (
 from src.ui.diagnostics_dialog import DiagnosticsDialog
 from src.ui.i18n import get_app_language, tr
 from src.ui.notification_worker import NotificationWorker
-from src.ui.preflight_dialog import run_bounded_preflight
+from src.ui.preflight_dialog import preparation_progress, run_bounded_preflight
 from src.ui.run_history_dialog import RunHistoryDialog
 from src.ui.run_summary_dialog import confirm_run_summary
 from src.ui.task_panel import TaskPanelMixin
@@ -326,7 +326,7 @@ class TaskTab(TaskPanelMixin, QWidget):
             bool(self.config_manager.get("task_chain_outputs", False))
         )
         self.check_chain_outputs.setStyleSheet(
-            "color: #a7f3d0; background-color: #064e3b; border: 1px solid #047857; "
+            "color: #e2e8f0; background-color: #1e293b; border: 1px solid #64748b; "
             "border-radius: 5px; padding: 6px 8px;"
         )
         layout.addWidget(self.check_chain_outputs)
@@ -455,22 +455,25 @@ class TaskTab(TaskPanelMixin, QWidget):
         toolbar.addWidget(self.log_search, 1)
         toolbar.addWidget(self.log_search_prev_btn)
         toolbar.addWidget(self.log_search_next_btn)
-        self.log_export_btn = QPushButton()
-        self.log_copy_btn = QPushButton()
-        self.log_notepad_btn = QPushButton()
-        self.log_folder_btn = QPushButton()
-        self.log_clear_btn = QPushButton()
-        for button in (self.log_copy_btn, self.log_notepad_btn, self.log_folder_btn, self.log_export_btn, self.log_clear_btn):
-            toolbar.addWidget(button)
+        self.log_actions_button = QPushButton()
+        log_menu = QMenu(self.log_actions_button)
+        self.log_copy_action = log_menu.addAction("")
+        self.log_notepad_action = log_menu.addAction("")
+        self.log_folder_action = log_menu.addAction("")
+        self.log_export_action = log_menu.addAction("")
+        log_menu.addSeparator()
+        self.log_clear_action = log_menu.addAction("")
+        self.log_actions_button.setMenu(log_menu)
+        toolbar.addWidget(self.log_actions_button)
         self.log_search.textChanged.connect(lambda: self.find_viewer_text(restart=True))
         self.log_search.returnPressed.connect(self.find_viewer_text)
         self.log_search_next_btn.clicked.connect(lambda: self.find_viewer_text())
         self.log_search_prev_btn.clicked.connect(lambda: self.find_viewer_text(backward=True))
-        self.log_export_btn.clicked.connect(self.export_log)
-        self.log_copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(self.log_area.toPlainText()))
-        self.log_folder_btn.clicked.connect(self.open_reports_folder)
-        self.log_notepad_btn.clicked.connect(self.open_viewer_in_notepad)
-        self.log_clear_btn.clicked.connect(self.clear_live_log)
+        self.log_export_action.triggered.connect(self.export_log)
+        self.log_copy_action.triggered.connect(lambda: QApplication.clipboard().setText(self.log_area.toPlainText()))
+        self.log_folder_action.triggered.connect(self.open_reports_folder)
+        self.log_notepad_action.triggered.connect(self.open_viewer_in_notepad)
+        self.log_clear_action.triggered.connect(self.clear_live_log)
         viewer_layout.addLayout(toolbar)
         viewer_layout.addWidget(self.log_area, 1)
         self.history_splitter.addWidget(history_panel)
@@ -479,7 +482,17 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.history_splitter.setStretchFactor(1, 1)
         self.history_splitter.setSizes([280, 800])
         self.main_splitter.addWidget(self.history_splitter)
-        self.main_splitter.setSizes([280, 360])
+        self.main_splitter.setStretchFactor(0, 2)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setSizes([400, 200])
+        self.log_details_button = QPushButton()
+        self.log_details_button.setCheckable(True)
+        self.log_details_button.toggled.connect(self._set_log_details_visible)
+        log_details_row = QHBoxLayout()
+        log_details_row.addWidget(self.log_details_button)
+        log_details_row.addStretch()
+        table_v_layout.addLayout(log_details_row)
+        self.history_splitter.hide()
         self.refresh_history_display()
         self._update_backup_consent_visibility()
         self.refresh_language()
@@ -546,6 +559,14 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.refresh_run_list()
         self._update_backup_consent_visibility()
 
+    def _set_log_details_visible(self, visible):
+        self.history_splitter.setVisible(visible)
+        self.log_details_button.setText(
+            self._text("Hide detailed logs", "상세 로그 닫기", "Ukryj szczegóły dziennika")
+            if visible else
+            self._text("Show detailed logs", "상세 로그 보기", "Pokaż szczegóły dziennika")
+        )
+
     def refresh_language(self):
         language = self.language
         self.title_label.setText(tr("task_title", language))
@@ -588,6 +609,8 @@ class TaskTab(TaskPanelMixin, QWidget):
             self.set_row_readiness(index, readiness.data(Qt.ItemDataRole.UserRole) or "not_checked",
                                    readiness.data(Qt.ItemDataRole.UserRole.value + 1) or "")
         self.refresh_history_language()
+        self.log_actions_button.setText(self._text("More log actions", "로그 작업 더보기", "Więcej działań dziennika"))
+        self._set_log_details_visible(self.log_details_button.isChecked())
         self.progress_bar.setFormat(tr("task_progress_format", language))
         self.detail_label.setText(tr("task_waiting", language))
         if not self.is_running:
@@ -1154,6 +1177,7 @@ class TaskTab(TaskPanelMixin, QWidget):
             # Wait for the next tick; the daily slot is not consumed while collection runs.
             return False
         if (not self.check_schedule.isChecked() or self.is_running or self.is_preflighting
+                or getattr(self.window(), "_preparation_active", False)
                 or getattr(self.window(), "_run_confirmation_active", False)):
             return False
 
@@ -1232,7 +1256,8 @@ class TaskTab(TaskPanelMixin, QWidget):
             return self._start_rejected(tr("collect_save_error", self.language))
         if self._collect_sync_busy():
             return self._start_rejected(tr("collect_busy", self.language))
-        if self.is_preflighting or getattr(self.window(), "_run_confirmation_active", False):
+        if (self.is_preflighting or getattr(self.window(), "_preparation_active", False)
+                or getattr(self.window(), "_run_confirmation_active", False)):
             return self._start_rejected(self._text(
                 "Another run is being reviewed. Finish or cancel it first.",
                 "다른 실행을 확인 중입니다. 먼저 확인을 마치거나 취소해 주세요.",
@@ -1314,61 +1339,72 @@ class TaskTab(TaskPanelMixin, QWidget):
             self._set_readiness_item(TaskStep.BYPASS, "blocked", reason)
             return self._start_rejected(reason)
 
-        # 2. 활성 단계 기준 외부 의존성 사전 점검
-        self.is_preflighting = True
-        try:
-            preflight, preflight_error, preflight_cancelled = run_bounded_preflight(
-                self,
-                run_plan,
-                self.config_manager,
-                auto_email=self.check_auto_email.isChecked(),
-                visible=not scheduled,
-            )
-        finally:
-            self.is_preflighting = False
-        if preflight is None:
-            if preflight_cancelled:
-                reason = self._text(
-                    "Preflight was cancelled. No task was started.",
-                    "실행 전 점검을 취소했습니다. 작업은 시작되지 않았습니다.",
-                    "Anulowano kontrolę. Zadanie nie zostało uruchomione.",
+        with preparation_progress(self, self.config_manager, visible=not scheduled) as preparation:
+            # 2. 활성 단계 기준 외부 의존성 사전 점검
+            self.is_preflighting = True
+            try:
+                preflight, preflight_error, preflight_cancelled = run_bounded_preflight(
+                    self,
+                    run_plan,
+                    self.config_manager,
+                    auto_email=self.check_auto_email.isChecked(),
+                    visible=not scheduled,
+                    preparation=preparation,
                 )
-            else:
-                reason = self._text(
-                    f"Preflight could not be completed: {preflight_error}",
-                    f"실행 전 점검을 완료하지 못했습니다: {preflight_error}",
-                    f"Nie można ukończyć kontroli: {preflight_error}",
-                )
-            if scheduled:
-                self.log(f"[{tr('task_scheduled_prefix', self.language)}] {reason}")
-            else:
-                QMessageBox.warning(self, self._text("Preflight Check", "실행 전 점검", "Kontrola przed uruchomieniem"), reason)
-            return self._start_rejected(reason)
-        if preflight.has_blockers:
-            blocked = {issue.step for issue in preflight.blockers}
-            if None in blocked:
-                return self._warn_start_rejected(preflight.format(include_warnings=False, language=self.language), scheduled)
-            items = [replace(item, error="\n".join(issue.message for issue in preflight.blockers if issue.step == item.step))
-                     if item.step in blocked else item for item in items]
-            configs = {step: config for step, config in configs.items() if step not in blocked}
-            run_plan = replace(run_plan, items=items, configs=configs)
+            finally:
+                self.is_preflighting = False
+            if preflight is None:
+                if preparation is not None:
+                    preparation.hide()
+                if preflight_cancelled:
+                    reason = self._text(
+                        "Preflight was cancelled. No task was started.",
+                        "실행 전 점검을 취소했습니다. 작업은 시작되지 않았습니다.",
+                        "Anulowano kontrolę. Zadanie nie zostało uruchomione.",
+                    )
+                else:
+                    reason = self._text(
+                        f"Preflight could not be completed: {preflight_error}",
+                        f"실행 전 점검을 완료하지 못했습니다: {preflight_error}",
+                        f"Nie można ukończyć kontroli: {preflight_error}",
+                    )
+                if scheduled:
+                    self.log(f"[{tr('task_scheduled_prefix', self.language)}] {reason}")
+                else:
+                    QMessageBox.warning(self, self._text("Preflight Check", "실행 전 점검", "Kontrola przed uruchomieniem"), reason)
+                return self._start_rejected(reason)
+            if preflight.has_blockers:
+                blocked = {issue.step for issue in preflight.blockers}
+                if None in blocked:
+                    if preparation is not None:
+                        preparation.hide()
+                    return self._warn_start_rejected(preflight.format(include_warnings=False, language=self.language), scheduled)
+                items = [replace(item, error="\n".join(issue.message for issue in preflight.blockers if issue.step == item.step))
+                         if item.step in blocked else item for item in items]
+                configs = {step: config for step, config in configs.items() if step not in blocked}
+                run_plan = replace(run_plan, items=items, configs=configs)
 
-        if not any(item.config is not None and not item.error for item in items):
-            return self._reject_unrunnable_items(items, scheduled)
+            if not any(item.config is not None and not item.error for item in items):
+                if preparation is not None:
+                    preparation.hide()
+                return self._reject_unrunnable_items(items, scheduled)
 
-        warning_text = preflight.format(include_warnings=True, language=self.language) if preflight.warnings else ""
-        item_errors = [f"{item.name}: {item.error}" for item in items if item.error]
-        if item_errors:
-            warning_text += "\n" + "\n".join(item_errors)
-        if scheduled and warning_text:
-            self.log(self._text("[Scheduled run] Preflight warning:\n", "[예약 실행] 사전 점검 경고:\n", "[Harmonogram] Ostrzeżenie kontroli wstępnej:\n") + warning_text)
-        review_plan = replace(run_plan, items=[], step_order=list(configs), is_scheduled_run=scheduled)
-        if not confirm_run_summary(self, review_plan, self.config_manager, scheduled=scheduled, warnings=warning_text):
-            return self._start_rejected(self._text(
-                "The change review was not completed. No task was started.",
-                "변경 내용 확인을 완료하지 않아 작업을 시작하지 않았습니다.",
-                "Nie ukończono przeglądu zmian. Nie uruchomiono zadania.",
-            ))
+            warning_text = preflight.format(include_warnings=True, language=self.language) if preflight.warnings else ""
+            item_errors = [f"{item.name}: {item.error}" for item in items if item.error]
+            if item_errors:
+                warning_text += "\n" + "\n".join(item_errors)
+            if scheduled and warning_text:
+                self.log(self._text("[Scheduled run] Preflight warning:\n", "[예약 실행] 사전 점검 경고:\n", "[Harmonogram] Ostrzeżenie kontroli wstępnej:\n") + warning_text)
+            review_plan = replace(run_plan, items=[], step_order=list(configs), is_scheduled_run=scheduled)
+            if not confirm_run_summary(
+                self, review_plan, self.config_manager, scheduled=scheduled, warnings=warning_text,
+                preparation=preparation,
+            ):
+                return self._start_rejected(self._text(
+                    "The change review was not completed. No task was started.",
+                    "변경 내용 확인을 완료하지 않아 작업을 시작하지 않았습니다.",
+                    "Nie ukończono przeglądu zmian. Nie uruchomiono zadania.",
+                ))
         approved = getattr(review_plan, "approved_manifest", ())
         run_plan = replace(
             run_plan,

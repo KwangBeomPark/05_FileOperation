@@ -262,18 +262,18 @@ class TaskPanelMixin:
         self.status_filter.setCurrentIndex(max(0, self.status_filter.findData(status)))
         for combo in (self.type_filter, self.status_filter):
             combo.blockSignals(False)
-        self.log_export_btn.setText(
+        self.log_export_action.setText(
             self._text("Export log…", "로그 내보내기…", "Eksportuj dziennik…")
         )
         self.log_search.setPlaceholderText(self._text("Search...", "검색...", "Szukaj..."))
         self.log_search_prev_btn.setText(self._text("Previous", "이전", "Poprzedni"))
         self.log_search_next_btn.setText(self._text("Next", "다음", "Następny"))
-        self.log_copy_btn.setText(self._text("Copy All", "전체 복사", "Kopiuj wszystko"))
-        self.log_notepad_btn.setText(self._text("Open in Notepad", "메모장으로 열기", "Otwórz w Notatniku"))
-        self.log_folder_btn.setText(
+        self.log_copy_action.setText(self._text("Copy All", "전체 복사", "Kopiuj wszystko"))
+        self.log_notepad_action.setText(self._text("Open in Notepad", "메모장으로 열기", "Otwórz w Notatniku"))
+        self.log_folder_action.setText(
             self._text("Open Folder", "폴더 열기", "Otwórz folder")
         )
-        self.log_clear_btn.setText(
+        self.log_clear_action.setText(
             self._text("Clear log", "로그 지우기", "Wyczyść dziennik")
         )
         self.refresh_run_list()
@@ -339,13 +339,13 @@ class TaskPanelMixin:
             self.log_area.setPlainText("\n".join(self.live_log))
             scrollbar = self.log_area.verticalScrollBar()
             scrollbar.setValue(scrollbar.maximum())
-            self.log_clear_btn.setEnabled(True)
+            self.log_clear_action.setEnabled(True)
         else:
             self.log_area.setMaximumBlockCount(0)
             self.log_label.setText(
                 f"{entry['started_at'].replace('T', ' ')[:16]} · {tr('run_status_' + entry['status'], self.language)}"
             )
-            self.log_clear_btn.setEnabled(False)
+            self.log_clear_action.setEnabled(False)
             try:
                 path = Path(
                     entry.get("report_path")
@@ -401,7 +401,7 @@ class TaskPanelMixin:
 
     def export_log(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, self.log_export_btn.text(), "execution.txt", "Text (*.txt)"
+            self, self.log_export_action.text(), "execution.txt", "Text (*.txt)"
         )
         if path:
             try:

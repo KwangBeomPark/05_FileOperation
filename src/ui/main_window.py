@@ -1116,7 +1116,7 @@ class MainWindow(QMainWindow):
         self.config_manager.set("window_size", [size.width(), size.height()])
             
     def closeEvent(self, event):
-        if getattr(self, "_run_confirmation_active", False):
+        if getattr(self, "_run_confirmation_active", False) or getattr(self, "_preparation_active", False):
             # Finish/cancel the bounded review before disposing tabs or the Qt loop.
             event.ignore()
             return

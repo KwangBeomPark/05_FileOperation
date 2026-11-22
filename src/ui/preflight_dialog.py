@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from threading import Event
 
 from PyQt6.QtCore import QEventLoop, QThread, QTimer, pyqtSignal
@@ -125,9 +126,95 @@ class PreflightProgressDialog(QDialog):
         super().closeEvent(event)
 
 
-def run_bounded_preflight(parent, run_plan, config_manager, *, auto_email: bool, visible: bool):
+class PreparationProgressDialog(QDialog):
+    """Keep one cancellable window open across the two read-only preparation stages."""
+
+    def __init__(self, parent, config_manager):
+        super().__init__(parent)
+        self.language = get_app_language(config_manager)
+        self.worker = None
+        self.was_cancelled = False
+        self.setModal(True)
+        self.setMinimumWidth(520)
+        self.setWindowTitle(self._text("Preparing to run", "실행 준비 중", "Przygotowanie do uruchomienia"))
+        layout = QVBoxLayout(self)
+        self.message = QLabel()
+        self.message.setWordWrap(True)
+        layout.addWidget(self.message)
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        layout.addWidget(progress)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        self.cancel_button = QPushButton(self._text("Cancel", "취소", "Anuluj"))
+        self.cancel_button.clicked.connect(self.reject)
+        buttons.addWidget(self.cancel_button)
+        layout.addLayout(buttons)
+
+    def _text(self, en, ko, pl):
+        return choose(self.language, en, ko, pl)
+
+    def run_stage(self, worker, en, ko, pl):
+        """Return the worker outcome after the worker has stopped."""
+        if self.was_cancelled:
+            return None, "", True
+        self.worker = worker
+        self.message.setText(self._text(en, ko, pl))
+        if not self.isVisible():
+            self.show()
+        loop = QEventLoop(self)
+        outcome = (None, "", False)
+
+        def finish(result=None, error="", cancelled=False):
+            nonlocal outcome
+            outcome = (result, error, cancelled)
+            loop.quit()
+
+        worker.completed.connect(lambda result: finish(result=result))
+        worker.failed.connect(lambda error: finish(error=error))
+        worker.cancelled.connect(lambda: finish(cancelled=True))
+        worker.start()
+        loop.exec()
+        worker.wait()
+        self.worker = None
+        return (None, "", True) if self.was_cancelled else outcome
+
+    def reject(self):
+        self.was_cancelled = True
+        self.cancel_button.setEnabled(False)
+        self.message.setText(self._text("Stopping…", "중지하는 중…", "Zatrzymywanie…"))
+        if self.worker is not None:
+            self.worker.cancel()
+
+    def closeEvent(self, event):
+        self.reject()
+        event.ignore()
+
+
+@contextmanager
+def preparation_progress(parent, config_manager, *, visible):
+    """Hold the main window open during preparation; scheduled runs use no dialog."""
+    if not visible:
+        yield None
+        return
+    window = parent.window()
+    dialog = PreparationProgressDialog(parent, config_manager)
+    window._preparation_active = True
+    try:
+        yield dialog
+    finally:
+        window._preparation_active = False
+        dialog.hide()
+        dialog.deleteLater()
+
+
+def run_bounded_preflight(parent, run_plan, config_manager, *, auto_email: bool, visible: bool, preparation=None):
     """Return (report, error, cancelled) while keeping the Qt event loop responsive."""
     worker = PreflightWorker(run_plan, config_manager, auto_email)
+    if visible and preparation is not None:
+        return preparation.run_stage(
+            worker, "1/2 · Checking requirements…", "1/2 · 실행 조건 확인 중…", "1/2 · Sprawdzanie wymagań…",
+        )
     if visible:
         dialog = PreflightProgressDialog(worker, config_manager, parent)
         dialog.exec()

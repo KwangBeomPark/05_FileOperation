@@ -284,7 +284,9 @@ def analyze_run_summary(parent, plan, config_manager, *, visible=True, recheck=F
     return outcome["summary"], outcome["error"], outcome["cancelled"]
 
 
-def confirm_run_summary(parent, plan, config_manager, *, scheduled=False, warnings="") -> bool:
+def confirm_run_summary(
+    parent, plan, config_manager, *, scheduled=False, warnings="", on_stale=None, preparation=None,
+) -> bool:
     """Confirm manual runs; scheduled runs log estimates without asking a question."""
     language = get_app_language(config_manager)
     window = parent.window()
@@ -292,7 +294,16 @@ def confirm_run_summary(parent, plan, config_manager, *, scheduled=False, warnin
         return False
     window._run_confirmation_active = True
     try:
-        summary, error, cancelled = analyze_run_summary(parent, plan, config_manager, visible=not scheduled)
+        if preparation is not None and not scheduled:
+            try:
+                summary, error, cancelled = preparation.run_stage(
+                    SummaryWorker(plan), "2/2 · Preparing the list of changes…",
+                    "2/2 · 변경 목록 준비 중…", "2/2 · Przygotowanie listy zmian…",
+                )
+            finally:
+                preparation.hide()
+        else:
+            summary, error, cancelled = analyze_run_summary(parent, plan, config_manager, visible=not scheduled)
         if summary is None:
             if error:
                 logger.warning("Run summary failed: %s", error)
@@ -316,6 +327,8 @@ def confirm_run_summary(parent, plan, config_manager, *, scheduled=False, warnin
                 QMessageBox.warning(parent, summary_text(language, "title"), summary_text(language, "failed"))
             return False
         if refreshed.fingerprint != summary.fingerprint:
+            if on_stale is not None:
+                on_stale()
             QMessageBox.warning(parent, summary_text(language, "title"), summary_text(language, "stale"))
             return False
         # GUI 수동 확인에서 승인한 실제 개별 경로와 행동 목록을 plan에 고정

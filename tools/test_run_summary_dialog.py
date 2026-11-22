@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -35,6 +35,7 @@ from src.ui.eml_tab import EMLTab
 from src.ui.main_window import MainWindow
 from src.ui.ocr_tab import OCRTab
 from src.ui.pdf_tab import PDFTab
+from src.ui.preflight_dialog import preparation_progress, run_bounded_preflight
 from src.ui.run_summary_dialog import (
     RunSummaryDialog,
     SummaryProgressDialog,
@@ -172,11 +173,13 @@ class RunSummaryDialogTests(unittest.TestCase):
 
     def test_stale_summary_aborts_and_restores_window_guard(self):
         changed = RunChangeSummary(fingerprint="changed")
+        on_stale = Mock()
         with (patch("src.ui.run_summary_dialog.analyze_run_summary", side_effect=[(self.summary, "", False), (changed, "", False)]),
               patch.object(RunSummaryDialog, "exec", return_value=QDialog.DialogCode.Accepted),
               patch("src.ui.run_summary_dialog.QMessageBox.warning") as warning):
-            self.assertFalse(confirm_run_summary(self.parent, RunPlan(), self.config))
+            self.assertFalse(confirm_run_summary(self.parent, RunPlan(), self.config, on_stale=on_stale))
         self.assertIn("changed", warning.call_args.args[2])
+        on_stale.assert_called_once_with()
         self.assertFalse(self.parent._run_confirmation_active)
 
     def test_unchanged_summary_is_accepted_after_second_analysis(self):
@@ -185,6 +188,48 @@ class RunSummaryDialogTests(unittest.TestCase):
             self.assertTrue(confirm_run_summary(self.parent, RunPlan(), self.config))
         self.assertEqual(analyze.call_count, 2)
         self.assertTrue(analyze.call_args.kwargs["recheck"])
+
+    def test_manual_preparation_stays_open_until_approval_and_still_rechecks(self):
+        plan = RunPlan()
+        preflight = PreflightReport(language="en")
+        changed = RunChangeSummary(fingerprint="changed")
+
+        def approve():
+            self.assertTrue(self.parent._preparation_active)
+            self.assertFalse(preparation.isVisible())
+            self.assertIn("2/2", preparation.message.text())
+            return QDialog.DialogCode.Accepted
+
+        with (preparation_progress(self.parent, self.config, visible=True) as preparation,
+              patch("src.ui.preflight_dialog.check_run_plan", return_value=preflight),
+              patch.object(preparation, "show", wraps=preparation.show) as show):
+            self.assertEqual(run_bounded_preflight(
+                self.parent, plan, self.config, auto_email=False, visible=True, preparation=preparation,
+            ), (preflight, "", False))
+            self.assertTrue(preparation.isVisible())
+            self.assertIn("1/2", preparation.message.text())
+            with (patch("src.ui.run_summary_dialog.run_probe", return_value=ProbeResult(True, value=self.summary)),
+                  patch("src.ui.run_summary_dialog.analyze_run_summary", return_value=(changed, "", False)) as recheck,
+                  patch.object(RunSummaryDialog, "exec", side_effect=approve),
+                  patch("src.ui.run_summary_dialog.QMessageBox.warning")):
+                self.assertFalse(confirm_run_summary(self.parent, plan, self.config, preparation=preparation))
+            show.assert_called_once()
+            recheck.assert_called_once_with(self.parent, plan, self.config, recheck=True)
+        self.assertFalse(self.parent._preparation_active)
+
+    def test_preparation_cancel_blocks_late_success_and_next_stage(self):
+        with preparation_progress(self.parent, self.config, visible=True) as preparation:
+            QTimer.singleShot(0, preparation.reject)
+            with patch("src.ui.preflight_dialog.check_run_plan", return_value=PreflightReport(language="en")):
+                self.assertEqual(run_bounded_preflight(
+                    self.parent, RunPlan(), self.config, auto_email=False, visible=True, preparation=preparation,
+                ), (None, "", True))
+            with (patch("src.ui.run_summary_dialog.run_probe") as probe,
+                  patch.object(RunSummaryDialog, "exec") as confirmation):
+                self.assertFalse(confirm_run_summary(self.parent, RunPlan(), self.config, preparation=preparation))
+            probe.assert_not_called()
+            confirmation.assert_not_called()
+        self.assertFalse(self.parent._preparation_active)
 
     def test_approval_is_blocked_when_manifest_cannot_be_attached(self):
         class LockedPlan:

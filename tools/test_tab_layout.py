@@ -92,6 +92,66 @@ class TabLayoutTests(unittest.TestCase):
                     self.assertTrue(widget.isVisibleTo(tab))
                     self.assertTrue(tab.rect().contains(widget.mapTo(tab, QPoint())))
                     self.assertTrue(tab.rect().contains(widget.mapTo(tab, widget.rect().bottomRight())))
+        self.assertTrue(tab.incomplete_group_button.isVisibleTo(tab))
+        tab.incomplete_group_button.click()
+        self.assertEqual(tab.current_group_idx, 1)
+        self.assertEqual(tab.folder_list_widget.count(), 1)
+        self.assertFalse(tab.analyze_btn.isEnabled())
+
+    def test_compact_task_table_grows_when_log_details_are_closed(self):
+        tab = self.window.task_tab
+        self.window.select_feature_tab(tab)
+        self.window.resize(self.window.minimumSize())
+        self.window.show()
+        self.app.processEvents()
+        self.assertTrue(tab.history_splitter.isHidden())
+        closed_height = tab.status_table.height()
+        self.assertTrue(tab.history_btn.isVisibleTo(tab))
+        tab.log_details_button.click()
+        self.app.processEvents()
+        self.assertTrue(tab.history_splitter.isVisibleTo(tab))
+        self.assertLess(tab.status_table.height(), closed_height)
+        actions = [a for a in tab.log_actions_button.menu().actions() if not a.isSeparator()]
+        self.assertEqual(len(actions), 5)
+        tab.log_details_button.click()
+        self.app.processEvents()
+        self.assertEqual(tab.status_table.height(), closed_height)
+
+    def test_sync_folders_precede_mode_and_options_do_not_reset(self):
+        tab = self.window.sync_tab
+        self.config.values["sync_groups"] = [
+            {"id": "id", "name": "Example", "folders": ["C:/Example/A", "C:/Example/B"],
+             "sync_mode": "one_way", "include_subfolders": True, "exclude_patterns": ["*.tmp"]},
+        ]
+        self.assertTrue(tab.load_saved_data(persist=False))
+        self.window.select_feature_tab(tab)
+        self.window.show()
+        self.app.processEvents()
+        self.assertLess(tab.folder_list_widget.mapTo(tab, QPoint()).y(), tab.mode_group.mapTo(tab, QPoint()).y())
+        self.assertEqual(tab.sync_mode_combo.currentData(), "one_way")
+        self.assertTrue(tab.advanced_options_panel.isHidden())
+        tab.advanced_options_toggle.click()
+        self.assertTrue(tab.advanced_options_panel.isVisibleTo(tab))
+        self.assertTrue(tab.subfolders_check.isChecked())
+        self.assertEqual(tab.exclude_input.text(), "*.tmp")
+        tab.advanced_options_toggle.click()
+        self.assertTrue(tab.advanced_options_panel.isHidden())
+        self.assertTrue(tab.subfolders_check.isChecked())
+
+    def test_compact_conversion_warning_has_room_for_wrapped_text(self):
+        tab = self.window.bypass_tab
+        self.window.select_feature_tab(tab)
+        self.window.resize(self.window.minimumSize())
+        self.window.show()
+        for language in ("ko", "en", "pl"):
+            with self.subTest(language=language):
+                self.config.values["ui_language"] = language
+                self.window.refresh_language()
+                self.app.processEvents()
+                hint = tab.source_action_hint
+                self.assertGreaterEqual(hint.height(), hint.heightForWidth(hint.width()))
+                self.assertFalse(tab.start_btn.isEnabled())
+                self.assertEqual(tab.source_folder_button.property("variant"), "primary")
 
     def test_sa_team_contains_original_feature_widgets_in_order(self):
         tabs = self.window.sa_team_tabs

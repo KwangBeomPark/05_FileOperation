@@ -36,10 +36,12 @@ class SyncWorkerSafetyTests(unittest.TestCase):
             worker._create_manager = lambda *_args: manager(worker)
             completed = []
             failed = []
+            cancelled = []
             worker.dry_run_finished.connect(completed.append)
             worker.finished.connect(lambda *args: failed.append(args))
+            worker.preview_cancelled.connect(lambda: cancelled.append(True))
             worker.run()
-        return completed, failed
+        return completed, failed, cancelled
 
     def test_cancelled_preview_is_not_reported_complete(self):
         def manager(worker):
@@ -52,10 +54,10 @@ class SyncWorkerSafetyTests(unittest.TestCase):
 
             return Manager()
 
-        completed, failed = self._run_with_manager(manager)
+        completed, failed, cancelled = self._run_with_manager(manager)
         self.assertFalse(completed)
-        self.assertEqual(len(failed), 1)
-        self.assertFalse(failed[0][0])
+        self.assertFalse(failed)
+        self.assertEqual(cancelled, [True])
 
     def test_partial_scan_is_not_reported_complete(self):
         def manager(_worker):
@@ -67,10 +69,35 @@ class SyncWorkerSafetyTests(unittest.TestCase):
 
             return Manager()
 
-        completed, failed = self._run_with_manager(manager)
+        completed, failed, cancelled = self._run_with_manager(manager)
         self.assertFalse(completed)
+        self.assertFalse(cancelled)
         self.assertEqual(len(failed), 1)
         self.assertIn("unavailable", failed[0][3][0])
+
+    def test_cancelled_preview_does_not_show_an_error_dialog(self):
+        tab = SyncTab(_Config())
+        tab.is_running = True
+        tab._analysis_is_current = True
+        tab._analysis_has_actions = True
+        with patch("src.ui.sync_tab.QMessageBox.critical") as error:
+            tab.on_preview_cancelled()
+        error.assert_not_called()
+        self.assertFalse(tab.is_running)
+        self.assertFalse(tab._analysis_is_current)
+        self.assertIn("cancelled", tab.plan_summary_label.text().lower())
+        tab.close()
+
+    def test_sync_entry_points_do_not_start_during_preparation_or_approval(self):
+        tab = SyncTab(_Config())
+        self.addCleanup(tab.close)
+        for flag in ("_preparation_active", "_run_confirmation_active"):
+            with (self.subTest(flag=flag), patch.object(tab, flag, True, create=True),
+                  patch.object(tab, "_manual_run_config") as config):
+                tab.start_dry_run()
+                tab.start_sync_execution()
+                config.assert_not_called()
+                self.assertFalse(tab.is_running)
 
     def test_new_and_existing_groups_keep_their_disposition(self):
         config = _Config({"sync_groups": [{"name": "old", "folders": []}]})

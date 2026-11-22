@@ -98,6 +98,7 @@ class SyncWorker(QThread):
     progress = pyqtSignal(int, int, str) # current, total, status_msg
     finished = pyqtSignal(bool, int, int, list) # success, success_count, fail_count, errors
     dry_run_finished = pyqtSignal(list) # actions
+    preview_cancelled = pyqtSignal()
     
     def __init__(self, sync_groups, config_manager, is_dry_run=True, approved_actions=None):
         super().__init__()
@@ -141,7 +142,7 @@ class SyncWorker(QThread):
                 self.progress.emit(0, len(self.sync_groups), self._t("Analyzing all synchronization folders and files...", "동기화 대상 폴더 및 파일 전체 분석 중...", "Analizowanie wszystkich folderów i plików synchronizacji..."))
                 for i, group in enumerate(self.sync_groups):
                     if self.is_cancelled:
-                        self.finished.emit(False, 0, 1, [self._t("Preview cancelled.", "미리보기가 취소되었습니다.", "Anulowano podgląd.")])
+                        self.preview_cancelled.emit()
                         return
                     folders = group.get("folders", [])
                     if len(folders) < 2:
@@ -152,7 +153,7 @@ class SyncWorker(QThread):
                     self.current_manager = self._create_manager(group, move_to_deleted)
                     actions = self.current_manager.analyze_sync()
                     if self.is_cancelled:
-                        self.finished.emit(False, 0, 1, [self._t("Preview cancelled.", "미리보기가 취소되었습니다.", "Anulowano podgląd.")])
+                        self.preview_cancelled.emit()
                         return
                     scan_errors = getattr(self.current_manager, "scan_errors", [])
                     if scan_errors:
@@ -351,6 +352,9 @@ class SyncTab(QWidget):
             "Usuwa tylko wpisy folderów z tej grupy. Nie usuwa plików ani folderów.",
         ))
         self.cleanup_btn.setText(self._t("Clean up this group's old versions", "이 그룹의 구버전 정리", "Usuń stare wersje w tej grupie"))
+        self.mode_group.setTitle(self._t("Sync settings", "동기화 설정", "Ustawienia synchronizacji"))
+        self._set_advanced_visible(self.advanced_options_toggle.isChecked())
+        self.incomplete_group_button.setText(self._t("Open incomplete group", "미완성 그룹 열기", "Otwórz niepełną grupę"))
         self.sync_mode_label.setText(self._t("Mode:", "동기화 방식:", "Tryb:"))
         self.sync_mode_combo.setItemText(0, self._t("Two-way (Latest Wins)", "양방향 (최신 파일 기준)", "Dwukierunkowo (najnowszy)"))
         self.sync_mode_combo.setItemText(1, self._t("One-way (1st Folder -> Others)", "단방향 (첫 번째 폴더 -> 나머지 배포)", "Jednokierunkowo (1. folder -> reszta)"))
@@ -478,16 +482,15 @@ class SyncTab(QWidget):
 
         options_h_layout.addWidget(self.sync_mode_label)
         options_h_layout.addWidget(self.sync_mode_combo)
-        options_h_layout.addWidget(self.subfolders_check)
         options_h_layout.addStretch()
-        group_layout.addLayout(date_options_h_layout)
-        group_layout.addLayout(options_h_layout)
+        self.advanced_options_toggle = QPushButton()
+        self.advanced_options_toggle.setCheckable(True)
+        options_h_layout.addWidget(self.advanced_options_toggle)
         paths_options_layout = QHBoxLayout()
         paths_options_layout.addWidget(self.exclude_label)
         paths_options_layout.addWidget(self.exclude_input, 1)
         paths_options_layout.addWidget(self.archive_label)
         paths_options_layout.addWidget(self.archive_input)
-        group_layout.addLayout(paths_options_layout)
 
         layout.addWidget(group_groupbox)
         
@@ -520,6 +523,20 @@ class SyncTab(QWidget):
         folder_layout.addWidget(self.folder_summary_label)
         
         layout.addWidget(folder_group, 2)
+
+        self.mode_group = QGroupBox()
+        mode_layout = QVBoxLayout(self.mode_group)
+        mode_layout.addLayout(options_h_layout)
+        self.advanced_options_panel = QWidget()
+        advanced_layout = QVBoxLayout(self.advanced_options_panel)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.addWidget(self.subfolders_check)
+        advanced_layout.addLayout(date_options_h_layout)
+        advanced_layout.addLayout(paths_options_layout)
+        mode_layout.addWidget(self.advanced_options_panel)
+        self.advanced_options_toggle.toggled.connect(self._set_advanced_visible)
+        self._set_advanced_visible(False)
+        layout.addWidget(self.mode_group)
         
         # 3. 분석 및 실행 제어 영역
         control_group = QGroupBox("Sync Control Panel")
@@ -537,6 +554,9 @@ class SyncTab(QWidget):
         self.action_hint_label.setWordWrap(True)
         self.action_hint_label.setStyleSheet("color: #cbd5e1; font-size: 12px;")
         control_layout.addWidget(self.action_hint_label)
+        self.incomplete_group_button = QPushButton()
+        self.incomplete_group_button.clicked.connect(self._open_incomplete_group)
+        control_layout.addWidget(self.incomplete_group_button, alignment=Qt.AlignmentFlag.AlignLeft)
 
         btn_h_layout = QHBoxLayout()
         self.analyze_btn = QPushButton()
@@ -666,12 +686,28 @@ class SyncTab(QWidget):
     def _valid_groups(self):
         return [group for group in self.sync_groups if len(group.get("folders", [])) >= 2]
 
+    def _incomplete_group_indices(self):
+        return [index for index, group in enumerate(self.sync_groups) if len(group.get("folders", [])) == 1]
+
+    def _open_incomplete_group(self):
+        incomplete = self._incomplete_group_indices()
+        if incomplete and not self.is_running and not self._ui_locked:
+            self.group_combo.setCurrentIndex(incomplete[0])
+            self.settings_scroll.ensureWidgetVisible(self.folder_list_widget, 0, 0)
+            self.folder_list_widget.setFocus()
+
+    def _set_advanced_visible(self, visible):
+        self.advanced_options_panel.setVisible(visible)
+        self.advanced_options_toggle.setText(
+            self._t("Hide options", "추가 옵션 닫기", "Ukryj opcje")
+            if visible else self._t("More options", "추가 옵션", "Więcej opcji")
+        )
+
     def _manual_scope_problem(self, configured):
         """Report missing folder registrations without touching the filesystem."""
         incomplete = [
-            self._display_group_name(group.get("name", ""))
-            for group in self.sync_groups
-            if len(group.get("folders", [])) == 1
+            self._display_group_name(self.sync_groups[index].get("name", ""))
+            for index in self._incomplete_group_indices()
         ]
         if incomplete:
             names = ", ".join(incomplete)
@@ -717,6 +753,7 @@ class SyncTab(QWidget):
         problem = self._manual_scope_problem(configured)
         ready_to_sync = not problem and self._analysis_is_current and self._analysis_has_actions
         available = not self.is_running and not self._ui_locked
+        self.incomplete_group_button.setVisible(available and bool(self._incomplete_group_indices()))
         self.analyze_btn.setEnabled(available and not problem)
         self.sync_btn.setEnabled(available and ready_to_sync)
         self.sync_btn.setVisible(ready_to_sync)
@@ -1068,8 +1105,13 @@ class SyncTab(QWidget):
         self._invalidate_analysis(folders_changed=True)
 
     # --- 분석 및 실행 로직 ---
+    def _manual_sync_busy(self):
+        window = self.window()
+        return (self.is_running or self._ui_locked or getattr(window, "_preparation_active", False)
+                or getattr(window, "_run_confirmation_active", False))
+
     def start_dry_run(self):
-        if self.is_running or self._ui_locked:
+        if self._manual_sync_busy():
             return
         # Network folders can block; validate accessibility in the preview worker.
         run_config = self._manual_run_config(check_paths=False)
@@ -1090,12 +1132,13 @@ class SyncTab(QWidget):
         self.worker = SyncWorker(run_config.to_legacy_dict()["sync_groups"], self.config_manager, is_dry_run=True)
         self.worker.progress.connect(self.update_progress)
         self.worker.dry_run_finished.connect(self.on_dry_run_finished)
+        self.worker.preview_cancelled.connect(self.on_preview_cancelled)
         self.worker.finished.connect(self.on_sync_finished)
         self.worker.start()
         
     def on_dry_run_finished(self, actions):
         if self.worker and self.worker.is_cancelled:
-            self.on_sync_finished(False, 0, 1, [self._t("Preview cancelled.", "미리보기가 취소되었습니다.", "Anulowano podgląd.")])
+            self.on_preview_cancelled()
             return
         display_actions = date_preview_rows(actions)
         self.is_running = False
@@ -1159,8 +1202,28 @@ class SyncTab(QWidget):
             self.plan_summary_label.setText(self._t("Analysis result: nothing to do", "분석 결과: 실행할 작업 없음", "Wynik analizy: brak operacji"))
             show_toast(self, self._t("Analysis complete: folders are already synchronized.", "분석 완료: 동기화할 내역이 없습니다.", "Analiza zakończona: foldery są już zsynchronizowane."), "success")
             
+    def on_preview_cancelled(self):
+        """An explicit preview cancellation is neither a failure nor a valid plan."""
+        self.is_running = False
+        self.set_ui_enabled(True)
+        self.stop_btn.setEnabled(False)
+        self._invalidate_analysis()
+        self.plan_summary_label.setText(self._t(
+            "Preview cancelled. No files were changed.",
+            "미리보기를 취소했습니다. 파일은 변경되지 않았습니다.",
+            "Anulowano podgląd. Pliki nie zostały zmienione.",
+        ))
+
+    def _on_approval_stale(self):
+        self._invalidate_analysis()
+        self.plan_summary_label.setText(self._t(
+            "Files changed. Preview the changes again.",
+            "파일이 바뀌었습니다. 변경 내용을 다시 미리 보세요.",
+            "Pliki się zmieniły. Sprawdź ponownie podgląd zmian.",
+        ))
+
     def start_sync_execution(self):
-        if self.is_running or self._ui_locked:
+        if self._manual_sync_busy():
             return
         run_config = self._manual_run_config()
         if run_config is None:
@@ -1174,7 +1237,7 @@ class SyncTab(QWidget):
             return
             
         plan = RunPlan({TaskStep.SYNC: run_config})
-        if not confirm_run_summary(self, plan, self.config_manager):
+        if not confirm_run_summary(self, plan, self.config_manager, on_stale=self._on_approval_stale):
             return
             
         self.is_running = True

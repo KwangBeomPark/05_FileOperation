@@ -50,6 +50,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "tips": [
                 "Use Manage → Run Diagnostics to check a dependency such as OCR, the browser, or a network folder.",
                 "Open Run History to review earlier manual and scheduled reports.",
+                "Select Show detailed logs below the task list to view the log. Use More log actions to copy, open, or export it.",
                 "The schedule status records the start time, end time, duration, and result of the latest scheduled run.",
                 "Before a manual run, review the change summary and destinations. Risky actions require acknowledgement; Cancel changes no files. Scheduled runs log an estimate without a popup.",
             ],
@@ -64,12 +65,14 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "steps": [
                 "Create or select a synchronization group.",
                 "Add at least two folders to the group.",
+                "Choose the sync mode below the folder list. Select More options for subfolders, exclusions, archive folders, and date versions.",
                 "Select View changes and review the planned copies, archives, and conflicts. Empty groups are skipped; a group with only one folder must be fixed first.",
                 "If there are changes to apply, select Synchronize (N groups) and confirm the run.",
             ],
             "tips": [
                 "Use separate groups for folder sets that should run together.",
                 "Changing a folder invalidates the previous preview and requires a new preview.",
+                "If preview is blocked by a group with only one folder, select Open incomplete group to fix it.",
                 "Date-version sync handles valid vYYYYMMDD suffixes. Separate old-version cleanup analyzes each current-group folder for dated and numeric versions such as v20260103 and v1.2.",
             ],
             "cautions": [
@@ -135,7 +138,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "steps": [
                 "Choose source replacement or a separate output folder, then select the source folder.",
                 "Review target formats and the highlighted source-action explanation.",
-                "Scan the folder and review every file and target format.",
+                "Review the file list. Use Scan files if no scan has run, or Scan again to refresh the list.",
                 "Select Start File Conversion and review the result log.",
             ],
             "tips": [
@@ -198,6 +201,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "tips": [
                 "OCR, 브라우저 또는 네트워크 폴더를 점검하려면 관리 → 진단 및 복구를 선택하세요.",
                 "실행 이력에서 이전 수동·예약 실행의 상세 보고서를 확인할 수 있습니다.",
+                "작업 목록 아래에서 상세 로그 보기를 누르세요. 로그 작업 더보기에서 복사, 열기, 내보내기를 할 수 있습니다.",
                 "예약 상태 영역에는 최근 예약 실행의 시작 시각, 종료 시각, 소요 시간과 결과가 함께 기록됩니다.",
                 "수동 실행 전 변경 요약에서 대상과 저장·이동 위치를 확인하세요. 위험한 작업은 확인 체크가 필요하며 취소해도 파일은 바뀌지 않습니다. 예약 실행은 팝업 없이 예상 요약을 로그에 남깁니다.",
             ],
@@ -212,12 +216,14 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "steps": [
                 "동기화 그룹을 새로 만들거나 기존 그룹을 선택합니다.",
                 "그룹에 동기화할 폴더를 최소 두 개 등록합니다.",
+                "폴더 목록 아래에서 동기화 방식을 선택합니다. 하위 폴더, 제외 패턴, 보관 폴더, 날짜 버전은 추가 옵션에서 설정합니다.",
                 "변경 내용 보기를 눌러 복사, 구버전 보관, 충돌 항목을 미리보기에서 확인합니다. 빈 그룹은 제외되며, 폴더가 하나만 등록된 그룹은 먼저 수정해야 합니다.",
                 "적용할 변경이 있으면 N개 그룹 동기화를 누르고 실행을 확인합니다.",
             ],
             "tips": [
                 "항상 함께 동기화할 폴더 묶음별로 그룹을 나누면 관리하기 쉽습니다.",
                 "폴더를 추가하거나 제거하면 이전 미리보기는 자동으로 무효화되므로 다시 분석해야 합니다.",
+                "폴더 하나만 등록된 그룹 때문에 미리볼 수 없다면 미완성 그룹 열기를 눌러 수정하세요.",
                 "날짜 버전 동기화는 유효한 vYYYYMMDD 파일을 처리합니다. 별도 구버전 정리는 현재 그룹의 폴더별로 v20260103과 v1.2 같은 날짜·숫자 버전을 분석합니다.",
             ],
             "cautions": [
@@ -283,7 +289,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "steps": [
                 "원본 교체 또는 별도 저장을 선택한 뒤 원본 폴더를 지정합니다.",
                 "파일 종류별 변환 형식과 강조 표시된 원본 처리 안내를 확인합니다.",
-                "대상 파일 스캔을 실행하고 파일별 변환 형식을 검토합니다.",
+                "파일별 변환 형식을 검토합니다. 목록이 없으면 대상 파일 스캔, 목록을 새로 고치려면 다시 스캔을 누릅니다.",
                 "변환 실행 버튼을 누르고 원본 처리 확인창과 작업 로그를 검토합니다.",
             ],
             "tips": [
@@ -327,14 +333,14 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "title": "Uruchamianie zadań",
             "summary": "Uruchamiaj kilka skonfigurowanych funkcji po kolei, ręcznie lub raz dziennie.",
             "steps": ["Skonfiguruj każdą funkcję na jej karcie.", "W kolumnie Uruchom wybierz tylko potrzebne funkcje.", "Sprawdź gotowość i popraw pozycje Wymaga konfiguracji.", "Uruchom zadania teraz albo włącz harmonogram i wybierz godzinę."],
-            "tips": ["Wybierz Zarządzaj → Uruchom diagnostykę, aby sprawdzić OCR, przeglądarkę lub folder sieciowy.", "Historia uruchomień zawiera wcześniejsze raporty.", "Stan harmonogramu zapisuje czas rozpoczęcia, zakończenia, czas trwania i wynik ostatniego zaplanowanego uruchomienia.", "Przed uruchomieniem ręcznym sprawdź podsumowanie zmian i lokalizacje. Ryzykowne operacje wymagają potwierdzenia; anulowanie nie zmienia plików. Harmonogram zapisuje szacunek w dzienniku bez okna potwierdzenia."],
+            "tips": ["Wybierz Zarządzaj → Uruchom diagnostykę, aby sprawdzić OCR, przeglądarkę lub folder sieciowy.", "Historia uruchomień zawiera wcześniejsze raporty.", "Pod listą zadań wybierz Pokaż szczegóły dziennika. W Więcej działań dziennika możesz skopiować, otworzyć lub wyeksportować dziennik.", "Stan harmonogramu zapisuje czas rozpoczęcia, zakończenia, czas trwania i wynik ostatniego zaplanowanego uruchomienia.", "Przed uruchomieniem ręcznym sprawdź podsumowanie zmian i lokalizacje. Ryzykowne operacje wymagają potwierdzenia; anulowanie nie zmienia plików. Harmonogram zapisuje szacunek w dzienniku bez okna potwierdzenia."],
             "cautions": ["Harmonogram działa tylko wtedy, gdy aplikacja jest uruchomiona.", "Formaty Office zmieniaj bezpośrednio na karcie Konwertuj pliki. Tej funkcji nie ma na liście zadań ani w harmonogramie."],
         },
         "sync": {
             "title": "Synchronizacja folderów",
             "summary": "Edytujesz jedną grupę naraz. Ręczny podgląd i synchronizacja na tej karcie obejmują wszystkie skonfigurowane grupy.",
-            "steps": ["Utwórz lub wybierz grupę synchronizacji.", "Dodaj do grupy co najmniej dwa foldery.", "Wybierz Zobacz zmiany i sprawdź kopie, archiwizacje oraz konflikty. Puste grupy są pomijane; w grupie z jednym folderem trzeba najpierw dodać drugi.", "Jeśli są zmiany do wykonania, wybierz Synchronizuj (liczba grup: N) i potwierdź."],
-            "tips": ["Twórz osobne grupy dla folderów uruchamianych razem.", "Zmiana folderu unieważnia poprzedni podgląd.", "Osobne czyszczenie analizuje każdy folder grupy pod kątem wersji datowanych i liczbowych, np. v20260103 oraz v1.2."],
+            "steps": ["Utwórz lub wybierz grupę synchronizacji.", "Dodaj do grupy co najmniej dwa foldery.", "Wybierz tryb pod listą folderów. W Więcej opcji ustawisz podfoldery, wykluczenia, archiwa oraz wersje datowane.", "Wybierz Zobacz zmiany i sprawdź kopie, archiwizacje oraz konflikty. Puste grupy są pomijane; w grupie z jednym folderem trzeba najpierw dodać drugi.", "Jeśli są zmiany do wykonania, wybierz Synchronizuj (liczba grup: N) i potwierdź."],
+            "tips": ["Twórz osobne grupy dla folderów uruchamianych razem.", "Zmiana folderu unieważnia poprzedni podgląd.", "Jeśli podgląd blokuje grupa z jednym folderem, wybierz Otwórz niepełną grupę, aby ją poprawić.", "Osobne czyszczenie analizuje każdy folder grupy pod kątem wersji datowanych i liczbowych, np. v20260103 oraz v1.2."],
             "cautions": ["Konkurencyjne zmiany są zachowywane jako kopie konfliktu zamiast cichego nadpisania.", "Zwykła synchronizacja używa folderu archiwum, nie Kosza. Przed synchronizacją według dat w nazwach zmień stare ustawienie Kosza na folder.", "Usuń stare wersje w tej grupie to osobna czynność ręczna. Pozostawia najnowszą wersję w każdym folderze. Po potwierdzeniu przenosi zaznaczone pliki do Kosza (domyślnie) lub osobnego folderu. Nie jest uruchamiana z harmonogramu."],
         },
         "eml": {
@@ -361,7 +367,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
         "bypass": {
             "title": "Konwersja plików",
             "summary": "Konwertuj obsługiwane pliki Office i PDF według jawnych reguł wyniku i obsługi źródła.",
-            "steps": ["Wybierz zastąpienie źródła lub osobny folder wynikowy, a potem folder źródłowy.", "Sprawdź formaty i wyróżnioną informację o obsłudze źródeł.", "Przeskanuj folder i sprawdź każdy plik oraz format.", "Uruchom konwersję, potwierdź akcję na źródłach i sprawdź dziennik."],
+            "steps": ["Wybierz zastąpienie źródła lub osobny folder wynikowy, a potem folder źródłowy.", "Sprawdź formaty i wyróżnioną informację o obsłudze źródeł.", "Sprawdź każdy plik i jego format. Wybierz Skanuj pliki, jeśli nie ma listy, lub Skanuj ponownie, aby ją odświeżyć.", "Uruchom konwersję, potwierdź akcję na źródłach i sprawdź dziennik."],
             "tips": ["Zmiana formatu usuwa stary wynik skanowania.", "Original Backup / Recovery umożliwia przywracanie przeniesionych źródeł.", "Osobny wynik domyślnie zachowuje źródła; opcjonalnie może przenieść je do Original Backup."],
             "cautions": ["Po potwierdzeniu i sprawdzeniu formatu stare źródło trafia do Kosza. Gdy Kosz jest niedostępny, jest trwale usuwane; akcja działa tylko na tym ekranie.", "Jeśli konwersja lub weryfikacja zawiedzie albo nie uda się ani przenieść do Kosza, ani usunąć pliku, źródło pozostaje na miejscu.", "Konwersje Office wymagają odpowiedniej aplikacji Microsoft Office."],
         },
