@@ -365,16 +365,16 @@ class SummaryEntryPointTests(unittest.TestCase):
         confirm.assert_called_once()
         worker.assert_not_called()
 
-    def test_sync_cancel_does_not_create_worker(self):
+    def test_sync_without_a_bound_preview_does_not_create_worker(self):
         tab = self.keep(SyncTab(self.config))
         self.output.mkdir()
         tab.sync_groups = [{"name": "daily", "folders": [str(self.source), str(self.output)]}]
         tab._analysis_is_current = True
         tab._analysis_has_actions = True
-        with (patch("src.ui.sync_tab.confirm_run_summary", return_value=False) as confirm,
+        with (patch("src.ui.sync_tab.QMessageBox.information") as info,
               patch("src.ui.sync_tab.SyncWorker") as worker):
             tab.start_sync_execution()
-        confirm.assert_called_once()
+        info.assert_called_once()
         worker.assert_not_called()
 
     def test_bypass_cancel_does_not_create_worker(self):
@@ -434,19 +434,6 @@ class SummaryEntryPointTests(unittest.TestCase):
         worker.return_value.start.assert_called_once()
         self.assertEqual(worker.call_args.kwargs["pdf_paths"], [str(file)])
         self.assertTrue(tab.is_converting)
-
-    def test_sync_approved_review_starts_worker_with_the_reviewed_groups(self):
-        tab = self.keep(SyncTab(self.config))
-        self.output.mkdir()
-        tab.sync_groups = [{"name": "daily", "folders": [str(self.source), str(self.output)]}]
-        tab._analysis_is_current = True
-        tab._analysis_has_actions = True
-        with (patch("src.ui.sync_tab.confirm_run_summary", return_value=True) as confirm,
-              patch("src.ui.sync_tab.SyncWorker") as worker):
-            tab.start_sync_execution()
-        worker.return_value.start.assert_called_once()
-        reviewed = confirm.call_args.args[1].get(TaskStep.SYNC).to_legacy_dict()["sync_groups"]
-        self.assertEqual(worker.call_args.args[0], reviewed)
 
 
 if __name__ == "__main__":

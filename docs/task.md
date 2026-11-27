@@ -217,3 +217,29 @@ Existing signing/publication tasks and protected release-folder permissions rema
 - [x] Collapse detailed task logs by default, group log commands, and use one manual preparation window without removing final approval or revalidation.
 - [x] Refresh Korean, English, and Polish help. Isolated regression: `Ran 772 tests in 61.987s`, `OK (skipped=1)`.
 - [x] Complete two read-only Argon reviews and cover the proposed manual sync re-entry guard in regression tests.
+
+### One-click manual folder sync — 2026-11-25
+
+- [x] Use the on-tab preview as the review; show copy, update, archive, conflict and hold counts without another confirmation dialog.
+- [x] Bind each preview to its group settings, file observations and actions. Reject a changed group before writing in any group; keep per-file execution checks.
+- [x] Test the real worker-driven green button, stale source and destination, changed settings, cancellation, date archive paths and scheduling overlap with synthetic folders.
+- [x] Complete a read-only Argon review of the workflow and its safety boundary. Prepare v1.7.4 locally.
+- [x] Always exclude Office `~$` files in ordinary and date-version sync, and distinguish lock-file churn from real changes or folder replacement.
+
+### Run Tasks table layout — 2026-11-25
+
+- [x] Narrow short columns and give remaining width to the rightmost path and rule summary.
+- [x] Preserve group list order, task row IDs, execution order, and separate readiness and runtime status fields.
+- [x] Exercise the table at 1000×700 and 1440×900 in Korean, English and Polish, including long names and paths.
+
+### Underscore filename versions — 2026-11-26
+
+- [x] Compare `v1_5_3` and `v1.5.3` as the same numeric version in ordinary sync and manual cleanup; preserve filenames, conflict handling, and existing date-only behavior.
+- [x] Exercise newer source and target files, equivalent spellings, invalid mixed separators, and ambiguous extensionless names without changing app update tags.
+
+### Custom Run Tasks order — 2026-11-26
+
+- [x] Persist the row order by stable ID and use it for in-app manual and scheduled execution. Preserve legacy order when no custom order is saved.
+- [x] Skip later steps after failure or partial failure in custom runs. Reject invalid OCR ordering when output chaining is enabled.
+- [x] Keep manual sync authorization exact: unchanged writes continue, newly planned writes require approval and a fresh recheck. Keep scheduled processing non-interactive.
+- [x] Verify `v2_02` is newer than `v2_01` in normal sync and manual cleanup, without changing the numeric parser or release tags.

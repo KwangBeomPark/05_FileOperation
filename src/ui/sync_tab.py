@@ -26,12 +26,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.run_summary import summarize_scanned_sync_group
 from src.core.sync_manager import SyncManager
 from src.core.task_contracts import (
-    RunPlan,
     SyncGroupConfig,
     SyncRunConfig,
-    TaskStep,
     TaskValidationError,
 )
 from src.core.task_items import ensure_sync_ids
@@ -42,7 +41,6 @@ from src.ui.i18n import (
     replace_phrases,
     tr,
 )
-from src.ui.run_summary_dialog import confirm_run_summary
 from src.ui.toast_notification import show_toast
 from src.ui.version_cleanup_dialog import VersionCleanupDialog
 from src.ui.workflow_widget import WorkflowWidget
@@ -84,7 +82,7 @@ def date_preview_rows(actions):
             rows.append(action)
             continue
         if not action["existing"]:
-            rows.append({**action, "action": "복사"})
+            rows.append({**action, "action": "복사", "status": "신규 복사"})
         for old in action["old"]:
             if action.get("date_archive_mode") == "trash":
                 rows.append({**action, "action": "휴지통이동", "filename": old["filename"], "source_folder": action["target_folder"], "target_folder": "Recycle Bin"})
@@ -97,10 +95,12 @@ def date_preview_rows(actions):
 class SyncWorker(QThread):
     progress = pyqtSignal(int, int, str) # current, total, status_msg
     finished = pyqtSignal(bool, int, int, list) # success, success_count, fail_count, errors
-    dry_run_finished = pyqtSignal(list) # actions
+    dry_run_finished = pyqtSignal(list, object)  # displayed operations and their group fingerprints
     preview_cancelled = pyqtSignal()
+    preview_invalidated = pyqtSignal()
+    execution_started = pyqtSignal()
     
-    def __init__(self, sync_groups, config_manager, is_dry_run=True, approved_actions=None):
+    def __init__(self, sync_groups, config_manager, is_dry_run=True, preview_fingerprints=()):
         super().__init__()
         self.sync_groups = sync_groups
         self.config_manager = config_manager
@@ -108,7 +108,7 @@ class SyncWorker(QThread):
         self.is_cancelled = False
         self.current_manager = None
         self.language = get_app_language(config_manager)
-        self.approved_actions = approved_actions
+        self.preview_fingerprints = preview_fingerprints
 
     def _t(self, english, korean, polish=None):
         return choose(self.language, english, korean, polish)
@@ -129,134 +129,108 @@ class SyncWorker(QThread):
             sync_mode=str(group.get("sync_mode", "two_way") or "two_way"),
             date_latest_only=bool(group.get("date_latest_only", False)),
             date_archive_mode=str(group.get("date_archive_mode", "folder") or "folder"),
-            approved_actions=self.approved_actions,
+            observe_scan=True,
             group_name=group.get("name", ""),
         )
             
     def run(self):
         try:
-            all_actions = []
-            move_to_deleted = self.config_manager.get("sync_move_to_deleted", True)
-            
-            if self.is_dry_run:
-                self.progress.emit(0, len(self.sync_groups), self._t("Analyzing all synchronization folders and files...", "동기화 대상 폴더 및 파일 전체 분석 중...", "Analizowanie wszystkich folderów i plików synchronizacji..."))
-                for i, group in enumerate(self.sync_groups):
-                    if self.is_cancelled:
-                        self.preview_cancelled.emit()
-                        return
-                    folders = group.get("folders", [])
-                    if len(folders) < 2:
-                        continue # 최소 2개 미만 폴더 그룹은 동기화할 수 없으므로 건너뜀
-
-                    _validate_group_paths(group.get("name", ""), folders)
-                    self.progress.emit(i, len(self.sync_groups), self._t(f"Analyzing: {group['name']}...", f"분석 중: {group['name']} ...", f"Analizowanie: {group['name']}..."))
-                    self.current_manager = self._create_manager(group, move_to_deleted)
-                    actions = self.current_manager.analyze_sync()
-                    if self.is_cancelled:
-                        self.preview_cancelled.emit()
-                        return
-                    scan_errors = getattr(self.current_manager, "scan_errors", [])
-                    if scan_errors:
-                        self.finished.emit(False, 0, len(scan_errors), [str(error) for error in scan_errors])
-                        return
-                    
-                    # 액션 정보에 그룹명 추가 (테이블 표시용)
-                    for act in actions:
-                        act["group_name"] = group["name"]
-                        act["archive_folder_name"] = self.current_manager.archive_folder_name
-                        act["date_archive_mode"] = getattr(self.current_manager, "date_archive_mode", "folder")
-                    
-                    all_actions.extend(actions)
-                    
-                self.progress.emit(len(self.sync_groups), len(self.sync_groups), self._t("Analysis completed.", "전체 분석 완료.", "Analiza zakończona."))
-                self.dry_run_finished.emit(all_actions)
-            else:
-                total_success = 0
-                total_fail = 0
-                all_errors = []
-                
-                # 전체 일괄 동기화 (분석과 실행을 연달아 수행)
-                for i, group in enumerate(self.sync_groups):
-                    if self.is_cancelled:
-                        all_errors.append(self._t("The operation was stopped by the user.", "사용자에 의해 전체 작업이 중단되었습니다.", "Operacja została zatrzymana przez użytkownika."))
-                        total_fail += 1
-                        break
-                        
-                    folders = group.get("folders", [])
-                    if len(folders) < 2:
-                        logger.info(f"Skipping group '{group['name']}' (less than 2 folders).")
-                        continue
-                        
-                    self.progress.emit(i, len(self.sync_groups), self._t(f"[{group['name']}] Preparing analysis and synchronization...", f"[{group['name']}] 분석 및 동기화 준비 중...", f"[{group['name']}] Przygotowywanie analizy i synchronizacji..."))
-                    
-                    self.current_manager = self._create_manager(group, move_to_deleted)
-                    actions = self.current_manager.analyze_sync()
-                    
-                    scan_errs = getattr(self.current_manager, "scan_errors", [])
-                    if scan_errs:
-                        for se in scan_errs:
-                            all_errors.append(f"[{group['name']}] {se}")
-                            total_fail += 1
-                        continue
-
-                    if not actions:
-                        continue # 이 그룹은 동기화할 파일이 없음
-                        
-                    if self.is_cancelled:
-                        all_errors.append(self._t("The operation was stopped by the user.", "사용자에 의해 전체 작업이 중단되었습니다.", "Operacja została zatrzymana przez użytkownika."))
-                        total_fail += 1
-                        break
-                        
-                    group_index = i
-                    group_name = group["name"]
-
-                    def callback(
-                        current, total, filename,
-                        group_index=group_index,
-                        group_name=group_name
-                    ):
-                        # 파일 단위의 진행률 메시지를 그룹 단위 프로그레스와 함께 전달
-                        self.progress.emit(
-                            group_index,
-                            len(self.sync_groups),
-                            self._t(
-                                f"[{group_name}] Synchronizing file: {filename}",
-                                f"[{group_name}] 파일 동기화 중: {filename}",
-                                f"[{group_name}] Synchronizowanie pliku: {filename}",
-                            )
-                        )
-                        
-                    sync_res = self.current_manager.execute_sync(actions, progress_callback=callback)
-                    s_count = sync_res[0]
-                    f_count = sync_res[1]
-                    errs = list(sync_res[2])
-                    held_items = list(getattr(sync_res, "held", []))
-
-                    total_success += s_count
-                    total_fail += f_count
-                    if errs:
-                        all_errors.extend([f"[{group['name']}] {e}" for e in errs])
-                    if held_items:
-                        total_fail += len(held_items)
-                        all_errors.extend([f"[{group['name']}] [HELD] {h}" for h in held_items])
-                        
-                # 마지막 진행도 100%
-                if not self.is_cancelled:
-                    self.progress.emit(len(self.sync_groups), len(self.sync_groups), self._t("All synchronization groups completed.", "전체 동기화 완료.", "Zakończono wszystkie grupy synchronizacji."))
-                    
-                overall_success = (not self.is_cancelled) and (total_fail == 0) and (len(all_errors) == 0)
-                self.finished.emit(
-                    overall_success,
-                    total_success,
-                    total_fail,
-                    all_errors
-                )
+            self._run_reviewed_sync()
         except TaskValidationError as exc:
             problem = tr(exc.message_key, self.language, **exc.values) if exc.message_key else exc.user_message
             self.finished.emit(False, 0, 1, [problem])
         except Exception as e:  # noqa: BLE001 - report unexpected worker failures to the UI
             logger.error(f"Error in SyncWorker thread: {e}")
             self.finished.emit(False, 0, 1, [str(e)])
+
+    def _run_reviewed_sync(self):
+        """Scan every group before permitting a single write."""
+        all_actions, prepared, fingerprints = [], [], []
+        fallback = self.config_manager.get("sync_move_to_deleted", True)
+        for index, group in enumerate(self.sync_groups):
+            if self.is_cancelled:
+                break
+            _validate_group_paths(group["name"], group.get("folders", []))
+            message = (
+                self._t("Analyzing folders…", "폴더 분석 중…", "Analizowanie folderów…")
+                if self.is_dry_run else
+                self._t("Rechecking the preview…", "미리보기와 현재 파일 비교 중…", "Ponowne sprawdzanie podglądu…")
+            )
+            self.progress.emit(index, len(self.sync_groups), f"[{group['name']}] {message}")
+            self.current_manager = manager = self._create_manager(group, fallback)
+            actions = manager.analyze_sync()
+            if self.is_cancelled:
+                break
+            if manager.scan_errors:
+                errors = [f"[{group['name']}] {error}" for error in manager.scan_errors]
+                self.finished.emit(False, 0, len(errors), errors)
+                return
+            summary = summarize_scanned_sync_group(group, manager, actions)
+            fingerprints.append(summary.fingerprint)
+            manager.approved_actions = tuple(summary.approved_manifest)
+            manager.scan_observations.clear()
+            prepared.append((group["name"], manager, actions))
+            if self.is_dry_run:
+                all_actions.extend({
+                    **action,
+                    "group_name": group["name"],
+                    "archive_folder_name": manager.archive_folder_name,
+                    "date_archive_mode": manager.date_archive_mode,
+                } for action in actions)
+
+        if self.is_cancelled:
+            self.preview_cancelled.emit()
+            return
+        fingerprints = tuple(fingerprints)
+        if self.is_dry_run:
+            self.dry_run_finished.emit(all_actions, fingerprints)
+            return
+        if not self.preview_fingerprints or fingerprints != self.preview_fingerprints:
+            self.preview_invalidated.emit()
+            return
+        self.execution_started.emit()
+        self._execute_groups(prepared)
+
+    def _execute_groups(self, prepared):
+        """Execute only the rechecked plans; keep the engine's per-file safety checks."""
+        total_success, total_fail, all_errors = 0, 0, []
+        for index, (name, manager, actions) in enumerate(prepared):
+            self.current_manager = manager
+            if self.is_cancelled:
+                break
+            if not actions:
+                continue
+
+            def callback(_current, _total, filename, index=index, name=name, manager=manager):
+                if self.is_cancelled:
+                    manager.cancel()
+                    if not manager.date_latest_only:
+                        raise InterruptedError("Synchronization cancelled before publication")
+                    return
+                message = self._t("Synchronizing", "동기화 중", "Synchronizowanie")
+                self.progress.emit(index, len(prepared), f"[{name}] {message}: {filename}")
+
+            result = manager.execute_sync(actions, progress_callback=callback)
+            total_success += result[0]
+            total_fail += result[1]
+            all_errors.extend(f"[{name}] {error}" for error in result[2])
+            held = result.held
+            total_fail += len(held)
+            all_errors.extend(f"[{name}] [HELD] {item}" for item in held)
+
+        if self.is_cancelled:
+            total_fail += 1
+            all_errors.append(self._t(
+                "The operation was stopped by the user.",
+                "사용자에 의해 전체 작업이 중단되었습니다.",
+                "Operacja została zatrzymana przez użytkownika.",
+            ))
+        else:
+            self.progress.emit(len(prepared), len(prepared), self._t(
+                "All synchronization groups completed.", "전체 동기화 완료.", "Zakończono wszystkie grupy synchronizacji.",
+            ))
+        self.finished.emit(not total_fail and not all_errors, total_success, total_fail, all_errors)
+
 
 class SyncTab(QWidget):
     def __init__(self, config_manager, parent=None):
@@ -270,6 +244,9 @@ class SyncTab(QWidget):
         self._analysis_is_current = False
         self._analysis_has_actions = False
         self._analysis_has_holds = False
+        self._preview_fingerprints = ()
+        self._rechecking_preview = False
+        self._preview_counts = None
         self.worker = None
         
         self.init_ui()
@@ -374,10 +351,9 @@ class SyncTab(QWidget):
             self.group_combo.setItemText(index, self._display_group_name(group.get("name", "")))
         self.refresh_folder_list()
         if not self.is_running:
-            count = self.table_widget.rowCount()
             self.plan_summary_label.setText(
-                self._t(f"Analysis ready: {count} actions", f"분석 결과: {count}건", f"Analiza gotowa: {count} operacji")
-                if count
+                self._preview_summary_text()
+                if self._preview_counts is not None
                 else self._t("Not analyzed", "분석 전", "Nie przeanalizowano")
             )
         for row in range(self.table_widget.rowCount()):
@@ -580,6 +556,7 @@ class SyncTab(QWidget):
         self.progress_bar = QProgressBar()
         control_layout.addWidget(self.progress_bar)
         self.plan_summary_label = QLabel("분석 전")
+        self.plan_summary_label.setWordWrap(True)
         control_layout.addWidget(self.plan_summary_label)
         
         # Keep the current action and its scope visible while settings/results scroll.
@@ -740,6 +717,8 @@ class SyncTab(QWidget):
         self._analysis_is_current = False
         self._analysis_has_actions = False
         self._analysis_has_holds = False
+        self._preview_fingerprints = ()
+        self._preview_counts = None
         self.table_widget.setRowCount(0)
         self.plan_summary_label.setText(
             self._t("Not analyzed (folders changed)", "분석 전 (폴더 변경됨)", "Nie przeanalizowano (zmieniono foldery)")
@@ -751,7 +730,7 @@ class SyncTab(QWidget):
     def _refresh_action_state(self):
         configured = len(self._valid_groups())
         problem = self._manual_scope_problem(configured)
-        ready_to_sync = not problem and self._analysis_is_current and self._analysis_has_actions
+        ready_to_sync = not problem and bool(self._preview_fingerprints) and self._analysis_is_current and self._analysis_has_actions
         available = not self.is_running and not self._ui_locked
         self.incomplete_group_button.setVisible(available and bool(self._incomplete_group_indices()))
         self.analyze_btn.setEnabled(available and not problem)
@@ -1119,9 +1098,7 @@ class SyncTab(QWidget):
             return
             
         self.is_running = True
-        self._analysis_is_current = False
-        self._analysis_has_actions = False
-        self._analysis_has_holds = False
+        self._invalidate_analysis()
         self.set_ui_enabled(False)
         self.stop_btn.setEnabled(True)
         self.table_widget.setRowCount(0)
@@ -1136,11 +1113,30 @@ class SyncTab(QWidget):
         self.worker.finished.connect(self.on_sync_finished)
         self.worker.start()
         
-    def on_dry_run_finished(self, actions):
+    def _preview_summary_text(self):
+        counts = self._preview_counts
+        if not any(counts):
+            return self._t("Analysis result: nothing to do", "분석 결과: 실행할 작업 없음", "Wynik analizy: brak operacji")
+        new, updates, archive, conflict, held = counts
+        return self._t(
+            f"{new + updates + archive + conflict} planned · New copies {new} · Updates {updates} · Archives {archive} · Conflict backups {conflict} · Held {held}",
+            f"실행 예정 {new + updates + archive + conflict}건 · 신규 복사 {new}건 · 최신 업데이트 {updates}건 · 보관 {archive}건 · 충돌 백업 {conflict}건 · 보류 {held}건",
+            f"Zaplanowano: {new + updates + archive + conflict} · Nowe kopie: {new} · Aktualizacje: {updates} · Archiwizacja: {archive} · Kopie konfliktów: {conflict} · Wstrzymane: {held}",
+        )
+
+    def on_dry_run_finished(self, actions, fingerprints=()):
         if self.worker and self.worker.is_cancelled:
             self.on_preview_cancelled()
             return
         display_actions = date_preview_rows(actions)
+        self._preview_fingerprints = fingerprints
+        self._preview_counts = (
+            sum(a["action"] == "복사" and a.get("status") not in ("최신 업데이트", "충돌 백업 후 최신 업데이트") for a in display_actions),
+            sum(a["action"] == "복사" and a.get("status") in ("최신 업데이트", "충돌 백업 후 최신 업데이트") for a in display_actions),
+            sum(a["action"] == "to_be_deleted이동" for a in display_actions),
+            sum(a["action"] == "충돌 보존 백업" for a in display_actions),
+            sum(a["action"] in ("보류", "날짜 보류") for a in display_actions),
+        )
         self.is_running = False
         self._analysis_is_current = True
         self._analysis_has_holds = any(a.get("action") in ("보류", "날짜 보류") for a in actions)
@@ -1153,11 +1149,21 @@ class SyncTab(QWidget):
         for row_idx, act in enumerate(display_actions):
             group_item = QTableWidgetItem(act.get("group_name", ""))
             filename_item = QTableWidgetItem(act["filename"])
-            action_item = QTableWidgetItem(self._sync_text(act["action"]))
+            kind = act["action"]
+            if kind == "복사":
+                kind = "최신 업데이트" if act.get("status") in ("최신 업데이트", "충돌 백업 후 최신 업데이트") else "신규 복사"
+            action_item = QTableWidgetItem(self._sync_text(kind))
             src_item = QTableWidgetItem(os.path.basename(act["source_folder"]))
             src_item.setToolTip(act["source_folder"])
-            tgt_item = QTableWidgetItem(os.path.basename(act["target_folder"]))
-            tgt_item.setToolTip(act["target_folder"])
+            destination = act["target_folder"]
+            target_label = os.path.basename(destination)
+            if act["action"] in ("충돌 보존 백업", "to_be_deleted이동"):
+                target_label = os.path.normpath(os.path.join(
+                    act.get("archive_folder_name", "to be deleted"), os.path.dirname(act["filename"]),
+                ))
+                destination = os.path.join(act["source_folder"], target_label)
+            tgt_item = QTableWidgetItem(target_label)
+            tgt_item.setToolTip(destination)
             
             if act["action"] in ("보류", "날짜 보류"):
                 mtime_str = self._sync_text(act.get("reason") or act.get("status", ""))
@@ -1194,41 +1200,43 @@ class SyncTab(QWidget):
             
         if actions:
             self.settings_scroll.ensureWidgetVisible(self.table_widget, 0, 0)
-            action_count = sum(a.get("action") not in ("보류", "날짜 보류", "오류") for a in display_actions)
-            held_count = sum(a.get("action") in ("보류", "날짜 보류") for a in display_actions)
-            self.plan_summary_label.setText(self._t(f"Analysis result: {action_count} planned, {held_count} held", f"분석 결과: 실행 예정 {action_count}건, 보류 {held_count}건", f"Wynik analizy: {action_count} zaplanowanych, {held_count} wstrzymanych"))
-            show_toast(self, self._t(f"Analysis complete: {action_count} planned, {held_count} held", f"분석 완료: 실행 예정 {action_count}건, 보류 {held_count}건", f"Analiza zakończona: {action_count} zaplanowanych, {held_count} wstrzymanych"), "info")
+            self.plan_summary_label.setText(self._preview_summary_text())
         else:
             self.plan_summary_label.setText(self._t("Analysis result: nothing to do", "분석 결과: 실행할 작업 없음", "Wynik analizy: brak operacji"))
             show_toast(self, self._t("Analysis complete: folders are already synchronized.", "분석 완료: 동기화할 내역이 없습니다.", "Analiza zakończona: foldery są już zsynchronizowane."), "success")
             
     def on_preview_cancelled(self):
         """An explicit preview cancellation is neither a failure nor a valid plan."""
+        was_rechecking = self._rechecking_preview
+        self._rechecking_preview = False
+        self.is_running = False
+        self.set_ui_enabled(True)
+        self.stop_btn.setEnabled(False)
+        self._invalidate_analysis()
+        self.plan_summary_label.setText(
+            self._t("Recheck cancelled. No files were changed.", "재확인을 취소했습니다. 파일은 변경되지 않았습니다.", "Anulowano ponowne sprawdzanie. Pliki nie zostały zmienione.")
+            if was_rechecking else self._t("Preview cancelled. No files were changed.", "미리보기를 취소했습니다. 파일은 변경되지 않았습니다.", "Anulowano podgląd. Pliki nie zostały zmienione.")
+        )
+
+    def _on_approval_stale(self):
+        self._rechecking_preview = False
         self.is_running = False
         self.set_ui_enabled(True)
         self.stop_btn.setEnabled(False)
         self._invalidate_analysis()
         self.plan_summary_label.setText(self._t(
-            "Preview cancelled. No files were changed.",
-            "미리보기를 취소했습니다. 파일은 변경되지 않았습니다.",
-            "Anulowano podgląd. Pliki nie zostały zmienione.",
-        ))
-
-    def _on_approval_stale(self):
-        self._invalidate_analysis()
-        self.plan_summary_label.setText(self._t(
-            "Files changed. Preview the changes again.",
-            "파일이 바뀌었습니다. 변경 내용을 다시 미리 보세요.",
-            "Pliki się zmieniły. Sprawdź ponownie podgląd zmian.",
+            "Files or settings changed. Nothing was written. Preview the changes again.",
+            "파일이나 설정이 바뀌어 실행하지 않았습니다. 변경 내용을 다시 미리 보세요.",
+            "Pliki lub ustawienia się zmieniły. Nic nie zapisano. Wyświetl podgląd ponownie.",
         ))
 
     def start_sync_execution(self):
         if self._manual_sync_busy():
             return
-        run_config = self._manual_run_config()
+        run_config = self._manual_run_config(check_paths=False)
         if run_config is None:
             return
-        if not self._analysis_is_current or not self._analysis_has_actions:
+        if not self._preview_fingerprints or not self._analysis_is_current or not self._analysis_has_actions:
             QMessageBox.information(
                 self,
                 self._t("Preview required", "미리보기 필요", "Wymagany podgląd"),
@@ -1236,26 +1244,32 @@ class SyncTab(QWidget):
             )
             return
             
-        plan = RunPlan({TaskStep.SYNC: run_config})
-        if not confirm_run_summary(self, plan, self.config_manager, on_stale=self._on_approval_stale):
-            return
-            
         self.is_running = True
+        self._rechecking_preview = True
         self.set_ui_enabled(False)
         self.stop_btn.setEnabled(True)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("0%")
-        self.plan_summary_label.setText(self._msg("sync_running"))
+        self.plan_summary_label.setText(self._t(
+            "Checking for changes since the preview…", "미리보기 이후 바뀐 내용이 있는지 확인 중…", "Sprawdzanie zmian od czasu podglądu…",
+        ))
         
         self.worker = SyncWorker(
             run_config.to_legacy_dict()["sync_groups"],
             self.config_manager,
             is_dry_run=False,
-            approved_actions=plan.approved_manifest,
+            preview_fingerprints=self._preview_fingerprints,
         )
         self.worker.progress.connect(self.update_progress)
+        self.worker.preview_invalidated.connect(self._on_approval_stale)
+        self.worker.preview_cancelled.connect(self.on_preview_cancelled)
+        self.worker.execution_started.connect(self._on_sync_started)
         self.worker.finished.connect(self.on_sync_finished)
         self.worker.start()
+
+    def _on_sync_started(self):
+        self._rechecking_preview = False
+        self.plan_summary_label.setText(self._msg("sync_running"))
         
     def stop_sync(self):
         if self.worker:
@@ -1285,6 +1299,9 @@ class SyncTab(QWidget):
 
     def on_sync_finished(self, success, success_count, fail_count, errors):
         self.is_running = False
+        self._rechecking_preview = False
+        self._preview_fingerprints = ()
+        self._preview_counts = None
         self._analysis_is_current = False
         self._analysis_has_actions = False
         self._analysis_has_holds = False

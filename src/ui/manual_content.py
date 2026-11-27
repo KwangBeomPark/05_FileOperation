@@ -44,6 +44,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "steps": [
                 "Configure each feature in its own tab.",
                 "Select only the features you want in the Run column.",
+                "Select a row and use Move up or Move down. Checked tasks run from top to bottom in manual and scheduled runs.",
                 "Check Readiness and fix any row marked Needs setup.",
                 "Run the selected tasks now, or enable the daily schedule and choose a time.",
             ],
@@ -52,10 +53,11 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
                 "Open Run History to review earlier manual and scheduled reports.",
                 "Select Show detailed logs below the task list to view the log. Use More log actions to copy, open, or export it.",
                 "The schedule status records the start time, end time, duration, and result of the latest scheduled run.",
-                "Before a manual run, review the change summary and destinations. Risky actions require acknowledgement; Cancel changes no files. Scheduled runs log an estimate without a popup.",
+                "Before a manual run, review the change summary and destinations. If a later sync step has new planned writes, it asks for approval before writing. Cancelling this later review does not undo earlier tasks. Scheduled runs do not show confirmation pop-ups.",
             ],
             "cautions": [
                 "The application must remain running for a daily schedule to start.",
+                "With a custom order, a failure or partial failure skips later tasks. When output chaining is on, move OCR after the selected EML/PDF converters.",
                 "Use Convert Files for Office format conversion. It is not included in the Run Tasks list or its schedule.",
             ],
         },
@@ -67,7 +69,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
                 "Add at least two folders to the group.",
                 "Choose the sync mode below the folder list. Select More options for subfolders, exclusions, archive folders, and date versions.",
                 "Select View changes and review the planned copies, archives, and conflicts. Empty groups are skipped; a group with only one folder must be fixed first.",
-                "If there are changes to apply, select Synchronize (N groups) and confirm the run.",
+                "Review the preview, then select Synchronize (N groups) once. If the files or settings changed, refresh the preview before trying again.",
             ],
             "tips": [
                 "Use separate groups for folder sets that should run together.",
@@ -195,6 +197,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
             "steps": [
                 "먼저 각 기능 탭에서 실행할 폴더와 파일을 설정합니다.",
                 "실행 열에서 실제로 돌릴 기능만 선택합니다.",
+                "행을 선택한 뒤 위로 또는 아래로를 누릅니다. 체크한 작업만 표의 위에서부터 수동·예약으로 실행합니다.",
                 "실행 준비 점검을 눌러 '설정 필요' 항목을 모두 해결합니다.",
                 "선택한 작업을 바로 시작하거나, 매일 자동 실행을 켜고 시각을 지정합니다.",
             ],
@@ -203,10 +206,11 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
                 "실행 이력에서 이전 수동·예약 실행의 상세 보고서를 확인할 수 있습니다.",
                 "작업 목록 아래에서 상세 로그 보기를 누르세요. 로그 작업 더보기에서 복사, 열기, 내보내기를 할 수 있습니다.",
                 "예약 상태 영역에는 최근 예약 실행의 시작 시각, 종료 시각, 소요 시간과 결과가 함께 기록됩니다.",
-                "수동 실행 전 변경 요약에서 대상과 저장·이동 위치를 확인하세요. 위험한 작업은 확인 체크가 필요하며 취소해도 파일은 바뀌지 않습니다. 예약 실행은 팝업 없이 예상 요약을 로그에 남깁니다.",
+                "수동 실행 전 변경 요약에서 대상과 저장·이동 위치를 확인하세요. 뒤쪽 동기화에서 새로 실행할 변경이 생기면 쓰기 전에 다시 확인합니다. 이때 취소하면 그 단계는 실행하지 않지만 앞서 완료한 작업은 되돌리지 않습니다. 예약 실행은 확인창 없이 진행합니다.",
             ],
             "cautions": [
                 "매일 자동 실행은 프로그램이 실행 중일 때만 시작됩니다.",
+                "직접 바꾼 순서로 실행할 때 실패하거나 일부 실패하면 뒤 작업은 건너뜁니다. 출력 연계를 켰다면 이미지 읽기를 선택한 EML/PDF 변환 아래에 두세요.",
                 "Office 형식을 바꾸려면 파일 변환 탭에서 직접 실행하세요. 파일 변환은 작업 실행 목록과 예약에 포함되지 않습니다.",
             ],
         },
@@ -218,7 +222,7 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
                 "그룹에 동기화할 폴더를 최소 두 개 등록합니다.",
                 "폴더 목록 아래에서 동기화 방식을 선택합니다. 하위 폴더, 제외 패턴, 보관 폴더, 날짜 버전은 추가 옵션에서 설정합니다.",
                 "변경 내용 보기를 눌러 복사, 구버전 보관, 충돌 항목을 미리보기에서 확인합니다. 빈 그룹은 제외되며, 폴더가 하나만 등록된 그룹은 먼저 수정해야 합니다.",
-                "적용할 변경이 있으면 N개 그룹 동기화를 누르고 실행을 확인합니다.",
+                "미리보기 표를 확인하고 N개 그룹 동기화를 한 번 누릅니다. 파일이나 설정이 바뀌었다면 미리보기를 다시 실행합니다.",
             ],
             "tips": [
                 "항상 함께 동기화할 폴더 묶음별로 그룹을 나누면 관리하기 쉽습니다.",
@@ -332,14 +336,14 @@ MANUAL_CONTENT: dict[str, dict[str, dict[str, Any]]] = {
         "tasks": {
             "title": "Uruchamianie zadań",
             "summary": "Uruchamiaj kilka skonfigurowanych funkcji po kolei, ręcznie lub raz dziennie.",
-            "steps": ["Skonfiguruj każdą funkcję na jej karcie.", "W kolumnie Uruchom wybierz tylko potrzebne funkcje.", "Sprawdź gotowość i popraw pozycje Wymaga konfiguracji.", "Uruchom zadania teraz albo włącz harmonogram i wybierz godzinę."],
-            "tips": ["Wybierz Zarządzaj → Uruchom diagnostykę, aby sprawdzić OCR, przeglądarkę lub folder sieciowy.", "Historia uruchomień zawiera wcześniejsze raporty.", "Pod listą zadań wybierz Pokaż szczegóły dziennika. W Więcej działań dziennika możesz skopiować, otworzyć lub wyeksportować dziennik.", "Stan harmonogramu zapisuje czas rozpoczęcia, zakończenia, czas trwania i wynik ostatniego zaplanowanego uruchomienia.", "Przed uruchomieniem ręcznym sprawdź podsumowanie zmian i lokalizacje. Ryzykowne operacje wymagają potwierdzenia; anulowanie nie zmienia plików. Harmonogram zapisuje szacunek w dzienniku bez okna potwierdzenia."],
-            "cautions": ["Harmonogram działa tylko wtedy, gdy aplikacja jest uruchomiona.", "Formaty Office zmieniaj bezpośrednio na karcie Konwertuj pliki. Tej funkcji nie ma na liście zadań ani w harmonogramie."],
+            "steps": ["Skonfiguruj każdą funkcję na jej karcie.", "W kolumnie Uruchom wybierz tylko potrzebne funkcje.", "Zaznacz wiersz i wybierz W górę lub W dół. Zaznaczone zadania uruchomią się od góry do dołu, również z harmonogramu.", "Sprawdź gotowość i popraw pozycje Wymaga konfiguracji.", "Uruchom zadania teraz albo włącz harmonogram i wybierz godzinę."],
+            "tips": ["Wybierz Zarządzaj → Uruchom diagnostykę, aby sprawdzić OCR, przeglądarkę lub folder sieciowy.", "Historia uruchomień zawiera wcześniejsze raporty.", "Pod listą zadań wybierz Pokaż szczegóły dziennika. W Więcej działań dziennika możesz skopiować, otworzyć lub wyeksportować dziennik.", "Stan harmonogramu zapisuje czas rozpoczęcia, zakończenia, czas trwania i wynik ostatniego zaplanowanego uruchomienia.", "Przed uruchomieniem ręcznym sprawdź podsumowanie zmian i lokalizacje. Nowe zmiany w późniejszym kroku synchronizacji wymagają potwierdzenia przed zapisem. Anulowanie nie cofa ukończonych zadań. Harmonogram nie pokazuje okna potwierdzenia."],
+            "cautions": ["Harmonogram działa tylko wtedy, gdy aplikacja jest uruchomiona.", "Po błędzie lub częściowym błędzie pomijane są kolejne zadania w kolejności niestandardowej. Przy łączeniu wyników ustaw OCR za wybranymi konwersjami EML/PDF.", "Formaty Office zmieniaj bezpośrednio na karcie Konwertuj pliki. Tej funkcji nie ma na liście zadań ani w harmonogramie."],
         },
         "sync": {
             "title": "Synchronizacja folderów",
             "summary": "Edytujesz jedną grupę naraz. Ręczny podgląd i synchronizacja na tej karcie obejmują wszystkie skonfigurowane grupy.",
-            "steps": ["Utwórz lub wybierz grupę synchronizacji.", "Dodaj do grupy co najmniej dwa foldery.", "Wybierz tryb pod listą folderów. W Więcej opcji ustawisz podfoldery, wykluczenia, archiwa oraz wersje datowane.", "Wybierz Zobacz zmiany i sprawdź kopie, archiwizacje oraz konflikty. Puste grupy są pomijane; w grupie z jednym folderem trzeba najpierw dodać drugi.", "Jeśli są zmiany do wykonania, wybierz Synchronizuj (liczba grup: N) i potwierdź."],
+            "steps": ["Utwórz lub wybierz grupę synchronizacji.", "Dodaj do grupy co najmniej dwa foldery.", "Wybierz tryb pod listą folderów. W Więcej opcji ustawisz podfoldery, wykluczenia, archiwa oraz wersje datowane.", "Wybierz Zobacz zmiany i sprawdź kopie, archiwizacje oraz konflikty. Puste grupy są pomijane; w grupie z jednym folderem trzeba najpierw dodać drugi.", "Po sprawdzeniu podglądu wybierz Synchronizuj (liczba grup: N) tylko raz. Jeżeli pliki lub ustawienia się zmieniły, odśwież podgląd."],
             "tips": ["Twórz osobne grupy dla folderów uruchamianych razem.", "Zmiana folderu unieważnia poprzedni podgląd.", "Jeśli podgląd blokuje grupa z jednym folderem, wybierz Otwórz niepełną grupę, aby ją poprawić.", "Osobne czyszczenie analizuje każdy folder grupy pod kątem wersji datowanych i liczbowych, np. v20260103 oraz v1.2."],
             "cautions": ["Konkurencyjne zmiany są zachowywane jako kopie konfliktu zamiast cichego nadpisania.", "Zwykła synchronizacja używa folderu archiwum, nie Kosza. Przed synchronizacją według dat w nazwach zmień stare ustawienie Kosza na folder.", "Usuń stare wersje w tej grupie to osobna czynność ręczna. Pozostawia najnowszą wersję w każdym folderze. Po potwierdzeniu przenosi zaznaczone pliki do Kosza (domyślnie) lub osobnego folderu. Nie jest uruchamiana z harmonogramu."],
         },

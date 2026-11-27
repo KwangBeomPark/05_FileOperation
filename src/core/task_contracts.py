@@ -220,6 +220,8 @@ class RunPlan:
     items: list[ExecutionItem] = field(default_factory=list)
     approved_manifest: tuple = field(default_factory=tuple)
     is_scheduled_run: bool = False
+    stop_on_failure: bool = False
+    approved_sync_fingerprints: dict[str, str] = field(default_factory=dict)
 
     @property
     def is_scheduled(self) -> bool:

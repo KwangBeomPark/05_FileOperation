@@ -183,13 +183,38 @@ class VersionCleanupTests(unittest.TestCase):
         self.assertIn('data_v0.1.txt', names)
         self.assertNotIn('data_v1.10.txt', names)
 
+    def test_underscore_version_is_compared_to_dotted_versions_without_renaming(self):
+        folder = self.root / 'numeric'
+        folder.mkdir()
+        newest = folder / 'report_v1_5_3.xlsx'
+        older = folder / 'report_v1.5.2.xlsx'
+        newest.write_bytes(b'latest workbook')
+        older.write_bytes(b'older workbook')
+        candidates = scan_version_cleanup([folder])
+        self.assertEqual([entry['filename'] for entry in candidates], [older.name])
+        result = execute_version_cleanup(candidates, 'folder')
+        self.assertEqual(result['success'], 1, result['errors'])
+        self.assertEqual(newest.read_bytes(), b'latest workbook')
+        self.assertEqual((folder / 'Old Versions' / older.name).read_bytes(), b'older workbook')
+
     def test_extensionless_dotted_versions_not_misidentified(self):
-        for name in ('item_v1.1.3', 'item_v1.2.3', 'item_v1.1.7z', 'item_v1.2.7z'):
+        for name in ('item_v1.1.3', 'item_v1.2.3', 'item_v1.1.7z', 'item_v1.2.7z',
+                     'item_v1_1_3', 'item_v1_2_3', 'item_v1.2_3.7z'):
             (self.root / name).write_text(name)
         names = {c['filename'] for c in scan_version_cleanup([self.root])}
         self.assertNotIn('item_v1.1.3', names)
         self.assertNotIn('item_v1.2.3', names)
+        self.assertNotIn('item_v1_1_3', names)
+        self.assertNotIn('item_v1_2_3', names)
+        self.assertNotIn('item_v1.2_3.7z', names)
         self.assertIn('item_v1.1.7z', names)
+
+    def test_zero_padded_underscore_version_remains_the_latest(self):
+        folder = self.root / 'numeric'
+        folder.mkdir()
+        for name in ('book_v2_01.xlsx', 'book_v2_02.xlsx'):
+            (folder / name).write_bytes(b'workbook fixture')
+        self.assertEqual([item['filename'] for item in scan_version_cleanup([folder])], ['book_v2_01.xlsx'])
 
     def test_extensions_and_folders_are_independent(self):
         for name in ('item_v1.1.txt', 'item_v1.2.txt', 'item_v1.3.csv'):
@@ -206,7 +231,8 @@ class VersionCleanupTests(unittest.TestCase):
     def test_mixed_invalid_and_equivalent_versions_block(self):
         for names in (('item_v1.2.txt', 'item_v20260103.txt'),
                       ('item_v20260230.txt', 'item_v20260103.txt'),
-                      ('item_v1.2.txt', 'item_v1.2.0.txt')):
+                      ('item_v1.2.txt', 'item_v1.2.0.txt'),
+                      ('item_v1.5.3.txt', 'item_v1_5_3.txt')):
             with self.subTest(names=names), tempfile.TemporaryDirectory() as directory:
                 for name in names:
                     (Path(directory) / name).write_text(name)

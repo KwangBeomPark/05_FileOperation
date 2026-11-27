@@ -5,6 +5,18 @@ import re
 import uuid
 
 
+def order_task_rows(rows, saved_order):
+    """Use stable row IDs and append new rows without changing the legacy default."""
+    if not isinstance(saved_order, list):
+        return rows
+    remaining = {row["key"]: row for row in rows}
+    ordered = []
+    for key in saved_order:
+        if isinstance(key, str) and key in remaining:
+            ordered.append(remaining.pop(key))
+    return ordered + list(remaining.values())
+
+
 def ensure_sync_ids(groups):
     seen = set()
     for group in groups:

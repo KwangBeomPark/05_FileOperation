@@ -335,6 +335,7 @@ def confirm_run_summary(
         manifest = tuple(refreshed.approved_manifest or summary.approved_manifest)
         try:
             object.__setattr__(plan, "approved_manifest", manifest)
+            object.__setattr__(plan, "approved_sync_fingerprints", dict(refreshed.sync_fingerprints))
         except (AttributeError, TypeError):
             logger.exception("Could not attach approved actions to the run plan")
             QMessageBox.warning(parent, summary_text(language, "title"), summary_text(language, "failed"))

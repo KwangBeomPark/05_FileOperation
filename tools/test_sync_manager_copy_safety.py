@@ -352,7 +352,9 @@ class SyncCopySafetyTests(unittest.TestCase):
         self.assertEqual(target.read_text(encoding='utf-8'), 'old')
 
     def test_equivalent_versions_with_different_names_are_held_in_both_directions(self):
-        for source_version, target_version in (('1.0', '1.0.0'), ('1.0.0', '1.0')):
+        for source_version, target_version in (
+            ('1.0', '1.0.0'), ('1.0.0', '1.0'), ('1.5.3', '1_5_3'), ('1_5_3', '1.5.3'),
+        ):
             with self.subTest(source=source_version, target=target_version):
                 source = self.source / f'doc_v{source_version}.txt'
                 target = self.target / f'doc_v{target_version}.txt'
@@ -370,6 +372,46 @@ class SyncCopySafetyTests(unittest.TestCase):
                 self.assertEqual(target.read_text(encoding='utf-8'), 'target')
                 source.unlink()
                 target.unlink()
+
+    def test_underscore_version_syncs_as_latest_without_renaming(self):
+        newest = self.source / 'doc_v1_5_3.xlsx'
+        old = self.target / 'doc_v1.5.2.xlsx'
+        newest.write_bytes(b'latest workbook')
+        old.write_bytes(b'older workbook')
+        manager = self.manager()
+        actions = manager.analyze_sync()
+        self.assertIn((newest.name, '복사'), {(row['filename'], row['action']) for row in actions})
+        self.assertIn((old.name, 'to_be_deleted이동'), {(row['filename'], row['action']) for row in actions})
+        result = manager.execute_sync(actions)
+        self.assertEqual(result[1], 0, result[2])
+        self.assertEqual((self.target / newest.name).read_bytes(), b'latest workbook')
+        self.assertEqual((self.target / 'to be deleted' / old.name).read_bytes(), b'older workbook')
+        self.assertFalse(old.exists())
+
+    def test_newer_target_with_underscore_version_is_held_in_one_way_sync(self):
+        (self.source / 'doc_v1.5.2.xlsx').write_bytes(b'older workbook')
+        newer = self.target / 'doc_v1_5_3.xlsx'
+        newer.write_bytes(b'latest workbook')
+        manager = self.manager()
+        actions = [row for row in manager.analyze_sync() if row['filename'].startswith('doc_')]
+        self.assertEqual([(row['filename'], row['action']) for row in actions], [(newer.name, '보류')])
+
+    def test_underscore_version_requires_unmixed_numeric_components(self):
+        self.assertEqual(SyncManager.parse_version('report_v1_5_10.xlsx'), ('report', (1, 5, 10), '1_5_10'))
+        for name in ('report_v1.5_3.xlsx', 'report_v1__5_3.xlsx', 'report_v1_5_3_draft.xlsx'):
+            with self.subTest(name=name):
+                self.assertIsNone(SyncManager.parse_version(name))
+
+    def test_zero_padded_underscore_version_syncs_as_latest(self):
+        newest = self.source / 'book_v2_02.xlsx'
+        previous = self.target / 'book_v2_01.xlsx'
+        newest.write_bytes(b'current')
+        previous.write_bytes(b'previous')
+        manager = self.manager()
+        result = manager.execute_sync(manager.analyze_sync())
+        self.assertEqual(result[1], 0, result[2])
+        self.assertEqual((self.target / newest.name).read_bytes(), b'current')
+        self.assertEqual((self.target / 'to be deleted' / previous.name).read_bytes(), b'previous')
 
     def test_version_components_compare_numerically(self):
         source = self.source / 'doc_v1.2.txt'

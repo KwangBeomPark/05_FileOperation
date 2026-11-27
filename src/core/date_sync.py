@@ -116,7 +116,11 @@ def _scan(manager):
             _check_path(folder, root)
             if manager.observe_scan:
                 manager._observe_path(root)
-            dirs[:] = [d for d in dirs if d.casefold() not in {"to be deleted", manager.archive_folder_name.casefold()} and not manager.is_excluded(os.path.relpath(os.path.join(root, d), folder))]
+            dirs[:] = [
+                d for d in dirs
+                if d.casefold() not in {"to be deleted", manager.archive_folder_name.casefold()}
+                and not manager.is_excluded(os.path.relpath(os.path.join(root, d), folder), is_directory=True)
+            ]
             for directory in dirs:
                 _check_path(folder, os.path.join(root, directory))
             for name in files:

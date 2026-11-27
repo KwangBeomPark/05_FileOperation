@@ -19,7 +19,7 @@ from src.core.date_sync import (
 )
 from src.core.recycle_direct import _require_internal_physical_volume, recycle_file
 
-_VERSION = re.compile(r'^(.*?)[_-]?[vV]([0-9]{8}|[0-9]+(?:\.[0-9]+)+)$')
+_VERSION = re.compile(r'^(.*?)[_-]?[vV]([0-9]{8}|[0-9]+(?:(?:\.[0-9]+)+|(?:_[0-9]+)+))$')
 
 
 class _Cancelled(OSError):
@@ -92,18 +92,18 @@ def _parse_version(name):
         return None
     family = (match.group(1).rstrip('_-').casefold(), ext.casefold())
     value = match.group(2)
-    # A suffix such as .3 in an extensionless item_v1.2.3 is not
-    # distinguishable from an extension. Require a nonnumeric extension for
-    # dotted versions; numeric extensions fail closed rather than guessing.
-    if '.' in value and not any(char.isalpha() for char in ext[1:]):
+    is_numeric_version = '.' in value or '_' in value
+    # Require a file extension with a letter for numeric versions rather than
+    # guessing about extensionless names or numeric suffixes such as .3.
+    if is_numeric_version and not any(char.isalpha() for char in ext[1:]):
         return None
-    if '.' not in value:
+    if not is_numeric_version:
         try:
             date(int(value[:4]), int(value[4:6]), int(value[6:]))
         except ValueError:
             return family, 'invalid_date', value, ()
         return family, 'date', value, (int(value),)
-    parts = tuple(int(part) for part in value.split('.'))
+    parts = tuple(int(part) for part in re.split(r'[._]', value))
     while len(parts) > 1 and parts[-1] == 0:
         parts = parts[:-1]
     return family, 'numeric', value, parts

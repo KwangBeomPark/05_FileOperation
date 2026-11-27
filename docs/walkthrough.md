@@ -371,3 +371,33 @@ With 24 identical pairs of 4 MiB files on local temporary storage, both two-way 
 At 1000×700 with the application stylesheet, the task table has 279 px with detailed logs collapsed and 205 px with logs open. The conversion warning fits its measured text in Korean, English, and Polish. The folder sync editor places folders before mode and opens an incomplete group from the scope message without changing the all-group run scope. A cancelled preview clears the old result without reporting an error.
 
 Manual task runs and file conversion reuse one preparation window. Final approval, post-approval revalidation, and unattended scheduled execution retain their existing boundaries. The isolated suite reported `Ran 772 tests in 61.987s`, `OK (skipped=1)`. Two static Argon reviews found no remaining defect in the reviewed changes after adding and testing a manual sync re-entry guard. These checks used synthetic settings and did not exercise a live installation or user files.
+
+### One-click manual folder sync — 2026-11-25
+
+The Folder Sync tab keeps the scope, operation counts and archive locations in the preview. The green button starts an in-tab recheck instead of a second review dialog. All configured groups must match the preview before any write. The worker uses the rechecked plans and their approved actions, preserving the existing file-level safeguards and archive policy. Cancellation or a changed plan requires a fresh preview. Unified Run Tasks, scheduled operation and separate old-version cleanup are unchanged.
+
+Read-only Argon review found no confirmed issue in the implementation. Isolated regression reported `Ran 777 tests in 67.694s`, `OK (skipped=1)`. Automated coverage uses isolated folders and settings, not a live network share or installed copy.
+
+Office owner files (`~$...`) used to reach the plan when the group did not explicitly exclude them. Both sync modes now skip those files regardless of custom patterns. Sync previews compare directory identity and the included entries separately: transient owner files do not invalidate the plan, but a changed document or replaced destination still blocks execution. Actual documents are not excluded just because an Office owner file exists beside them.
+
+Regression tests reproduced both the extra preview entry and the false stale warning before the two fixes. With the changes, the isolated suite reported `Ran 779 tests in 26.434s`, `OK (skipped=1)`. A focused read-only Argon review found no confirmed defect.
+
+### Run Tasks table layout — 2026-11-25
+
+The folder/rule summary now appears at the right and fills the width left by the compact columns. Longer group names retain a full-text tooltip, and short type labels apply to the table only. The underlying columns, navigation, readiness and runtime statuses, synchronization group order, and actual manual or scheduled execution order are unchanged.
+
+Synthetic offscreen checks at 1000×700 and 1440×900 passed in Korean, English and Polish, including long group and path text. Full isolated regression: `Ran 780 tests in 40.808s`, `OK (skipped=1)`. Argon found no confirmed issue in the focused diff.
+
+### Underscore filename versions — 2026-11-26
+
+Ordinary folder sync and manual old-version cleanup previously did not detect `report_v1_5_3.xlsx` as a versioned file. They now compare underscores and dots as numeric component separators while keeping the original filename. Existing equivalent-version safeguards still apply; mixed separator suffixes are not recognized as versions. The date-only mode, app updater, and release tags are unchanged.
+
+Isolated regression: `Ran 784 tests in 21.939s`, `OK (skipped=1)`. Argon confirmed no defect in the focused parser diff.
+
+### Custom Run Tasks order — 2026-11-26
+
+Use the two row-move buttons to order mixed task types. The app stores stable task IDs, restores the selected row after a move, and appends new rows. In-app manual and scheduled runs use the same order for checked rows; the separate CLI and standalone sync tabs keep their existing behavior. Failure and partial failure skip later rows only in the custom workflow. An invalid OCR order is rejected when output chaining is enabled.
+
+Custom manual sync compares each step's planned writes to its initial approved snapshot. A changed plan with writes is shown before any sync writes, then compared to a fresh scan before use. Declining or a stale recheck blocks that step and does not roll back earlier work. Scheduled runs retain their existing non-interactive policy. Presets do not export or import the locally saved task order.
+
+Moving back to the original row order restores the existing execution policy. Tests cover that reset, changed source/target data at the same paths, cancellation of a pending review, scheduled conversion-to-sync, and `v2_02` versus `v2_01`. Isolated regression: `Ran 798 tests in 40.901s`, `OK (skipped=1)`. Carbon's focused follow-up found no confirmed remaining defect; no live files, Office converters, build or release were used for verification.

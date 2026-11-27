@@ -57,6 +57,7 @@ class RunnerCallbacks:
     total_progress: Callable[[int], None] = lambda _percent: None
     status_changed: Callable[[TaskStep, StepStatus], None] = lambda _step, _status: None
     item_status_changed: Callable[[str, StepStatus], None] = lambda _key, _status: None
+    review_sync: Callable[[str, object], bool] = lambda _name, _summary: False
 
 
 class TaskRunner:
@@ -83,6 +84,7 @@ class TaskRunner:
         self.bypass_converter = BypassConverter()
         self.sync_manager: SyncManager | None = None
         self.approved_manifest = getattr(self.run_plan, "approved_manifest", None)
+        self._active_item_key = ""
         self.is_scheduled_run = bool(
             getattr(self.run_plan, "is_scheduled_run", False)
             or getattr(self.run_plan, "is_scheduled", False)
@@ -216,13 +218,24 @@ class TaskRunner:
         ]
         item_results = {}
         results = {}
+        stopped_after = None
         callbacks.total_progress(0)
         for index, item in enumerate(items):
             result = StepResult(item.step)
             item_results[item.key] = result
             if not self.is_running:
                 result.status = StepStatus.CANCELLED
+            elif stopped_after is not None:
+                result.status = StepStatus.SKIPPED
+                reason = self._text(
+                    f"Skipped because '{stopped_after}' did not complete successfully.",
+                    f"'{stopped_after}' 작업이 정상 완료되지 않아 건너뛰었습니다.",
+                    f"Pominięto, ponieważ zadanie „{stopped_after}” nie zakończyło się pomyślnie.",
+                )
+                result.details.append(reason)
+                callbacks.log(reason)
             else:
+                self._active_item_key = item.key
                 result.status = StepStatus.RUNNING
                 callbacks.status_changed(item.step, result.status)
                 callbacks.item_status_changed(item.key, result.status)
@@ -248,6 +261,8 @@ class TaskRunner:
                     callbacks.log(result.error_message)
                 if not self.is_running and result.status == StepStatus.RUNNING:
                     result.status = StepStatus.CANCELLED
+                if self.run_plan.stop_on_failure and result.status != StepStatus.COMPLETED:
+                    stopped_after = item.name
             callbacks.item_status_changed(item.key, result.status)
             callbacks.status_changed(item.step, result.status)
             callbacks.total_progress(int((index + 1) / len(items) * 100))
@@ -263,6 +278,7 @@ class TaskRunner:
             aggregate.status = (
                 StepStatus.CANCELLED if StepStatus.CANCELLED in statuses else
                 StepStatus.COMPLETED if statuses == {StepStatus.COMPLETED} else
+                StepStatus.SKIPPED if statuses == {StepStatus.SKIPPED} else
                 StepStatus.PARTIAL if statuses & {StepStatus.COMPLETED, StepStatus.PARTIAL} else
                 StepStatus.FAILED
             )
@@ -332,10 +348,52 @@ class TaskRunner:
         for line in result.details:
             callbacks.log(line)
 
+    def _approve_ordered_sync(self, group, manager, actions, callbacks):
+        """Keep the exact pre-run approval, or review and recheck a changed sync step."""
+        from src.core.run_summary import summarize_scanned_sync_group
+
+        expected = self.run_plan.approved_sync_fingerprints.get(self._active_item_key)
+        if not expected:
+            raise OSError(self._text(
+                "Sync approval is missing. Run the workflow review again.",
+                "동기화 승인 정보가 없습니다. 작업 실행을 다시 확인해 주세요.",
+                "Brakuje zgody na synchronizację. Ponownie przejrzyj zadania.",
+            ))
+        settings = group.to_legacy_dict()
+        current = summarize_scanned_sync_group(settings, manager, actions, track_writes=True)
+        can_write = any(entry["action"] != "held" for entry in current.approved_manifest)
+        if self.is_running and can_write and current.write_fingerprint != expected:
+            if not callbacks.review_sync(group.name, current) or not self.is_running:
+                if not self.is_running:
+                    return []
+                raise OSError(self._text(
+                    "Changed sync actions were not approved. No sync files were changed.",
+                    "새 동기화 내용이 승인되지 않아 이 단계의 파일은 변경하지 않았습니다.",
+                    "Nie zatwierdzono zmian synchronizacji. Nie zmieniono plików w tym kroku.",
+                ))
+            actions = manager.analyze_sync()
+            if not self.is_running:
+                return []
+            if manager.scan_errors:
+                raise OSError(str(manager.scan_errors[0]))
+            refreshed = summarize_scanned_sync_group(settings, manager, actions, track_writes=True)
+            if refreshed.fingerprint != current.fingerprint:
+                raise OSError(self._text(
+                    "Sync files changed during review. No sync files were changed.",
+                    "확인하는 동안 파일이 바뀌어 이 단계의 파일은 변경하지 않았습니다.",
+                    "Pliki zmieniły się podczas przeglądu. Nie zmieniono plików w tym kroku.",
+                ))
+            current = refreshed
+        manager.approved_actions = tuple(current.approved_manifest)
+        return actions
+
     def _run_sync(self, config: SyncRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
-        callbacks.log("\n[1] " + self._step_name(TaskStep.SYNC))
+        callbacks.log("\n" + self._step_name(TaskStep.SYNC))
         total_groups = len(config.sync_groups)
         success_count = 0
+        ordered_review = self.run_plan.stop_on_failure and not self.is_scheduled_run
+        if ordered_review and total_groups != 1:
+            raise ValueError("An ordered sync row must refer to exactly one group.")
 
         for idx, group in enumerate(config.sync_groups):
             if not self.is_running:
@@ -366,6 +424,8 @@ class TaskRunner:
                 "group_name": group.name,
                 "is_scheduled": self.is_scheduled_run,
             }
+            if ordered_review:
+                sync_kwargs.update(observe_scan=True, approved_actions=())
 
             try:
                 manager = SyncManager(**sync_kwargs)
@@ -402,6 +462,16 @@ class TaskRunner:
                 result.details.append(message)
                 result.details.extend(self._runtime_text(error) for error in scan_errors[:5])
                 continue
+            if ordered_review:
+                try:
+                    actions = self._approve_ordered_sync(group, manager, actions, callbacks)
+                except OSError:
+                    self.sync_manager = None
+                    raise
+                if not self.is_running:
+                    self.sync_manager = None
+                    result.status = StepStatus.CANCELLED
+                    return
             sync_res = manager.execute_sync(
                 actions,
                 progress_callback=lambda current, total, filename: callbacks.step_progress(
@@ -471,7 +541,7 @@ class TaskRunner:
         )
 
     def _run_eml(self, config: EmlRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
-        callbacks.log("\n[2] " + self._step_name(TaskStep.EML))
+        callbacks.log("\n" + self._step_name(TaskStep.EML))
         total_tasks = len(config.tasks)
         success_tasks = 0
 
@@ -529,7 +599,7 @@ class TaskRunner:
         callbacks.step_progress(total_tasks, total_tasks, self._text("EML conversion completed", "EML 변환 완료", "Konwersja EML zakończona"))
 
     def _run_pdf(self, config: PdfRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
-        callbacks.log("\n[3] " + self._step_name(TaskStep.PDF))
+        callbacks.log("\n" + self._step_name(TaskStep.PDF))
         os.makedirs(config.output_folder, exist_ok=True)
         success_count = 0
 
@@ -572,7 +642,7 @@ class TaskRunner:
         callbacks.step_progress(len(config.pdf_paths), len(config.pdf_paths), self._text("PDF conversion completed", "PDF 변환 완료", "Konwersja PDF zakończona"))
 
     def _run_ocr(self, config: OcrRunConfig, result: StepResult, callbacks: RunnerCallbacks) -> None:
-        callbacks.log("\n[4] " + self._step_name(TaskStep.OCR))
+        callbacks.log("\n" + self._step_name(TaskStep.OCR))
         success_count = 0
         target_images = list(config.image_paths)
         if getattr(self.run_plan, "chain_outputs", False) and self.chained_image_paths:

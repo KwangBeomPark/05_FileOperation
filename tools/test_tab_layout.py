@@ -236,6 +236,40 @@ class TabLayoutTests(unittest.TestCase):
         self.assertEqual(self.window.task_tab.STEP_ORDER,
                          (TaskStep.SYNC, TaskStep.COLLECT_SYNC, TaskStep.EML, TaskStep.PDF, TaskStep.OCR))
 
+    def test_task_table_puts_spare_width_in_the_rightmost_summary(self):
+        task = self.window.task_tab
+        table = task.status_table
+        header = table.horizontalHeader()
+        self.config.values["sync_groups"] = [{
+            "id": "example", "name": "Long synthetic group name " * 8,
+            "folders": ["C:/Example/" + "source/" * 12, "C:/Example/destination"],
+        }]
+        self.config.values["collect_sync_groups"] = [{
+            "id": "collection", "name": "Collection", "sources": ["C:/Example/source"],
+            "target": "C:/Example/destination", "keywords": ["report"],
+        }]
+        self.window.select_feature_tab(task)
+        self.window.show()
+        for language in ("ko", "en", "pl"):
+            with self.subTest(language=language):
+                self.config.values["ui_language"] = language
+                self.window.refresh_language()
+                widths = []
+                for width, height in ((1000, 700), (1440, 900)):
+                    self.window.resize(width, height)
+                    self.app.processEvents()
+                    self.assertEqual(header.logicalIndex(header.count() - 1), task.COL_PATHS)
+                    self.assertLess(table.columnWidth(task.COL_ORDER), 120)
+                    self.assertGreater(table.columnWidth(task.COL_PATHS), 145)
+                    self.assertEqual(table.horizontalScrollBar().maximum(), 0)
+                    for column in range(table.columnCount()):
+                        self.assertGreaterEqual(table.columnWidth(column), header.sectionSizeHint(column))
+                    widths.append(table.columnWidth(task.COL_PATHS))
+                self.assertGreaterEqual(widths[1] - widths[0], 380)
+        self.assertFalse(table.isSortingEnabled())
+        item = table.item(0, task.COL_PATHS)
+        self.assertEqual(item.toolTip(), item.text())
+
     def test_unknown_widget_does_not_change_selected_feature(self):
         foreign = QWidget()
         self.addCleanup(foreign.deleteLater)

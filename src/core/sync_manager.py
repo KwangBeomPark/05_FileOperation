@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 # 예: MyApp_v1.0.1.exe -> base: MyApp, ver: 1.0.1
 # 예: App_v20260618.zip -> base: App, ver: 20260618
 # 예: build-v2.0 -> base: build, ver: 2.0
-# [_-]?[vV] 패턴 뒤에 점(.)으로 분할된 숫자 패턴이 오고 그것이 파일명 끝에 매칭되는 경우
-VERSION_PATTERN = re.compile(r"^(.*?)[_-]?[vV](\d+(?:\.\d+)*)$")
+# [_-]?[vV] 뒤에 점 또는 밑줄 한 종류로 구분된 숫자 버전이 오는 경우
+VERSION_PATTERN = re.compile(r"^(.*?)[_-]?[vV](\d+(?:(?:\.\d+)+|(?:_\d+)+)?)$")
 
 DEFAULT_EXCLUDE_PATTERNS = ("~$*", "*.tmp", "Thumbs.db", ".DS_Store")
 SYNC_TEMP_PREFIX = ".fileops-sync-"
@@ -32,6 +32,14 @@ def _move_without_replacement(source_path: str, target_path: str) -> None:
 
 def _file_fingerprint(info):
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def sync_path_observation(info: os.stat_result) -> tuple:
+    """Track folder identity; the rescan separately tracks non-excluded contents."""
+    if stat.S_ISDIR(info.st_mode):
+        # Office lock-file creation/removal can touch a parent without changing the plan.
+        return (info.st_dev, info.st_ino, info.st_mode, getattr(info, "st_birthtime_ns", None))
+    return (info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino, info.st_mode)
 
 
 def _normalized_version(version):
@@ -236,9 +244,11 @@ class SyncManager:
         self.is_cancelled = True
         logger.info("Sync cancellation requested.")
 
-    def is_excluded(self, filename: str) -> bool:
-        """지정된 제외 패턴(exclude_patterns)과 파일명이 매칭되는지 확인합니다."""
+    def is_excluded(self, filename: str, *, is_directory: bool = False) -> bool:
+        """Exclude Office owner files independently of group wildcard settings."""
         base = os.path.basename(filename)
+        if not is_directory and base.startswith("~$"):
+            return True
         if base.startswith((SYNC_TEMP_PREFIX, ".fileops-date-")) and base.endswith(".tmp"):
             return True
         for pattern in self.exclude_patterns:
@@ -265,8 +275,7 @@ class SyncManager:
             version_str = match.group(2)
             
             try:
-                # 점(.)으로 쪼개서 정수 리스트로 변환
-                version_tuple = tuple(int(x) for x in version_str.split('.'))
+                version_tuple = tuple(int(part) for part in re.split(r"[._]", version_str))
                 return base_name, version_tuple, version_str
             except ValueError:
                 # 숫자로 파싱이 불가능한 경우 (예: vA.B.C) 패턴 매칭 스킵
@@ -379,9 +388,7 @@ class SyncManager:
         if len(self.scan_observations) >= 100_000:
             raise OSError("Preview exceeds 100000 observed paths; use a smaller scope.")
         info = info or os.stat(path)
-        self.scan_observations[os.path.abspath(path)] = (
-            info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino, info.st_mode,
-        )
+        self.scan_observations[os.path.abspath(path)] = sync_path_observation(info)
 
     def scan_files(self) -> tuple:
         """
@@ -412,7 +419,7 @@ class SyncManager:
                             self._observe_path(root)
                         dirs[:] = [
                             d for d in dirs
-                            if d.lower() not in ignored_dirs and not self.is_excluded(d)
+                            if d.lower() not in ignored_dirs and not self.is_excluded(d, is_directory=True)
                         ]
                         for item in files:
                             full_path = os.path.join(root, item)

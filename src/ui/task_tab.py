@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -64,7 +65,7 @@ from src.ui.i18n import get_app_language, tr
 from src.ui.notification_worker import NotificationWorker
 from src.ui.preflight_dialog import preparation_progress, run_bounded_preflight
 from src.ui.run_history_dialog import RunHistoryDialog
-from src.ui.run_summary_dialog import confirm_run_summary
+from src.ui.run_summary_dialog import RunSummaryDialog, confirm_run_summary
 from src.ui.task_panel import TaskPanelMixin
 from src.ui.task_worker import TaskWorker
 from src.utils.logger import get_logger
@@ -342,11 +343,18 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.status_table.setColumnCount(8)
         self.status_table.setRowCount(0)
         self.status_table.setHorizontalHeaderLabels(self.table_headers())
-        self.status_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.status_table.horizontalHeader().setSectionResizeMode(self.COL_RUN, QHeaderView.ResizeMode.ResizeToContents)
-        self.status_table.horizontalHeader().setSectionResizeMode(self.COL_STATUS, QHeaderView.ResizeMode.ResizeToContents)
+        header = self.status_table.horizontalHeader()
+        header.setMinimumSectionSize(68)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        # Keep row/column IDs used by execution and diagnostics; move only the visual section.
+        header.moveSection(header.visualIndex(self.COL_PATHS), header.count() - 1)
+        header.setSectionResizeMode(self.COL_PATHS, QHeaderView.ResizeMode.Stretch)
+        # Long group names must not take the space reserved for the path summary.
+        header.setSectionResizeMode(self.COL_FEATURE, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(self.COL_FEATURE, 136)
         self.status_table.verticalHeader().setVisible(False)
-        self.status_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.status_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.status_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.status_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.status_table.setMinimumHeight(205)
         self.status_table.setStyleSheet("""
@@ -377,7 +385,18 @@ class TaskTab(TaskPanelMixin, QWidget):
         table_v_layout.setSpacing(2)
         self.table_hint_label = QLabel()
         self.table_hint_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        self.table_hint_label.setWordWrap(True)
+        self.move_task_up = QPushButton()
+        self.move_task_down = QPushButton()
+        self.move_task_up.clicked.connect(lambda: self._move_task(-1))
+        self.move_task_down.clicked.connect(lambda: self._move_task(1))
+        self.status_table.currentCellChanged.connect(self._refresh_order_buttons)
+        order_toolbar = QHBoxLayout()
+        order_toolbar.addWidget(self.move_task_up)
+        order_toolbar.addWidget(self.move_task_down)
+        order_toolbar.addStretch()
         table_v_layout.addWidget(self.table_hint_label)
+        table_v_layout.addLayout(order_toolbar)
         table_v_layout.addWidget(self.status_table)
 
         self.main_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -525,12 +544,65 @@ class TaskTab(TaskPanelMixin, QWidget):
     def selected_steps(self):
         return list(dict.fromkeys(row["step"] for row in self.rows if self.item_checks[row["key"]].isChecked()))
 
+    def _refresh_order_buttons(self, *_args):
+        index = self.status_table.currentRow()
+        can_move = not self.is_running and not self.is_preflighting and 0 <= index < len(self.rows)
+        self.move_task_up.setEnabled(can_move and index > 0)
+        self.move_task_down.setEnabled(can_move and index + 1 < len(self.rows))
+
+    def _custom_task_order(self):
+        saved = self.config_manager.get("task_item_order", [])
+        return isinstance(saved, list) and any(row["key"] in saved for row in self.rows)
+
+    def _refresh_order_hint(self):
+        hint = tr("task_table_double_click_hint", self.language) + " · " + self._text(
+            "Select a row to move it.", "순서를 바꾸려면 행을 선택하세요.", "Wybierz wiersz, aby go przesunąć.",
+        )
+        if self._custom_task_order():
+            hint += " · " + self._text(
+                "Manual and scheduled runs follow this order; later tasks are skipped after a failure.",
+                "수동·예약 실행은 이 순서를 따릅니다. 실패한 작업 뒤의 작업은 건너뜁니다.",
+                "Ręczne i zaplanowane zadania używają tej kolejności. Po błędzie kolejne są pomijane.",
+            )
+        self.table_hint_label.setText(hint)
+
+    def _move_task(self, offset):
+        if self._preset_import_busy() or getattr(self.window(), "_preparation_active", False):
+            return
+        current = self.status_table.currentRow()
+        next_index = current + offset
+        if not (0 <= current < len(self.rows) and 0 <= next_index < len(self.rows)):
+            return
+        order = [row["key"] for row in self.rows]
+        readiness_role = Qt.ItemDataRole.UserRole
+        readiness = {
+            key: (cell.data(readiness_role), cell.data(readiness_role.value + 1))
+            for index, key in enumerate(order)
+            if (cell := self.status_table.item(index, self.COL_READINESS)) is not None
+        }
+        order[current], order[next_index] = order[next_index], order[current]
+        saved_order = [] if order == self._default_task_order else order
+        if self._update_config({"task_item_order": saved_order}) is False:
+            self.detail_label.setText(self._text(
+                "Could not save task order. Previous order retained.",
+                "작업 순서를 저장하지 못했습니다. 이전 순서를 유지합니다.",
+                "Nie zapisano kolejności zadań. Zachowano poprzednią kolejność.",
+            ))
+            return
+        self.rebuild_status_table()
+        for index, row in enumerate(self.rows):
+            key, detail = readiness.get(row["key"], (None, None))
+            if key:
+                self.set_row_readiness(index, key, detail or "")
+        self._refresh_order_hint()
+
     def save_enabled_steps(self, _checked=False):
         selection = dict(self.config_manager.get("task_enabled_items", {}) or {})
         selection.update({key: check.isChecked() for key, check in self.item_checks.items()})
+        enabled = self.selected_steps()
         self._selection_save_failed = self._update_config({
             "task_enabled_items": selection,
-            "task_enabled_steps": [step.value for step in self.selected_steps()],
+            "task_enabled_steps": [step.value for step in self.STEP_ORDER if step in enabled],
         }) is False
         if self._selection_save_failed:
             self.log(tr("collect_save_error", self.language))
@@ -555,6 +627,7 @@ class TaskTab(TaskPanelMixin, QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self.rebuild_status_table()
+        self._refresh_order_hint()
         self.refresh_readiness()
         self.refresh_run_list()
         self._update_backup_consent_visibility()
@@ -571,7 +644,9 @@ class TaskTab(TaskPanelMixin, QWidget):
         language = self.language
         self.title_label.setText(tr("task_title", language))
         if hasattr(self, "table_hint_label"):
-            self.table_hint_label.setText(tr("task_table_double_click_hint", language))
+            self._refresh_order_hint()
+            self.move_task_up.setText(self._text("Move up", "위로", "W górę"))
+            self.move_task_down.setText(self._text("Move down", "아래로", "W dół"))
         self.check_schedule.setText(tr("task_schedule", language))
         self.check_auto_email.setText(tr("task_auto_email", language))
         self.check_allow_source_backup.setText(tr("task_schedule_allow_source_backup", language))
@@ -601,8 +676,10 @@ class TaskTab(TaskPanelMixin, QWidget):
         self.selection_hint.setText(tr("task_selection_hint", language))
         self.status_table.setHorizontalHeaderLabels(self.table_headers())
         for index, row in enumerate(self.rows):
-            self.status_table.item(index, self.COL_FEATURE).setText(row["name"] if row.get("group") else self.step_label(row["step"]))
-            self.status_table.item(index, self.COL_TYPE).setText(self.row_type_label(row["step"]))
+            name_item = self.status_table.item(index, self.COL_FEATURE)
+            name_item.setText(row["name"] if row.get("group") else self.step_label(row["step"]))
+            name_item.setToolTip(name_item.text())
+            self.status_table.item(index, self.COL_TYPE).setText(self.row_type_label(row["step"], compact=True))
             status_item = self.status_table.item(index, self.COL_STATUS)
             self._set_status_item(status_item, status_item.data(Qt.ItemDataRole.UserRole) or "pending")
             readiness = self.status_table.item(index, self.COL_READINESS)
@@ -1288,6 +1365,16 @@ class TaskTab(TaskPanelMixin, QWidget):
                     tr("task_no_selection_body", self.language),
                 )
             return self._start_rejected(tr("task_no_selection_body", self.language))
+
+        custom_order = self._custom_task_order()
+        if custom_order and self.check_chain_outputs.isChecked() and TaskStep.OCR in selected_steps:
+            position = selected_steps.index(TaskStep.OCR)
+            if any(step in (TaskStep.EML, TaskStep.PDF) for step in selected_steps[position + 1:]):
+                return self._warn_start_rejected(self._text(
+                    "Move Image OCR below the selected EML/PDF converters when output chaining is enabled.",
+                    "출력 연계가 켜져 있습니다. 이미지 읽기를 선택한 EML/PDF 변환 아래로 옮겨 주세요.",
+                    "Łączenie wyników jest włączone. Przenieś OCR poniżej wybranych konwersji EML/PDF.",
+                ), scheduled)
             
         items = []
         configs = {}
@@ -1314,6 +1401,7 @@ class TaskTab(TaskPanelMixin, QWidget):
             chain_outputs=self.check_chain_outputs.isChecked(),
             items=items,
             is_scheduled_run=scheduled,
+            stop_on_failure=custom_order,
         )
 
         bypass_config = run_plan.get(TaskStep.BYPASS)
@@ -1342,6 +1430,7 @@ class TaskTab(TaskPanelMixin, QWidget):
         with preparation_progress(self, self.config_manager, visible=not scheduled) as preparation:
             # 2. 활성 단계 기준 외부 의존성 사전 점검
             self.is_preflighting = True
+            self._refresh_order_buttons()
             try:
                 preflight, preflight_error, preflight_cancelled = run_bounded_preflight(
                     self,
@@ -1353,6 +1442,7 @@ class TaskTab(TaskPanelMixin, QWidget):
                 )
             finally:
                 self.is_preflighting = False
+                self._refresh_order_buttons()
             if preflight is None:
                 if preparation is not None:
                     preparation.hide()
@@ -1395,7 +1485,7 @@ class TaskTab(TaskPanelMixin, QWidget):
                 warning_text += "\n" + "\n".join(item_errors)
             if scheduled and warning_text:
                 self.log(self._text("[Scheduled run] Preflight warning:\n", "[예약 실행] 사전 점검 경고:\n", "[Harmonogram] Ostrzeżenie kontroli wstępnej:\n") + warning_text)
-            review_plan = replace(run_plan, items=[], step_order=list(configs), is_scheduled_run=scheduled)
+            review_plan = replace(run_plan, items=items if custom_order else [], step_order=list(configs))
             if not confirm_run_summary(
                 self, review_plan, self.config_manager, scheduled=scheduled, warnings=warning_text,
                 preparation=preparation,
@@ -1409,11 +1499,13 @@ class TaskTab(TaskPanelMixin, QWidget):
         run_plan = replace(
             run_plan,
             approved_manifest=tuple(approved) if approved is not None else (),
+            approved_sync_fingerprints=review_plan.approved_sync_fingerprints,
             is_scheduled_run=scheduled,
         )
                     
         # UI 및 탭 잠금 처리
         self.is_running = True
+        self._refresh_order_buttons()
         self.is_scheduled_run = scheduled
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
@@ -1455,6 +1547,7 @@ class TaskTab(TaskPanelMixin, QWidget):
             self.worker.total_progress.connect(self.update_total_progress)
             self.worker.item_status_changed.connect(self.update_item_status)
             self.worker.report_ready.connect(self.capture_run_report)
+            self.worker.sync_review_requested.connect(self._review_ordered_sync)
             self.worker.finished.connect(lambda worker=self.worker: self._worker_stopped(worker))
             self.worker.start()
         except Exception as exc:  # noqa: BLE001 - restore UI state if Qt worker setup or start fails
@@ -1465,6 +1558,35 @@ class TaskTab(TaskPanelMixin, QWidget):
             self.on_tasks_finished(False, str(exc), "")
             return self._start_rejected(str(exc))
         return True
+
+    def _review_ordered_sync(self, name, summary):
+        """Show only the changed sync step while the worker is paused before writing."""
+        worker = self.sender()
+        window = self.window()
+        if worker is None or worker is not self.worker or not worker.runner.is_running or getattr(window, "_run_confirmation_active", False):
+            if isinstance(worker, TaskWorker):
+                worker.resolve_sync_review(False)
+            return
+        window._run_confirmation_active = True
+        accepted = False
+        dialog = None
+        try:
+            message = self._text(
+                f"Earlier tasks or folder changes produced a new plan for '{name}'. Review this step before any sync writes.",
+                f"앞 작업의 결과 또는 폴더 변경으로 '{name}' 동기화 내용이 달라졌습니다. 실행 전에 확인해 주세요.",
+                f"Wcześniejsze zadania lub zmiany w folderach zmieniły plan „{name}”. Sprawdź przed synchronizacją.",
+            )
+            dialog = RunSummaryDialog(summary, self.language, self, message)
+            worker.finished.connect(dialog.reject)
+            if worker.runner.is_running:
+                accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        except Exception:
+            logger.exception("Could not review a changed synchronization step")
+        finally:
+            window._run_confirmation_active = False
+            worker.resolve_sync_review(accepted)
+            if dialog is not None:
+                dialog.deleteLater()
 
     def _worker_stopped(self, worker):
         if self.worker is not worker or worker.isRunning():
@@ -1537,6 +1659,7 @@ class TaskTab(TaskPanelMixin, QWidget):
         scheduled_run = self.is_scheduled_run
         self._finish_failed_journal(message, report_body)
         self.is_running = False
+        self._refresh_order_buttons()
         self.is_scheduled_run = False
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)

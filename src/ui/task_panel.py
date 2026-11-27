@@ -18,14 +18,19 @@ from PyQt6.QtWidgets import (
 from src.app_identity import user_data_dir
 from src.core.collect_sync_config import build_collect_group
 from src.core.task_contracts import CollectRunConfig, StepStatus, TaskStep
+from src.core.task_items import order_task_rows
 from src.ui.i18n import tr
 
 
 class TaskPanelMixin:
-    def row_type_label(self, step):
+    def row_type_label(self, step, *, compact=False):
         if step == TaskStep.SYNC:
+            if compact:
+                return self._text("Sync", "동기화", "Synchronizacja")
             return tr("tab_sync", self.language)
         if step == TaskStep.COLLECT_SYNC:
+            if compact:
+                return self._text("Collection", "자동 수집", "Zbieranie")
             return tr("tab_collect_sync", self.language)
         return "SA Team"
 
@@ -73,8 +78,12 @@ class TaskPanelMixin:
                     "paths": self.sa_task_paths(step),
                 }
             )
+        self._default_task_order = [row["key"] for row in rows]
+        rows = order_task_rows(rows, self.config_manager.get("task_item_order", []))
         if rows == self.rows:
             return
+        current = self.status_table.currentRow()
+        current_key = self.rows[current]["key"] if 0 <= current < len(self.rows) else None
         self.rows = rows
         self.status_table.setRowCount(0)
         self.status_table.setRowCount(len(rows))
@@ -113,8 +122,9 @@ class TaskPanelMixin:
                 self.status_table.setItem(index, column, QTableWidgetItem())
             self.status_table.item(index, self.COL_ORDER).setText(str(index + 1))
             self.status_table.item(index, self.COL_FEATURE).setText(row["name"])
+            self.status_table.item(index, self.COL_FEATURE).setToolTip(row["name"])
             self.status_table.item(index, self.COL_TYPE).setText(
-                self.row_type_label(step)
+                self.row_type_label(step, compact=True)
             )
             self.status_table.item(index, self.COL_PATHS).setText(row["paths"])
             self.status_table.item(index, self.COL_PATHS).setToolTip(row["paths"])
@@ -128,6 +138,11 @@ class TaskPanelMixin:
             check.toggled.connect(self.save_enabled_steps)
         self.refresh_history_display()
         self._refresh_start_button_state()
+        for index, row in enumerate(rows):
+            if row["key"] == current_key:
+                self.status_table.setCurrentCell(index, self.COL_ORDER)
+                break
+        self._refresh_order_buttons()
 
     def sa_task_paths(self, step):
         if step == TaskStep.EML:

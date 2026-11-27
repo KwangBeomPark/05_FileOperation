@@ -39,6 +39,7 @@ TRANSIENT_KEYS = {
     "task_schedule_last_failure_reason",
     "task_step_last_results",
     "task_item_last_results",
+    "task_item_order",  # Keep local execution order out of workflow presets.
     "recent_files",
     "window_size",
 }

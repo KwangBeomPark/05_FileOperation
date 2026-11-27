@@ -820,7 +820,7 @@ class CollectMainWindowTests(unittest.TestCase):
         finally:
             tab.worker, tab.is_running = None, False
 
-    def test_sync_confirmation_modal_prevents_collect_scheduler_start(self):
+    def test_sync_recheck_prevents_collect_scheduler_start_without_a_modal(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source, target = root / "source", root / "target"
@@ -836,38 +836,24 @@ class CollectMainWindowTests(unittest.TestCase):
             collect = self.window.collect_sync_tab
             collect.groups = [group]
             collect.state_path = root / "state.json"
-            observed = []
+            tab = self.window.sync_tab
+            tab.sync_groups = [{"name": "Sync", "folders": [str(source), str(target)]}]
+            tab._analysis_is_current = True
+            tab._analysis_has_actions = True
+            tab._preview_fingerprints = ("test-preview",)
 
-            def ask(*_args, **_kwargs):
-                dialog = QDialog(self.window)
+            def start_recheck():
+                self.assertIsNone(QApplication.activeModalWidget())
+                self.assertFalse(collect.check_scheduled_run(wall_time(2026, 10, 27, 12)))
+                tab._on_approval_stale()
 
-                def tick():
-                    observed.append(
-                        collect.check_scheduled_run(wall_time(2026, 10, 27, 12))
-                    )
-                    dialog.reject()
-
-                QTimer.singleShot(0, tick)
-                dialog.exec()
-                dialog.deleteLater()
-                return False
-
-            self.window.sync_tab._analysis_is_current = True
-            self.window.sync_tab._analysis_has_actions = True
-            with (
-                patch.object(
-                    self.window.sync_tab, "_valid_groups", return_value=[group]
-                ),
-                patch.object(
-                    self.window.sync_tab, "build_run_config", return_value=object()
-                ),
-                patch("src.ui.sync_tab.confirm_run_summary", side_effect=ask),
-            ):
-                self.window.sync_tab.start_sync_execution()
+            with patch("src.ui.sync_tab.SyncWorker") as worker:
+                worker.return_value.start.side_effect = start_recheck
+                tab.start_sync_execution()
+            worker.return_value.start.assert_called_once()
             collect.stop_all()
-            self.assertEqual(observed, [False])
             self.assertNotIn("schedule_attempt_count", group)
-            self.assertFalse(self.window.sync_tab.is_running)
+            self.assertFalse(tab.is_running)
 
 
 class CollectSyncTableSortingTests(unittest.TestCase):

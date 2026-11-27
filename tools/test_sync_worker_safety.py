@@ -27,17 +27,17 @@ class SyncWorkerSafetyTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def _run_with_manager(self, manager):
+    def _run_with_manager(self, manager, **options):
         with tempfile.TemporaryDirectory() as directory:
             folders = [Path(directory, name) for name in ("a", "b")]
             for folder in folders:
                 folder.mkdir()
-            worker = SyncWorker([{"name": "g", "folders": [str(folder) for folder in folders]}], _Config())
+            worker = SyncWorker([{"name": "g", "folders": [str(folder) for folder in folders]}], _Config(), **options)
             worker._create_manager = lambda *_args: manager(worker)
             completed = []
             failed = []
             cancelled = []
-            worker.dry_run_finished.connect(completed.append)
+            worker.dry_run_finished.connect(lambda *args: completed.append(args))
             worker.finished.connect(lambda *args: failed.append(args))
             worker.preview_cancelled.connect(lambda: cancelled.append(True))
             worker.run()
@@ -74,6 +74,27 @@ class SyncWorkerSafetyTests(unittest.TestCase):
         self.assertFalse(cancelled)
         self.assertEqual(len(failed), 1)
         self.assertIn("unavailable", failed[0][3][0])
+
+    def test_cancel_during_recheck_never_starts_execution(self):
+        def manager(worker):
+            class Manager:
+                scan_errors = ()
+
+                def analyze_sync(self):
+                    worker.is_cancelled = True
+                    return []
+
+                def execute_sync(self, *_args, **_kwargs):
+                    raise AssertionError("A cancelled recheck must not execute")
+
+            return Manager()
+
+        completed, failed, cancelled = self._run_with_manager(
+            manager, is_dry_run=False, preview_fingerprints=("reviewed",),
+        )
+        self.assertFalse(completed)
+        self.assertFalse(failed)
+        self.assertEqual(cancelled, [True])
 
     def test_cancelled_preview_does_not_show_an_error_dialog(self):
         tab = SyncTab(_Config())

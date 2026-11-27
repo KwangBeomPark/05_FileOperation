@@ -1,6 +1,7 @@
 """Tests for the manual folder-sync scope and staged action."""
 
 import copy
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +9,7 @@ from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication
 
-from src.core.task_contracts import TaskStep, TaskValidationError
+from src.core.task_contracts import TaskValidationError
 from src.ui.sync_tab import SyncTab, SyncWorker
 
 
@@ -55,14 +56,12 @@ class SyncScopeTests(unittest.TestCase):
         self.assertFalse(tab.analyze_btn.isEnabled())
 
         with (patch("src.ui.sync_tab.QMessageBox.warning") as warning,
-              patch("src.ui.sync_tab.SyncWorker") as worker,
-              patch("src.ui.sync_tab.confirm_run_summary") as confirm):
+              patch("src.ui.sync_tab.SyncWorker") as worker):
             tab.start_dry_run()
             tab.start_sync_execution()
         self.assertEqual(warning.call_count, 2)
         self.assertEqual(warning.call_args_list[0].args[2], warning.call_args_list[1].args[2])
         worker.assert_not_called()
-        confirm.assert_not_called()
         # A selected scheduled group is still validated independently.
         self.assertEqual(tab.build_run_config(["ready"]).sync_groups[0].name, "Ready")
         with self.assertRaises(TaskValidationError):
@@ -80,7 +79,7 @@ class SyncScopeTests(unittest.TestCase):
 
         preview = SyncWorker(snapshot, config)
         completed, failures = [], []
-        preview.dry_run_finished.connect(completed.append)
+        preview.dry_run_finished.connect(lambda *args: completed.append(args))
         preview.finished.connect(lambda *args: failures.append(args))
         preview.run()
         self.assertFalse(completed)
@@ -112,7 +111,7 @@ class SyncScopeTests(unittest.TestCase):
             for index in range(205)
         ]
         with patch("src.ui.sync_tab.show_toast"):
-            tab.on_dry_run_finished(actions)
+            tab.on_dry_run_finished(actions, ("preview",))
         self.assertEqual(tab.table_widget.rowCount(), 205)
         self.assertFalse(tab.sync_btn.isHidden())
         self.assertTrue(tab.sync_btn.isEnabled())
@@ -120,14 +119,144 @@ class SyncScopeTests(unittest.TestCase):
         self.assertTrue(tab.analyze_btn.isEnabled())
         self.assertEqual(tab.analyze_btn.text(), "다시 미리보기")
 
-        with (patch("src.ui.sync_tab.confirm_run_summary", return_value=False) as review,
-              patch("src.ui.sync_tab.SyncWorker") as worker):
+        with patch("src.ui.sync_tab.SyncWorker") as worker:
             tab.start_sync_execution()
-        worker.assert_not_called()
-        plan = review.call_args.args[1].get(TaskStep.SYNC)
-        self.assertEqual([group.name for group in plan.sync_groups], ["Ready"])
-        self.assertTrue(tab.sync_btn.isEnabled())
+        worker.return_value.start.assert_called_once()
+        self.assertEqual([group["name"] for group in worker.call_args.args[0]], ["Ready"])
+        self.assertEqual(worker.call_args.kwargs["preview_fingerprints"], ("preview",))
+        self.assertFalse(tab.sync_btn.isEnabled())
+        self.assertFalse(tab.analyze_btn.isEnabled())
+
+    def test_green_button_runs_the_preview_without_confirmation(self):
+        tab, _ = self.make_tab([self.ready])
+        source = self.left / "report.txt"
+        source.write_text("previewed", encoding="utf-8")
+        with (patch("src.ui.sync_tab.QMessageBox") as popup,
+              patch("src.ui.sync_tab.show_toast")):
+            tab.analyze_btn.click()
+            self.assertTrue(tab.worker.wait(10000))
+            self.app.processEvents()
+            self.assertFalse((self.right / source.name).exists())
+            self.assertTrue(tab.sync_btn.isEnabled())
+            self.assertIn("신규 복사 1건", tab.plan_summary_label.text())
+            tab.sync_btn.click()
+            self.assertTrue(tab.worker.wait(10000))
+            self.app.processEvents()
+        self.assertEqual((self.right / source.name).read_text(encoding="utf-8"), "previewed")
+        self.assertEqual(popup.mock_calls, [])
+        self.assertFalse(tab.is_running)
+
+    def test_date_version_preview_shows_archive_destination_and_runs_without_confirmation(self):
+        tab, _ = self.make_tab([{**self.ready, "date_latest_only": True, "archive_folder_name": "old"}])
+        (self.left / "report_v20261125.txt").write_text("new", encoding="utf-8")
+        (self.right / "report_v20261101.txt").write_text("old", encoding="utf-8")
+        with (patch.object(SyncWorker, "start", new=SyncWorker.run),
+              patch("src.ui.sync_tab.QMessageBox") as popup,
+              patch("src.ui.sync_tab.show_toast")):
+            tab.analyze_btn.click()
+            self.assertIn("보관 1건", tab.plan_summary_label.text())
+            self.assertIn(str(self.right / "old"), [tab.table_widget.item(i, 4).toolTip()
+                                                     for i in range(tab.table_widget.rowCount())])
+            tab.sync_btn.click()
+        self.assertEqual((self.right / "report_v20261125.txt").read_text(encoding="utf-8"), "new")
+        self.assertEqual((self.right / "old" / "report_v20261101.txt").read_text(encoding="utf-8"), "old")
+        self.assertFalse((self.right / "report_v20261101.txt").exists())
+        self.assertEqual(popup.mock_calls, [])
+
+    def test_changed_later_group_blocks_earlier_group_before_any_write(self):
+        later_left = self.left.parent / "later-left"
+        later_right = self.left.parent / "later-right"
+        later_left.mkdir()
+        later_right.mkdir()
+        later = {"id": "later", "name": "Later", "folders": [str(later_left), str(later_right)]}
+        tab, _ = self.make_tab([self.ready, later])
+        (self.left / "first.txt").write_text("previewed", encoding="utf-8")
+        source = later_left / "second.txt"
+        source.write_text("previewed", encoding="utf-8")
+        with (patch.object(SyncWorker, "start", new=SyncWorker.run),
+              patch("src.ui.sync_tab.QMessageBox") as popup):
+            tab.analyze_btn.click()
+            source.write_text("changed after preview", encoding="utf-8")
+            tab.sync_btn.click()
+        self.assertEqual(list(self.right.iterdir()), [])
+        self.assertEqual(list(later_right.iterdir()), [])
+        self.assertIn("실행하지 않았습니다", tab.plan_summary_label.text())
+        self.assertFalse(tab.sync_btn.isEnabled())
         self.assertTrue(tab.analyze_btn.isEnabled())
+        self.assertEqual(popup.mock_calls, [])
+
+    def test_settings_change_without_editor_signal_still_blocks_execution(self):
+        tab, _ = self.make_tab([self.ready])
+        (self.left / "first.txt").write_text("previewed", encoding="utf-8")
+        with patch.object(SyncWorker, "start", new=SyncWorker.run):
+            tab.analyze_btn.click()
+            tab.sync_groups[0]["sync_mode"] = "one_way"
+            tab.sync_btn.click()
+        self.assertEqual(list(self.right.iterdir()), [])
+        self.assertIn("실행하지 않았습니다", tab.plan_summary_label.text())
+
+    def test_new_target_after_preview_is_neither_replaced_nor_archived(self):
+        tab, _ = self.make_tab([{**self.ready, "sync_mode": "one_way"}])
+        (self.left / "report.txt").write_text("source", encoding="utf-8")
+        destination = self.right / "report.txt"
+        with patch.object(SyncWorker, "start", new=SyncWorker.run):
+            tab.analyze_btn.click()
+            destination.write_text("created after preview", encoding="utf-8")
+            tab.sync_btn.click()
+        self.assertEqual(destination.read_text(encoding="utf-8"), "created after preview")
+        self.assertEqual(list(self.right.iterdir()), [destination])
+        self.assertIn("실행하지 않았습니다", tab.plan_summary_label.text())
+
+    def test_office_lock_files_are_never_planned_and_do_not_invalidate_the_preview(self):
+        for date_mode, nested in ((False, False), (False, True), (True, True)):
+            with self.subTest(date_mode=date_mode, nested=nested):
+                left = self.left / f"{date_mode}-{nested}"
+                right = self.right / f"{date_mode}-{nested}"
+                left.mkdir()
+                right.mkdir()
+                source_parent = left / "~$reports" if nested else left
+                target_parent = right / "~$reports" if nested else right
+                if nested:
+                    source_parent.mkdir()
+                    target_parent.mkdir()
+                document = "report_v20261125.xlsx"
+                (source_parent / document).write_bytes(b"workbook")
+                lock = source_parent / f"~${document}"
+                lock.write_bytes(b"Office owner file")
+                tab, _ = self.make_tab([{
+                    **self.ready, "folders": [str(left), str(right)], "exclude_patterns": ["*.bak"],
+                    "date_latest_only": date_mode, "include_subfolders": nested,
+                }])
+                with (patch.object(SyncWorker, "start", new=SyncWorker.run),
+                      patch("src.ui.sync_tab.QMessageBox") as popup,
+                      patch("src.ui.sync_tab.show_toast")):
+                    tab.analyze_btn.click()
+                    self.assertEqual(tab.table_widget.rowCount(), 1)
+                    self.assertEqual(tab.table_widget.item(0, 1).text(), os.path.relpath(source_parent / document, left))
+                    lock.unlink()
+                    (target_parent / lock.name).write_bytes(b"target owner file")
+                    # Make the directory timestamp change observable even on coarse/network-like clocks.
+                    for directory in (source_parent, target_parent):
+                        info = directory.stat()
+                        os.utime(directory, ns=(info.st_atime_ns, info.st_mtime_ns + 10_000_000_000))
+                    tab.sync_btn.click()
+                self.assertEqual((target_parent / document).read_bytes(), b"workbook")
+                self.assertEqual((target_parent / lock.name).read_bytes(), b"target owner file")
+                self.assertFalse(lock.exists())
+                self.assertEqual(popup.mock_calls, [])
+
+    def test_replaced_destination_folder_still_invalidates_preview(self):
+        tab, _ = self.make_tab([self.ready])
+        (self.left / "report.xlsx").write_bytes(b"workbook")
+        moved = self.right.with_name("original-destination")
+        with patch.object(SyncWorker, "start", new=SyncWorker.run):
+            tab.analyze_btn.click()
+            self.right.rename(moved)
+            self.right.mkdir()
+            tab.sync_btn.click()
+        self.assertFalse((self.right / "report.xlsx").exists())
+        self.assertFalse((moved / "report.xlsx").exists())
+        self.assertIn("실행하지 않았습니다", tab.plan_summary_label.text())
 
     def test_no_write_reload_updates_group_and_invalidates_old_preview(self):
         tab, config = self.make_tab([self.ready])

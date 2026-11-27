@@ -72,6 +72,9 @@ class GuidedWorkflowTests(unittest.TestCase):
             sync._analysis_is_current = True
             sync._analysis_has_actions = True
             sync._refresh_action_state()
+            self.assertFalse(sync.sync_btn.isEnabled())
+            sync._preview_fingerprints = ("reviewed",)
+            sync._refresh_action_state()
             self.assertTrue(sync.sync_btn.isEnabled())
             sync._invalidate_analysis(folders_changed=True)
             self.assertFalse(sync.sync_btn.isEnabled())

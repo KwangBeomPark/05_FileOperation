@@ -89,6 +89,7 @@ class ConfigManager:
         # 안전한 기본값인 폴더 동기화만 선택합니다.
         "task_enabled_steps": ["sync"],
         "task_enabled_items": {},       # Stable per-group and SA task selection.
+        "task_item_order": [],          # Local GUI execution order, by stable task ID.
         "task_selection_migrated": False,
         "task_item_last_results": {},
         "smtp_server": "",

@@ -7,16 +7,18 @@ import tempfile
 import threading
 import unittest
 from collections import deque
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QDialog,
     QMainWindow,
     QPlainTextEdit,
     QTabWidget,
@@ -24,8 +26,10 @@ from PyQt6.QtWidgets import (
 
 from src.core.collect_sync_config import build_collect_group, new_collect_group
 from src.core.preflight import PreflightReport
+from src.core.run_summary import build_run_summary
 from src.core.task_contracts import (
     CollectRunConfig,
+    EmlRunConfig,
     ExecutionItem,
     RunPlan,
     RunReport,
@@ -40,6 +44,7 @@ from src.core.task_runner import RunnerCallbacks, TaskRunner
 from src.ui.collect_sync_tab import CollectSyncTab
 from src.ui.sync_tab import SyncTab
 from src.ui.task_tab import TaskTab
+from src.ui.task_worker import TaskWorker
 from tools.test_collect_sync_config import wall_time
 from tools.test_collect_sync_ui import MemoryConfig, wait_until
 
@@ -300,6 +305,232 @@ class MasterTaskTests(unittest.TestCase):
         )
         self.window.set_all_tabs_locked.assert_any_call(True)
         self.window.set_all_tabs_locked.assert_called_with(False)
+
+    def _move_collect_above_sync(self):
+        collect = self.tab.rows[1]["key"]
+        self.tab.status_table.setCurrentCell(1, self.tab.COL_ORDER)
+        self.tab.move_task_up.click()
+        self.assertEqual(self.tab.rows[0]["key"], collect)
+        return collect
+
+    def test_move_keeps_selection_and_scheduled_run_honors_new_order(self):
+        original = [row["key"] for row in self.tab.rows]
+        self.assertFalse(self.config.get("task_item_order", []))
+        selected = dict(self.config.values["task_enabled_items"])
+        collect = self._move_collect_above_sync()
+        self.assertEqual(self.config.get("task_item_order"), [original[1], original[0], *original[2:]])
+        self.assertEqual(self.tab.status_table.currentRow(), 0)
+        self.assertEqual(self.tab.status_table.item(0, self.tab.COL_ORDER).text(), "1")
+        self.assertEqual(self.config.get("task_enabled_items"), selected)
+        self.assertTrue(self.tab.item_checks[collect].isChecked())
+        self.tab.save_enabled_steps()
+        self.assertEqual(self.config.get("task_enabled_steps"), ["sync", "collect_sync"])
+        self.tab.schedule_time_edit.setTime(self.tab.schedule_time_edit.time().fromString("12:00", "HH:mm"))
+        ran = []
+
+        def complete(label):
+            def step(_runner, _config, result, _callbacks):
+                ran.append(label)
+                result.status = StepStatus.COMPLETED
+            return step
+
+        with (patch("src.ui.task_tab.run_bounded_preflight", return_value=(PreflightReport(language="en"), "", False)),
+              patch("src.ui.task_tab.confirm_run_summary", return_value=True),
+              patch("src.ui.task_tab.RunSummaryDialog") as dialog,
+              patch.object(TaskRunner, "_run_sync", complete("sync")),
+              patch.object(TaskRunner, "_run_collect_sync", complete("collect"))):
+            self.assertTrue(self.tab.check_scheduled_run(wall_time(2026, 10, 28, 12, 1)))
+            wait_until(lambda: not self.tab.is_running)
+        self.assertEqual(ran, ["collect", "sync"])
+        dialog.assert_not_called()
+
+    def test_order_save_error_does_not_move_row(self):
+        initial = [row["key"] for row in self.tab.rows]
+        self.tab.status_table.setCurrentCell(1, self.tab.COL_ORDER)
+        with patch.object(self.tab, "_update_config", return_value=False):
+            self.tab.move_task_up.click()
+        self.assertEqual([row["key"] for row in self.tab.rows], initial)
+        self.assertIn("Previous order retained", self.tab.detail_label.text())
+
+    def test_moving_back_to_default_restores_legacy_order_policy(self):
+        initial = [row["key"] for row in self.tab.rows]
+        self._move_collect_above_sync()
+        self.tab.move_task_down.click()
+        self.assertEqual([row["key"] for row in self.tab.rows], initial)
+        self.assertEqual(self.config.get("task_item_order"), [])
+        self.assertFalse(self.tab._custom_task_order())
+
+    def test_ocr_above_selected_converter_is_rejected_when_chained(self):
+        self.config.values["task_item_order"] = ["ocr", "eml"]
+        self.config.values["task_enabled_items"] = {"ocr": True, "eml": True}
+        self.tab.rebuild_status_table()
+        self.tab.check_chain_outputs.setChecked(True)
+        self.assertFalse(self.tab.start_all_tasks(scheduled=True))
+        self.assertIn("Move Image OCR below", self.tab.start_failure_reason)
+
+    def _ordered_conversion_plan(self):
+        sync = SyncRunConfig([SyncGroupConfig("mirror", [str(self.source), str(self.root / "mirror")], sync_mode="one_way")])
+        eml = EmlRunConfig([])
+        plan = RunPlan(
+            {TaskStep.EML: eml, TaskStep.SYNC: sync},
+            items=[ExecutionItem("eml", TaskStep.EML, "EML", eml), ExecutionItem("sync:mirror", TaskStep.SYNC, "mirror", sync)],
+            stop_on_failure=True,
+        )
+        summary = build_run_summary(plan)
+        return replace(plan, approved_manifest=tuple(summary.approved_manifest), approved_sync_fingerprints=summary.sync_fingerprints)
+
+    def test_ordered_conversion_reviews_new_sync_actions_and_writes_only_after_approval(self):
+        output = self.source / "new-result.txt"
+        destination = self.root / "mirror" / output.name
+        runner = TaskRunner(self.config, self._ordered_conversion_plan())
+
+        def convert(_config, result, _callbacks):
+            output.write_text("produced", encoding="utf-8")
+            result.status = StepStatus.COMPLETED
+
+        def review(name, summary):
+            self.assertEqual(name, "mirror")
+            self.assertIn(output.name, [entry.filename for entry in summary.entries])
+            self.assertFalse(destination.exists())
+            return True
+
+        runner._run_eml = convert
+        callback = Mock(side_effect=review)
+        report = runner.run(RunnerCallbacks(review_sync=callback))
+        callback.assert_called_once()
+        self.assertTrue(report.overall_success)
+        self.assertEqual(destination.read_text(encoding="utf-8"), "produced")
+
+    def test_task_worker_delivers_changed_sync_review_to_the_gui(self):
+        worker = self.tab.worker = TaskWorker(self.config, self._ordered_conversion_plan())
+        worker.sync_review_requested.connect(self.tab._review_ordered_sync)
+        output = self.source / "new-result.txt"
+
+        def convert(_config, result, _callbacks):
+            output.write_text("produced", encoding="utf-8")
+            result.status = StepStatus.COMPLETED
+
+        worker.runner._run_eml = convert
+        with patch("src.ui.task_tab.RunSummaryDialog") as dialog:
+            dialog.return_value.exec.return_value = QDialog.DialogCode.Accepted
+            worker.start()
+            wait_until(lambda: not worker.isRunning())
+        dialog.assert_called_once()
+        self.assertTrue(worker.outcome[0])
+        self.assertFalse(self.window._run_confirmation_active)
+        self.assertTrue((self.root / "mirror" / output.name).exists())
+
+    def test_stopping_worker_closes_pending_review_without_writes(self):
+        worker = self.tab.worker = TaskWorker(self.config, self._ordered_conversion_plan())
+        worker.sync_review_requested.connect(self.tab._review_ordered_sync)
+        output = self.source / "new-result.txt"
+
+        def convert(_config, result, _callbacks):
+            output.write_text("produced", encoding="utf-8")
+            result.status = StepStatus.COMPLETED
+
+        def open_review(_summary, _language, parent, _message):
+            dialog = QDialog(parent)
+            QTimer.singleShot(0, worker.stop)
+            return dialog
+
+        worker.runner._run_eml = convert
+        with patch("src.ui.task_tab.RunSummaryDialog", side_effect=open_review) as dialog:
+            worker.start()
+            wait_until(lambda: not worker.isRunning() and not getattr(self.window, "_run_confirmation_active", False))
+        dialog.assert_called_once()
+        self.assertFalse(worker.outcome[0])
+        self.assertIsNone(QApplication.activeModalWidget())
+        self.assertEqual(list((self.root / "mirror").iterdir()), [])
+
+    def test_scheduled_conversion_syncs_new_result_without_manual_review(self):
+        plan = replace(self._ordered_conversion_plan(), is_scheduled_run=True, approved_sync_fingerprints={})
+        runner = TaskRunner(self.config, plan)
+        output = self.source / "scheduled-result.txt"
+
+        def convert(_config, result, _callbacks):
+            output.write_text("scheduled", encoding="utf-8")
+            result.status = StepStatus.COMPLETED
+
+        runner._run_eml = convert
+        callback = Mock()
+        report = runner.run(RunnerCallbacks(review_sync=callback))
+        self.assertTrue(report.overall_success)
+        callback.assert_not_called()
+        self.assertTrue((self.root / "mirror" / output.name).exists())
+
+    def test_changed_or_rejected_runtime_review_does_not_copy_any_file(self):
+        output = self.source / "new-result.txt"
+        for approved in (False, True):
+            with self.subTest(approved=approved):
+                if output.exists():
+                    output.unlink()
+                runner = TaskRunner(self.config, self._ordered_conversion_plan())
+
+                def convert(_config, result, _callbacks):
+                    output.write_text("new", encoding="utf-8")
+                    result.status = StepStatus.COMPLETED
+
+                def review(_name, _summary, approval=approved):
+                    if approval:
+                        output.write_text("changed while reviewing", encoding="utf-8")
+                    return approval
+
+                runner._run_eml = convert
+                report = runner.run(RunnerCallbacks(review_sync=review))
+                self.assertEqual(report.item_results["sync:mirror"].status, StepStatus.FAILED)
+                self.assertEqual(list((self.root / "mirror").iterdir()), [])
+
+    def test_same_planned_paths_reconsider_changed_source_or_target(self):
+        source = self.source / "Monthly_Report.txt"
+        target = self.root / "mirror" / "Monthly_Report.txt"
+        for path in (source, target):
+            with self.subTest(changed=path.name, source=path == source):
+                source.write_bytes(b"original source")
+                target.write_bytes(b"original target")
+                runner = TaskRunner(self.config, self._ordered_conversion_plan())
+
+                def convert(_config, result, _callbacks, changed=path):
+                    changed.write_bytes(b"changed without changing the planned path")
+                    result.status = StepStatus.COMPLETED
+
+                runner._run_eml = convert
+                approve = Mock(return_value=False)
+                report = runner.run(RunnerCallbacks(review_sync=approve))
+                approve.assert_called_once()
+                self.assertEqual(report.item_results["sync:mirror"].status, StepStatus.FAILED)
+                self.assertFalse((target.parent / "to be deleted").exists())
+                expected = b"original target" if path == source else b"changed without changing the planned path"
+                self.assertEqual(target.read_bytes(), expected)
+
+    def test_unchanged_ordered_review_does_not_prompt_and_partial_conversion_skips_sync(self):
+        runner = TaskRunner(self.config, self._ordered_conversion_plan())
+        callback = Mock()
+        runner._run_eml = lambda _config, result, _callbacks: setattr(result, "status", StepStatus.PARTIAL)
+        report = runner.run(RunnerCallbacks(review_sync=callback))
+        self.assertEqual(report.item_results["sync:mirror"].status, StepStatus.SKIPPED)
+        self.assertEqual(list((self.root / "mirror").iterdir()), [])
+
+        runner = TaskRunner(self.config, self._ordered_conversion_plan())
+        runner._run_eml = lambda _config, result, _callbacks: setattr(result, "status", StepStatus.COMPLETED)
+        report = runner.run(RunnerCallbacks(review_sync=callback))
+        callback.assert_not_called()
+        self.assertTrue(report.overall_success)
+        self.assertTrue((self.root / "mirror" / "report.txt").exists())
+
+    def test_files_already_equal_do_not_repeat_sync_review(self):
+        runner = TaskRunner(self.config, self._ordered_conversion_plan())
+        callback = Mock()
+
+        def convert(_config, result, _callbacks):
+            for folder in (self.source, self.root / "mirror"):
+                (folder / "already-current.txt").write_bytes(b"same")
+            result.status = StepStatus.COMPLETED
+
+        runner._run_eml = convert
+        report = runner.run(RunnerCallbacks(review_sync=callback))
+        callback.assert_not_called()
+        self.assertTrue(report.overall_success)
 
     def test_failed_group_continues_to_next_sync_and_collect_and_is_journalled(self):
         sync = SyncRunConfig([SyncGroupConfig("good", ["a", "b"])])
